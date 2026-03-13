@@ -1,0 +1,107 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap');
+@import "tailwindcss";
+
+:root {
+  --swiss-bg: #ffffff;
+  --swiss-fg: #000000;
+  --swiss-muted: #f2f2f2;
+  --swiss-accent: #ffd700;
+  --swiss-border: #000000;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', sans-serif;
+  background-color: var(--swiss-bg);
+  color: var(--swiss-fg);
+  text-rendering: geometricPrecision;
+}
+
+body::before {
+  content: '';
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 140 140' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  opacity: 0.015;
+  z-index: 999;
+}
+
+main {
+  position: relative;
+  isolation: isolate;
+}
+
+.swiss-grid-pattern {
+  background-image:
+    linear-gradient(to right, rgb(0 0 0 / 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(0 0 0 / 0.06) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.swiss-dots {
+  background-image: radial-gradient(rgb(0 0 0 / 0.07) 1.1px, transparent 1.1px);
+  background-size: 16px 16px;
+}
+
+.swiss-diagonal {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgb(0 0 0 / 0.05),
+    rgb(0 0 0 / 0.05) 1px,
+    transparent 1px,
+    transparent 10px
+  );
+}
+
+.swiss-link-slide {
+  position: relative;
+  display: inline-block;
+  overflow: hidden;
+}
+
+.swiss-link-slide > span {
+  display: block;
+  transform: translateY(0);
+  transition: transform 200ms linear;
+}
+
+.swiss-link-slide::after {
+  content: attr(data-alt);
+  position: absolute;
+  left: 0;
+  top: 100%;
+  transition: transform 200ms linear;
+  transform: translateY(0);
+  color: var(--swiss-accent);
+}
+
+.swiss-link-slide:hover > span,
+.swiss-link-slide:focus-visible > span {
+  transform: translateY(-100%);
+}
+
+.swiss-link-slide:hover::after,
+.swiss-link-slide:focus-visible::after {
+  transform: translateY(-100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition-duration: 0s !important;
+    scroll-behavior: auto !important;
+  }
+}
