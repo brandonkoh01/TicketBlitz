@@ -1,8 +1,8 @@
 <script setup>
 const navItems = [
-  { label: 'Events', to: '#' },
+  { label: 'Events', to: '/' },
   { label: 'Venues', to: '#' },
-  { label: 'My Tickets', to: '#' },
+  { label: 'My Tickets', to: '/my-tickets' },
   { label: 'Dashboard', to: '/organiser-dashboard' },
 ]
 
@@ -26,10 +26,10 @@ function handleSubmit(event) {
   <main class="min-h-screen bg-[var(--swiss-bg)] text-[var(--swiss-fg)]">
     <header class="border-b-4 border-black bg-white">
       <div class="mx-auto flex max-w-[1800px] items-center justify-between gap-4 px-6 py-5 md:px-10">
-        <div>
+        <RouterLink to="/" class="block focus-visible:outline-none">
           <p class="text-sm font-black uppercase tracking-[0.28em]">TicketBlitz</p>
           <p class="text-[10px] font-medium uppercase tracking-[0.22em] text-black/65">Main Page 01</p>
-        </div>
+        </RouterLink>
 
         <nav class="hidden items-center gap-6 lg:flex">
           <component
