@@ -33,6 +33,7 @@ const events = [
     price: '$125.00',
     status: 'Low Stock',
     action: 'Buy Now',
+    actionTo: '/ticket-purchase',
   },
   {
     title: 'Jazz Fusion Fest',
@@ -146,6 +147,7 @@ const footerGroups = [
             :price="event.price"
             :status="event.status"
             :action="event.action"
+            :action-to="event.actionTo"
           />
         </div>
       </div>

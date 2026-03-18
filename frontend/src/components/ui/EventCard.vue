@@ -20,6 +20,10 @@ defineProps({
     type: String,
     required: true,
   },
+  actionTo: {
+    type: String,
+    default: '#',
+  },
 })
 
 function statusClass(status) {
@@ -38,9 +42,15 @@ function statusClass(status) {
     <h3 class="text-2xl font-black uppercase leading-tight tracking-tight">{{ title }}</h3>
     <div class="mt-8 flex items-center justify-between border-t-2 border-black pt-4">
       <p class="text-lg font-black">{{ price }}</p>
-      <a href="#" class="swiss-link-slide text-xs font-black uppercase tracking-[0.2em]" :data-alt="action">
+      <component
+        :is="actionTo && actionTo !== '#' ? 'RouterLink' : 'a'"
+        :to="actionTo && actionTo !== '#' ? actionTo : undefined"
+        :href="!actionTo || actionTo === '#' ? '#' : undefined"
+        class="swiss-link-slide text-xs font-black uppercase tracking-[0.2em]"
+        :data-alt="action"
+      >
         <span>{{ action }}</span>
-      </a>
+      </component>
     </div>
   </article>
 </template>

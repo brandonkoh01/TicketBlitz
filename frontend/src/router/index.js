@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import MainLandingPage from '@/pages/MainLandingPage.vue'
 import OrganiserDashboardPage from '@/pages/OrganiserDashboardPage.vue'
+import TicketPurchasePage from '@/pages/TicketPurchasePage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -14,6 +15,11 @@ const router = createRouter({
       path: '/organiser-dashboard',
       name: 'organiser-dashboard',
       component: OrganiserDashboardPage,
+    },
+    {
+      path: '/ticket-purchase',
+      name: 'ticket-purchase',
+      component: TicketPurchasePage,
     },
   ],
   scrollBehavior() {
