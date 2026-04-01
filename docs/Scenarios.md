@@ -6,7 +6,7 @@ This scenario follows the proposal template pattern of starting from a user acti
 
 TicketBlitz is a flash-sale concert ticketing platform designed to let users book tickets under extreme demand, join a FIFO waitlist when seats are exhausted, receive time-limited seat offers when inventory is released, and complete payment and ticket issuance through an asynchronous microservices flow.
 
-### User Scenario Implemented Here
+### User Scenario 1
 
 **Scenario 1: Fan Books Ticket During a Flash Sale (Async Waitlist + Timeout)**
 
@@ -593,7 +593,7 @@ OutSystems officially documents exposing REST APIs, so the E-Ticket Service boun
 
 This revised Scenario 1 write-up is therefore internally consistent with the proposal template structure, the project’s microservice constraints, the no-threading requirement, the need for visible final UI states, and the corrected architectural boundaries for messaging, polling, and OutSystems integration.[^3][^4][^1][^2]
 
-<div align="center">⁂</div>
+
 
 [^1]: Proposal-Template.pdf
 
