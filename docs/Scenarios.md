@@ -1,3 +1,5 @@
+# Scenarios Documentation
+
 ## Solution Scoping
 
 This scenario follows the proposal template pattern of starting from a user action through a UI, then tracing the triggered microservices, external services, and business exceptions in detail.  It also fits the project’s expectation that interesting scenarios should go beyond simple UI-to-service CRUD by handling asynchronous behavior, time limits, and business exception paths.[^2][^1]
