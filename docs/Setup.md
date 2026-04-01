@@ -155,7 +155,7 @@ Phase 2 — Atomic Services (Days 2-3, parallel)
   ├── 2. user-service           ← no dependencies
   ├── 3. inventory-service      ← depends on event data (seed)
   ├── 4. payment-service        ← Stripe integration (takes longest)
-  ├── 5. waitlist-api           ← no dependencies
+  ├── 5. waitlist-service           ← no dependencies
   └── 6. notification-service   ← RabbitMQ consumer worker
 
 Phase 3 — Composite Services, Scenario 1 (Days 5-7)
@@ -235,7 +235,7 @@ ticketblitz/
 │   ├── user-service/
 │   ├── inventory-service/
 │   ├── payment-service/
-│   ├── waitlist-api/
+│   ├── waitlist-service/
 │   └── notification-service/
 ├── composite/
 │   └── scenario-1/
@@ -315,7 +315,7 @@ EVENT_SERVICE_URL=http://event-service:5000
 USER_SERVICE_URL=http://user-service:5000
 INVENTORY_SERVICE_URL=http://inventory-service:5000
 PAYMENT_SERVICE_URL=http://payment-service:5000
-WAITLIST_SERVICE_URL=http://waitlist-api:5000
+WAITLIST_SERVICE_URL=http://waitlist-service:5000
 
 # ── Flask ────────────────────────────────────────────────────
 FLASK_ENV=development
@@ -691,17 +691,17 @@ services:
     networks:
       - ticketblitz-net
 
-  waitlist-api:
+  waitlist-service:
     build:
-      context: ./atomic/waitlist-api
+      context: ./atomic/waitlist-service
       dockerfile: ../../docker/Dockerfile.flask
-    image: ticketblitz/waitlist-api:latest
-    container_name: ticketblitz-waitlist-api
+    image: ticketblitz/waitlist-service:latest
+    container_name: ticketblitz-waitlist-service
     restart: on-failure
     env_file: .env
     environment:
       PORT: "5000"
-      SERVICE_NAME: waitlist-api
+      SERVICE_NAME: waitlist-service
     ports:
       - "5005:5000"
     healthcheck:
@@ -753,7 +753,7 @@ services:
         condition: service_healthy
       payment-service:
         condition: service_healthy
-      waitlist-api:
+      waitlist-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
@@ -808,7 +808,7 @@ services:
         condition: service_healthy
       inventory-service:
         condition: service_healthy
-      waitlist-api:
+      waitlist-service:
         condition: service_healthy
     networks:
       - ticketblitz-net
@@ -828,7 +828,7 @@ services:
         condition: service_healthy
       inventory-service:
         condition: service_healthy
-      waitlist-api:
+      waitlist-service:
         condition: service_healthy
       user-service:
         condition: service_healthy
@@ -903,7 +903,7 @@ volumes:
 | user-service | 5002 | 5000 | Dev/test direct access |
 | inventory-service | 5003 | 5000 | Dev/test direct access |
 | payment-service | 5004 | 5000 | Dev/test direct access |
-| waitlist-api | 5005 | 5000 | Dev/test direct access |
+| waitlist-service | 5005 | 5000 | Dev/test direct access |
 | reservation-orchestrator | 6001 | 5000 | Dev/test direct access |
 | booking-status-service | 6002 | 5000 | Dev/test direct access |
 | Fan Booking UI | **3000** | 80 | http://localhost:3000 |
@@ -1147,8 +1147,8 @@ services:
           policy: local
           fault_tolerant: true
 
-  - name: waitlist-api-public
-    url: http://waitlist-api:5000
+  - name: waitlist-service-public
+    url: http://waitlist-service:5000
     connect_timeout: 5000
     read_timeout: 10000
     write_timeout: 5000
@@ -1205,7 +1205,7 @@ ticketblitz-event-service                     running (healthy)
 ticketblitz-user-service                      running (healthy)
 ticketblitz-inventory-service                 running (healthy)
 ticketblitz-payment-service                   running (healthy)
-ticketblitz-waitlist-api                      running (healthy)
+ticketblitz-waitlist-service                      running (healthy)
 ticketblitz-notification-service              running
 ticketblitz-reservation-orchestrator          running (healthy)
 ticketblitz-booking-status-service            running (healthy)

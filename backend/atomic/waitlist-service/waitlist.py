@@ -1,7 +1,7 @@
 import logging
 import os
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 from shared.db import db_configured, get_db
@@ -20,36 +20,35 @@ def create_app() -> Flask:
             jsonify(
                 {
                     "status": "ok",
-                    "service": os.getenv("SERVICE_NAME", "user-service"),
+                    "service": os.getenv("SERVICE_NAME", "waitlist-service"),
                     "supabaseConfigured": db_configured(),
                 }
             ),
             200,
         )
 
-    @app.get("/user/<user_id>")
-    def get_user(user_id: str):
-        if not db_configured():
-            return jsonify({"error": "Supabase is not configured"}), 503
+    @app.get("/waitlist")
+    def list_waitlist_entries():
+        entries = []
+        event_id = request.args.get("eventID")
 
-        try:
-            result = (
-                get_db()
-                .table("users")
-                .select("user_id,full_name,email,phone")
-                .eq("user_id", user_id)
-                .limit(1)
-                .execute()
-            )
-        except Exception as error:
-            logger.exception("Failed to load user: %s", error)
-            return jsonify({"error": "Failed to load user"}), 500
+        if db_configured():
+            try:
+                query = (
+                    get_db()
+                    .table("waitlist_entries")
+                    .select("waitlist_id,event_id,user_id,status,joined_at")
+                    .limit(50)
+                )
+                if event_id:
+                    query = query.eq("event_id", event_id)
 
-        data = result.data or []
-        if not data:
-            return jsonify({"error": "User not found"}), 404
+                result = query.execute()
+                entries = result.data or []
+            except Exception as error:
+                logger.warning("Failed to load waitlist entries: %s", error)
 
-        return jsonify(data[0]), 200
+        return jsonify({"entries": entries}), 200
 
     @app.errorhandler(404)
     def not_found(_error):

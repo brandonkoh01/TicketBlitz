@@ -20,36 +20,31 @@ def create_app() -> Flask:
             jsonify(
                 {
                     "status": "ok",
-                    "service": os.getenv("SERVICE_NAME", "user-service"),
+                    "service": os.getenv("SERVICE_NAME", "event-service"),
                     "supabaseConfigured": db_configured(),
                 }
             ),
             200,
         )
 
-    @app.get("/user/<user_id>")
-    def get_user(user_id: str):
-        if not db_configured():
-            return jsonify({"error": "Supabase is not configured"}), 503
+    @app.get("/events")
+    def list_events():
+        events = []
 
-        try:
-            result = (
-                get_db()
-                .table("users")
-                .select("user_id,full_name,email,phone")
-                .eq("user_id", user_id)
-                .limit(1)
-                .execute()
-            )
-        except Exception as error:
-            logger.exception("Failed to load user: %s", error)
-            return jsonify({"error": "Failed to load user"}), 500
+        if db_configured():
+            try:
+                result = (
+                    get_db()
+                    .table("events")
+                    .select("event_id,event_code,name,venue,event_date,status")
+                    .limit(50)
+                    .execute()
+                )
+                events = result.data or []
+            except Exception as error:
+                logger.warning("Failed to load events from Supabase: %s", error)
 
-        data = result.data or []
-        if not data:
-            return jsonify({"error": "User not found"}), 404
-
-        return jsonify(data[0]), 200
+        return jsonify({"events": events}), 200
 
     @app.errorhandler(404)
     def not_found(_error):

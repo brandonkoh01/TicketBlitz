@@ -4,7 +4,7 @@ import os
 from flask import Flask, jsonify
 from flask_cors import CORS
 
-from shared.db import db_configured, get_db
+from shared.db import db_configured
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -20,36 +20,26 @@ def create_app() -> Flask:
             jsonify(
                 {
                     "status": "ok",
-                    "service": os.getenv("SERVICE_NAME", "user-service"),
+                    "service": os.getenv("SERVICE_NAME", "inventory-service"),
                     "supabaseConfigured": db_configured(),
                 }
             ),
             200,
         )
 
-    @app.get("/user/<user_id>")
-    def get_user(user_id: str):
-        if not db_configured():
-            return jsonify({"error": "Supabase is not configured"}), 503
-
-        try:
-            result = (
-                get_db()
-                .table("users")
-                .select("user_id,full_name,email,phone")
-                .eq("user_id", user_id)
-                .limit(1)
-                .execute()
-            )
-        except Exception as error:
-            logger.exception("Failed to load user: %s", error)
-            return jsonify({"error": "Failed to load user"}), 500
-
-        data = result.data or []
-        if not data:
-            return jsonify({"error": "User not found"}), 404
-
-        return jsonify(data[0]), 200
+    @app.get("/inventory/<event_id>/<seat_category>")
+    def get_inventory(event_id: str, seat_category: str):
+        return (
+            jsonify(
+                {
+                    "eventID": event_id,
+                    "seatCategory": seat_category,
+                    "available": 0,
+                    "status": "SCAFFOLD",
+                }
+            ),
+            200,
+        )
 
     @app.errorhandler(404)
     def not_found(_error):

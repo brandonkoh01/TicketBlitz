@@ -12,11 +12,11 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY backend/shared/requirements.txt backend/shared/requirements.txt
-COPY backend/atomic/user-service/requirements.txt backend/atomic/user-service/requirements.txt
-RUN pip install --no-cache-dir -r backend/atomic/user-service/requirements.txt
+COPY backend/atomic/notification-service/requirements.txt backend/atomic/notification-service/requirements.txt
+RUN pip install --no-cache-dir -r backend/atomic/notification-service/requirements.txt
 
 COPY backend/shared backend/shared
-COPY backend/atomic/user-service backend/atomic/user-service
+COPY backend/atomic/notification-service backend/atomic/notification-service
 
 USER appuser
 
@@ -24,4 +24,4 @@ EXPOSE 5000
 
 STOPSIGNAL SIGTERM
 
-CMD ["python", "backend/atomic/user-service/user.py"]
+CMD ["python", "backend/atomic/notification-service/notification.py"]

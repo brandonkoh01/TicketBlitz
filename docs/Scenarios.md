@@ -17,7 +17,7 @@ TicketBlitz is a flash-sale concert ticketing platform designed to let users boo
 - All user-facing HTTP traffic goes through **Kong API Gateway**.
 - All long-running AMQP consumers and schedulers run as **separate processes/containers**, so no service needs in-process threading.
 - **Booking Status Service** is a dedicated composite read service used only for UI polling after payment.
-- **Waitlist API** owns the waitlist datastore; **Waitlist Promotion Orchestrator** never accesses waitlist tables directly.
+- **Waitlist Service** owns the waitlist datastore; **Waitlist Promotion Orchestrator** never accesses waitlist tables directly.
 - **Inventory Service** owns all inventory and hold tables; **Expiry Scheduler Service** never accesses inventory tables directly, and instead triggers Inventory maintenance through HTTP.
 - **Notification Service** consumes enriched `notification.send` messages that already contain `email`, so it stays stateless.
 - **E-Ticket Service** is implemented on OutSystems and exposed via **REST**, not gRPC.[^4][^5][^6]
@@ -161,7 +161,7 @@ sequenceDiagram
     participant RO as Reservation Orchestrator
     participant USER as User Service
     participant INV as Inventory Service
-    participant WL as Waitlist API
+    participant WL as Waitlist Service
     participant MQ as RabbitMQ Exchange: ticketblitz
     participant NOTIF as Notification Service
     participant SG as SendGrid API (External)
@@ -203,7 +203,7 @@ sequenceDiagram
 3. **Resolve user email**: Reservation Orchestrator calls User Service so later notification events can include `email`.
 4. **Check inventory**: Reservation Orchestrator calls Inventory Service `GET /inventory/{eventID}/{seatCategory}`.
 5. **Detect sold-out state**: Inventory Service returns `{available:0,status:"SOLD_OUT"}` because no seat is publicly bookable.
-6. **Join waitlist**: Reservation Orchestrator calls `POST /waitlist/join` on Waitlist API, which inserts a FIFO entry ordered by `joinedAt` and returns `{waitlistID, position, status:"WAITING"}`.
+6. **Join waitlist**: Reservation Orchestrator calls `POST /waitlist/join` on Waitlist Service, which inserts a FIFO entry ordered by `joinedAt` and returns `{waitlistID, position, status:"WAITING"}`.
 7. **Publish waitlist notification**: Reservation Orchestrator publishes `notification.send` with `type:"WAITLIST_JOINED"` and the user’s `email`.
 8. **Send waitlist email**: Notification Service consumes the event and uses SendGrid to send the waitlist acknowledgement.
 9. **Return final synchronous UI result**: Reservation Orchestrator returns `{status:"WAITLISTED", waitlistID, position}` to the UI.
@@ -214,7 +214,7 @@ sequenceDiagram
 
 ## Step 1C and 1D — Waitlist Promotion and Timeout
 
-The project requirements explicitly highlight asynchronous request-reply and choreography as markers of more interesting scenarios, and this part is the main asynchronous core of Scenario 1. The revised design also removes the earlier structural gap by making Waitlist Promotion Orchestrator call Waitlist API and Inventory Service over HTTP, rather than reading or writing any datastore directly, which preserves datastore ownership boundaries required by the project.[^2]
+The project requirements explicitly highlight asynchronous request-reply and choreography as markers of more interesting scenarios, and this part is the main asynchronous core of Scenario 1. The revised design also removes the earlier structural gap by making Waitlist Promotion Orchestrator call Waitlist Service and Inventory Service over HTTP, rather than reading or writing any datastore directly, which preserves datastore ownership boundaries required by the project.[^2]
 
 ### Microservice Interaction Diagram — Step 1C: Seat Released → Protected Waitlist Promotion → Polling to Final Success
 
@@ -225,7 +225,7 @@ sequenceDiagram
     participant INV as Inventory Service
     participant MQ as RabbitMQ Exchange: ticketblitz
     participant WPO as Waitlist Promotion Orchestrator
-    participant WL as Waitlist API
+    participant WL as Waitlist Service
     participant USER as User Service
     participant NOTIF as Notification Service
     participant SG as SendGrid API (External)
@@ -327,8 +327,8 @@ sequenceDiagram
 2. **Protect the seat immediately**: Inventory Service sets the seat to `PENDING_WAITLIST`, not `AVAILABLE`, so new public buyers cannot see or claim it.
 3. **Publish release event**: Inventory Service publishes `seat.released` to RabbitMQ.
 4. **Consume release event**: Waitlist Promotion Orchestrator receives the event.
-5. **Ask Waitlist API for the next eligible user**: Waitlist Promotion Orchestrator calls `GET /waitlist/next?eventID=&seatCategory=`.
-6. **Receive FIFO winner**: Waitlist API returns the earliest active waiting entry.
+5. **Ask Waitlist Service for the next eligible user**: Waitlist Promotion Orchestrator calls `GET /waitlist/next?eventID=&seatCategory=`.
+6. **Receive FIFO winner**: Waitlist Service returns the earliest active waiting entry.
 7. **Resolve contact data**: Waitlist Promotion Orchestrator calls User Service and retrieves `{name, email}` for that user.
 8. **Place protected waitlist hold**: Waitlist Promotion Orchestrator calls `POST /inventory/hold` with `fromWaitlist:true`. Inventory Service only allows this path to consume a `PENDING_WAITLIST` seat.
 9. **Return waitlist hold details**: Inventory Service returns `{holdID, holdExpiry, amount}`.
@@ -344,7 +344,7 @@ sequenceDiagram
 19. **Return `PROCESSING` first**: Until the webhook and fulfillment finish, Booking Status Service returns `PROCESSING`.
 20. **Receive webhook**: Stripe sends `payment_intent.succeeded` to Payment Service.
 21. **Apply idempotency**: Payment Service processes the payment once and publishes `booking.confirmed`.
-22. **Run fulfillment**: Booking Fulfillment Orchestrator confirms the hold in Inventory, generates the OutSystems ticket through REST, updates Waitlist API to `CONFIRMED`, and publishes `notification.send`.
+22. **Run fulfillment**: Booking Fulfillment Orchestrator confirms the hold in Inventory, generates the OutSystems ticket through REST, updates Waitlist Service to `CONFIRMED`, and publishes `notification.send`.
 23. **Send final confirmation email**: Notification Service sends the e-ticket email.
 24. **Return terminal success to UI**: Booking Status Service eventually returns `{uiStatus:"CONFIRMED", ticketID, seatNumber}`.
 25. **Display final success state**: Ticketing System UI displays **“Waitlist booking confirmed. Seat D12. E-ticket sent to your email.”**
@@ -359,7 +359,7 @@ sequenceDiagram
     participant INV as Inventory Service
     participant MQ as RabbitMQ Exchange: ticketblitz
     participant WPO as Waitlist Promotion Orchestrator
-    participant WL as Waitlist API
+    participant WL as Waitlist Service
     participant USER as User Service
     participant NOTIF as Notification Service
     participant SG as SendGrid API (External)
@@ -459,7 +459,7 @@ The proposal template sample technical overview explicitly expects service names
 | **User Service**                       | `[GET] /user/{userID}`                                                                                                                                                                                                                                                             | `ticketblitz_db`   | `users`: `userID` INT PK, `name` VARCHAR(100), `email` VARCHAR(150), `phone` VARCHAR(20), `createdAt` TIMESTAMP                                                                                                                                                                                                                                 |
 | **Inventory Service**                  | `[GET] /inventory/{eventID}/{seatCategory}`; `[POST] /inventory/hold`; `[GET] /inventory/hold/{holdID}`; `[PUT] /inventory/hold/{holdID}/confirm`; `[PUT] /inventory/hold/{holdID}/release`; `[PUT] /inventory/seat/{seatID}/status`; `[POST] /inventory/maintenance/expire-holds` | `ticketblitz_db`   | `seats`: `seatID` INT PK, `eventID` INT, `seatCategory` VARCHAR(50), `seatNumber` VARCHAR(10), `status` ENUM('AVAILABLE','PENDING_WAITLIST','HELD','SOLD'), `version` INT; `seat_holds`: `holdID` VARCHAR PK, `seatID` INT, `userID` INT, `holdExpiry` TIMESTAMP, `status` ENUM('HELD','CONFIRMED','EXPIRED','RELEASED'), `createdAt` TIMESTAMP |
 | **Payment Service**                    | `[POST] /payment/initiate`; `[POST] /payment/webhook`; `[GET] /payment/hold/{holdID}`                                                                                                                                                                                              | `ticketblitz_db`   | `transactions`: `transactionID` INT PK, `holdID` VARCHAR, `userID` INT, `amount` DECIMAL(8,2), `currency` VARCHAR(3), `stripePaymentIntentID` VARCHAR(100), `status` ENUM('PENDING','SUCCEEDED','FAILED'), `createdAt` TIMESTAMP                                                                                                                |
-| **Waitlist API**                       | `[POST] /waitlist/join`; `[GET] /waitlist/{waitlistID}`; `[GET] /waitlist/next?eventID=&seatCategory=`; `[GET] /waitlist/by-hold/{holdID}`; `[PUT] /waitlist/{waitlistID}/offer`; `[PUT] /waitlist/{waitlistID}/confirm`; `[PUT] /waitlist/{waitlistID}/expire`                    | `ticketblitz_db`   | `waitlist_entries`: `waitlistID` VARCHAR PK, `eventID` INT, `userID` INT, `seatCategory` VARCHAR(50), `status` ENUM('WAITING','HOLD_OFFERED','CONFIRMED','EXPIRED'), `joinedAt` TIMESTAMP, `holdID` VARCHAR NULL                                                                                                                                |
+| **Waitlist Service**                       | `[POST] /waitlist/join`; `[GET] /waitlist/{waitlistID}`; `[GET] /waitlist/next?eventID=&seatCategory=`; `[GET] /waitlist/by-hold/{holdID}`; `[PUT] /waitlist/{waitlistID}/offer`; `[PUT] /waitlist/{waitlistID}/confirm`; `[PUT] /waitlist/{waitlistID}/expire`                    | `ticketblitz_db`   | `waitlist_entries`: `waitlistID` VARCHAR PK, `eventID` INT, `userID` INT, `seatCategory` VARCHAR(50), `status` ENUM('WAITING','HOLD_OFFERED','CONFIRMED','EXPIRED'), `joinedAt` TIMESTAMP, `holdID` VARCHAR NULL                                                                                                                                |
 | **Notification Service**               | Consumes `[BKEY] notification.send`                                                                                                                                                                                                                                                | No storage         | Stateless consumer; sends email via SendGrid                                                                                                                                                                                                                                                                                                    |
 | **E-Ticket Service (OutSystems REST)** | `[POST] /eticket/generate`; `[GET] /eticket/hold/{holdID}`                                                                                                                                                                                                                         | OutSystems DB      | `etickets`: `ticketID` VARCHAR PK, `holdID` VARCHAR, `userID` INT, `eventID` INT, `seatID` INT, `seatNumber` VARCHAR(10), `status` ENUM('VALID','USED','CANCELLED'), `generatedAt` DATETIME                                                                                                                                                     |
 
@@ -549,7 +549,7 @@ Kong sits in front of all UI HTTP calls, including `POST /reserve`, `POST /reser
 
 - Rate limiting protects reservation endpoints during flash-sale spikes.
 - Authentication stays at the edge.
-- Polling traffic from Booking Status Service and Waitlist API is centralized behind one gateway.
+- Polling traffic from Booking Status Service and Waitlist Service is centralized behind one gateway.
 
 #### BTL 2 — Event-driven waitlist promotion with protected inventory handoff
 
@@ -620,7 +620,7 @@ Scenario 2 has three parts:
 - The `ticketblitz.price` **fanout exchange** is used exclusively for `price.broadcast`. All other messages in the system use the `ticketblitz` topic exchange with explicit binding keys. Fanout is justified here because **two independent consumers** — Notification Service and the Ticketing System UI (via polling) — must receive the same price update simultaneously without the publisher knowing or caring how many consumers exist.
 - **Pricing Service** is a new atomic service introduced in Scenario 2. It acts as the calculation engine for flash sale discounts and escalations, and owns the `flash_sales` and `price_changes` audit tables. It does not own `seat_categories`; that is owned by Event Service.
 - **Event Service** is a new atomic service introduced in Scenario 2. It owns `events` and `seat_categories` including the current effective price per category.
-- **Inventory Service, Waitlist API, and Notification Service** are reused from Scenario 1 with new endpoints added.
+- **Inventory Service, Waitlist Service, and Notification Service** are reused from Scenario 1 with new endpoints added.
 - The Ticketing System UI shows updated prices through periodic polling of `GET /pricing/{eventID}` through Kong, rather than a persistent WebSocket connection. This keeps the implementation simple and consistent with the polling pattern used in Scenario 1.
 - All UI-facing HTTP requests enter and exit through Kong. No service responds directly to the UI.
 
@@ -639,7 +639,7 @@ sequenceDiagram
     participant ES as Event Service
     participant PS as Pricing Service
     participant INV as Inventory Service
-    participant WL as Waitlist API
+    participant WL as Waitlist Service
     participant MQ as RabbitMQ Exchange: ticketblitz.price (Fanout)
     participant NOTIF as Notification Service
     participant SG as SendGrid API (External)
@@ -685,7 +685,7 @@ sequenceDiagram
 5. **Update event status:** Flash Sale Orchestrator calls `PUT /event/{eventID}/status` with `{status:"FLASH_SALE_ACTIVE"}`. Event Service updates the event row so any downstream service checking event state can correctly gate booking eligibility.
 6. **Apply discounted prices:** Flash Sale Orchestrator calls `PUT /event/{eventID}/categories/prices` with the full set of category price updates returned by Pricing Service. Event Service updates each `seat_categories.price` row so the Ticketing System UI's next poll of `GET /pricing/{eventID}` returns the discounted prices.
 7. **Activate flash sale inventory:** Flash Sale Orchestrator calls `PUT /inventory/{eventID}/flash-sale {active:true}`. Inventory Service records the flash sale flag so reservation logic can enforce flash sale rules, such as limiting quantity per user if required.
-8. **Retrieve waitlisted fans:** Flash Sale Orchestrator calls `GET /waitlist?eventID=EVT-301&status=WAITING` on Waitlist API and receives the full list of `{waitlistID, userID, email, seatCategory}` entries. This list is used to populate the `waitlistEmails` field in the outgoing broadcast message so Notification Service can target them directly.
+8. **Retrieve waitlisted fans:** Flash Sale Orchestrator calls `GET /waitlist?eventID=EVT-301&status=WAITING` on Waitlist Service and receives the full list of `{waitlistID, userID, email, seatCategory}` entries. This list is used to populate the `waitlistEmails` field in the outgoing broadcast message so Notification Service can target them directly.
 9. **Publish price broadcast to fanout exchange:** Flash Sale Orchestrator publishes `price.broadcast` to the `ticketblitz.price` fanout exchange. Because this is a fanout exchange, all queues bound to it receive the message simultaneously without routing key filtering.
 10. **Consume broadcast:** Notification Service receives the message from its dedicated queue bound to the fanout exchange.
 11. **Send flash sale notification emails:** Notification Service iterates through `waitlistEmails` and calls SendGrid `POST /v3/mail/send` using the `FLASH_SALE_LAUNCHED` template, passing `{eventName, discountPercentage, expiresAt}` as dynamic template data.
@@ -709,7 +709,7 @@ sequenceDiagram
     participant PO as Pricing Orchestrator
     participant PS as Pricing Service
     participant ES as Event Service
-    participant WL as Waitlist API
+    participant WL as Waitlist Service
     participant MQ_F as RabbitMQ Exchange: ticketblitz.price (Fanout)
     participant NOTIF as Notification Service
     participant SG as SendGrid API (External)
@@ -759,7 +759,7 @@ sequenceDiagram
 5. **Retrieve all categories and current prices:** Pricing Orchestrator calls `GET /event/{eventID}/categories` on Event Service to get the current price and status of all categories so it can identify which ones are still available and eligible for escalation.
 6. **Compute escalated prices:** Pricing Orchestrator calls `POST /pricing/escalate` on Pricing Service with the sold-out category and all remaining available categories. Pricing Service applies the configured `escalationPercentage` (20%) to each remaining category's current price, records each change to `price_changes` with `reason:"ESCALATION"`, and returns the set of updated prices.
 7. **Apply escalated prices to Event Service:** Pricing Orchestrator calls `PUT /event/{eventID}/categories/prices` on Event Service with the new prices for each remaining category. Event Service updates `seat_categories.price` so the next fan's price check reflects the escalation.
-8. **Retrieve waitlisted fans for remaining categories:** Pricing Orchestrator calls `GET /waitlist?eventID=EVT-301&status=WAITING` on Waitlist API. The waitlist entries include the `seatCategory` field, so Notification Service can personalise each email with the relevant updated price for that fan's chosen category.
+8. **Retrieve waitlisted fans for remaining categories:** Pricing Orchestrator calls `GET /waitlist?eventID=EVT-301&status=WAITING` on Waitlist Service. The waitlist entries include the `seatCategory` field, so Notification Service can personalise each email with the relevant updated price for that fan's chosen category.
 9. **Publish escalation broadcast to fanout exchange:** Pricing Orchestrator publishes `price.broadcast` to the `ticketblitz.price` fanout exchange with `type:"PRICE_ESCALATED"`, the `soldOutCategory`, `updatedPrices`, and `waitlistEmails`.
 10. **Deliver to Notification Service:** Notification Service receives the message from its queue bound to the fanout exchange.
 11. **Send escalation notification emails:** Notification Service calls SendGrid using the `PRICE_ESCALATED` template, targeting only the waitlisted fans whose categories still have availability. This avoids emailing fans already waiting for the now-sold-out category.
@@ -784,7 +784,7 @@ sequenceDiagram
     participant PS as Pricing Service
     participant ES as Event Service
     participant INV as Inventory Service
-    participant WL as Waitlist API
+    participant WL as Waitlist Service
     participant MQ as RabbitMQ Exchange: ticketblitz.price (Fanout)
     participant NOTIF as Notification Service
     participant SG as SendGrid API (External)
@@ -832,7 +832,7 @@ sequenceDiagram
 5. **Revert available category prices:** Flash Sale Orchestrator calls `PUT /event/{eventID}/categories/prices` on Event Service, passing only categories that still have available seats. CAT1 is already sold out so its price is not reverted — there is no inventory to sell at the old price.
 6. **Revert event status:** Flash Sale Orchestrator calls `PUT /event/{eventID}/status {status:"ACTIVE"}` so the event reverts to standard booking mode.
 7. **Deactivate flash sale inventory flag:** Flash Sale Orchestrator calls `PUT /inventory/{eventID}/flash-sale {active:false}`. Inventory Service removes the flash sale flag so reservation logic returns to standard rules.
-8. **Retrieve remaining waitlisted fans:** Flash Sale Orchestrator calls `GET /waitlist?eventID=EVT-301&status=WAITING` on Waitlist API to get fans who are still waiting. These fans need to be informed that prices have reverted so they can decide whether to proceed with booking.
+8. **Retrieve remaining waitlisted fans:** Flash Sale Orchestrator calls `GET /waitlist?eventID=EVT-301&status=WAITING` on Waitlist Service to get fans who are still waiting. These fans need to be informed that prices have reverted so they can decide whether to proceed with booking.
 9. **Publish flash sale ended broadcast to fanout exchange:** Flash Sale Orchestrator publishes `price.broadcast` with `type:"FLASH_SALE_ENDED"` to the `ticketblitz.price` fanout exchange.
 10. **Deliver to Notification Service:** Notification Service receives the message from its queue.
 11. **Send flash sale ended notification emails:** Notification Service calls SendGrid using the `FLASH_SALE_ENDED` template to notify remaining waitlisted fans that standard pricing has been restored.
@@ -863,7 +863,7 @@ sequenceDiagram
 | Service Name             | New Operations Added for Scenario 2                                                                               | Notes                                                                                                 |
 | :----------------------- | :---------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------- |
 | **Inventory Service**    | `[PUT] /inventory/{eventID}/flash-sale {active, flashSaleID}`                                                     | Activates and deactivates flash sale mode on the event inventory                                      |
-| **Waitlist API**         | `[GET] /waitlist?eventID=&status=`                                                                                | New query endpoint for batch retrieval; used by both Flash Sale Orchestrator and Pricing Orchestrator |
+| **Waitlist Service**         | `[GET] /waitlist?eventID=&status=`                                                                                | New query endpoint for batch retrieval; used by both Flash Sale Orchestrator and Pricing Orchestrator |
 | **Notification Service** | Consumes `[FANOUT] price.broadcast` from `ticketblitz.price` exchange in addition to existing `notification.send` | Handles both topic and fanout queues in one pika blocking loop                                        |
 
 ### Composite Services
@@ -942,7 +942,7 @@ The project requires at least one microservice to be reused across different use
 | Service Reused       | Reuse in Scenario 2                                                        | Benefit                                                                          |
 | :------------------- | :------------------------------------------------------------------------- | :------------------------------------------------------------------------------- |
 | Inventory Service    | New `PUT /inventory/{eventID}/flash-sale` operation                        | Inventory state for flash sale controlled centrally without a new service        |
-| Waitlist API         | New `GET /waitlist?eventID=&status=WAITING` query                          | Fan waitlist data consumed by both booking and pricing flows without duplication |
+| Waitlist Service         | New `GET /waitlist?eventID=&status=WAITING` query                          | Fan waitlist data consumed by both booking and pricing flows without duplication |
 | Notification Service | Consumes `price.broadcast` fanout in addition to `notification.send` topic | One delivery service handles all outbound email regardless of trigger type       |
 | SendGrid             | Same external email API                                                    | No second external email provider needed; consistent delivery                    |
 

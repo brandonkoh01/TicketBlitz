@@ -22,7 +22,7 @@ EVENT_SERVICE_URL=http://event-service:5000
 USER_SERVICE_URL=http://user-service:5000
 INVENTORY_SERVICE_URL=http://inventory-service:5000
 PAYMENT_SERVICE_URL=http://payment-service:5000
-WAITLIST_SERVICE_URL=http://waitlist-api:5000
+WAITLIST_SERVICE_URL=http://waitlist-service:5000
 BOOKING_STATUS_SERVICE_URL=http://booking-status-service:5000
 
 EXPIRY_INTERVAL_SECONDS=60

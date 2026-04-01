@@ -1,0 +1,206 @@
+name: ticketblitz
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: ticketblitz-rabbitmq
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-ticketblitz}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-change_me_before_demo}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ticketblitz-net
+
+  event-service:
+    build:
+      context: .
+      dockerfile: backend/atomic/event-service/Dockerfile
+    container_name: ticketblitz-event-service
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      PORT: "5000"
+      SERVICE_NAME: event-service
+    ports:
+      - "5001:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - ticketblitz-net
+
+  user-service:
+    build:
+      context: .
+      dockerfile: backend/atomic/user-service/Dockerfile
+    container_name: ticketblitz-user-service
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      PORT: "5000"
+      SERVICE_NAME: user-service
+    ports:
+      - "5002:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - ticketblitz-net
+
+  inventory-service:
+    build:
+      context: .
+      dockerfile: backend/atomic/inventory-service/Dockerfile
+    container_name: ticketblitz-inventory-service
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      PORT: "5000"
+      SERVICE_NAME: inventory-service
+    ports:
+      - "5003:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - ticketblitz-net
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: backend/atomic/payment-service/Dockerfile
+    container_name: ticketblitz-payment-service
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      PORT: "5000"
+      SERVICE_NAME: payment-service
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "5004:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - ticketblitz-net
+
+  waitlist-service:
+    build:
+      context: .
+      dockerfile: backend/atomic/waitlist-service/Dockerfile
+    container_name: ticketblitz-waitlist-service
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      PORT: "5000"
+      SERVICE_NAME: waitlist-service
+    ports:
+      - "5005:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - ticketblitz-net
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: backend/atomic/notification-service/Dockerfile
+    container_name: ticketblitz-notification-service
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      PORT: "5000"
+      SERVICE_NAME: notification-service
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "5006:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - ticketblitz-net
+
+  kong:
+    image: kong/kong-gateway:3.9
+    container_name: ticketblitz-kong
+    restart: on-failure
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/declarative/kong.yml
+      KONG_PROXY_LISTEN: "0.0.0.0:8000"
+      KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_LOG_LEVEL: info
+    depends_on:
+      event-service:
+        condition: service_healthy
+      waitlist-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+    volumes:
+      - ./kong:/kong/declarative:ro
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - ticketblitz-net
+
+networks:
+  ticketblitz-net:
+    driver: bridge
+
+volumes:
+  rabbitmq-data:
+    driver: local

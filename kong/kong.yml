@@ -1,0 +1,56 @@
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: event-service
+    url: http://event-service:5000
+    connect_timeout: 5000
+    read_timeout: 10000
+    write_timeout: 5000
+    routes:
+      - name: get-events
+        paths:
+          - /events
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 120
+          policy: local
+          fault_tolerant: true
+
+  - name: waitlist-service-public
+    url: http://waitlist-service:5000
+    connect_timeout: 5000
+    read_timeout: 10000
+    write_timeout: 5000
+    routes:
+      - name: waitlist-public
+        paths:
+          - /waitlist
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 120
+          policy: local
+          fault_tolerant: true
+
+  - name: payment-webhook
+    url: http://payment-service:5000
+    connect_timeout: 5000
+    read_timeout: 30000
+    write_timeout: 10000
+    routes:
+      - name: stripe-webhook
+        paths:
+          - /payment/webhook
+        methods:
+          - POST
+        strip_path: false
