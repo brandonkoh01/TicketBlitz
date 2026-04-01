@@ -2,7 +2,7 @@
 
 ## Solution Scoping
 
-This scenario follows the proposal template pattern of starting from a user action through a UI, then tracing the triggered microservices, external services, and business exceptions in detail.  It also fits the project’s expectation that interesting scenarios should go beyond simple UI-to-service CRUD by handling asynchronous behavior, time limits, and business exception paths.[^2][^1]
+This scenario follows the proposal template pattern of starting from a user action through a UI, then tracing the triggered microservices, external services, and business exceptions in detail. It also fits the project’s expectation that interesting scenarios should go beyond simple UI-to-service CRUD by handling asynchronous behavior, time limits, and business exception paths.[^2][^1]
 
 ### Overall Business Scenario
 
@@ -22,7 +22,6 @@ TicketBlitz is a flash-sale concert ticketing platform designed to let users boo
 - **Notification Service** consumes enriched `notification.send` messages that already contain `email`, so it stays stateless.
 - **E-Ticket Service** is implemented on OutSystems and exposed via **REST**, not gRPC.[^4][^5][^6]
 
-
 ### Scenario Summary
 
 The scenario has four parts:
@@ -32,11 +31,11 @@ The scenario has four parts:
 3. **Step 1C — Seat released to waitlist:** a released seat is protected using `PENDING_WAITLIST`, the next waitlisted user receives a payment link, completes payment, and the UI polls until final booking success.
 4. **Step 1D — Timeout:** if the waitlist offer is not paid within 10 minutes, the hold expires, the UI shows a final expired state, and the seat is either offered to the next waitlisted user or returned to public inventory.
 
-***
+---
 
 ## Step 1A — Happy Path
 
-The proposal template explicitly expects microservice interaction diagrams and detailed interaction steps, so the diagram below includes URL paths, technologies, and the final UI state after backend completion.  The project also requires both HTTP and message-based communication, so this flow combines synchronous reservation with asynchronous booking confirmation and UI polling.[^1][^2]
+The proposal template explicitly expects microservice interaction diagrams and detailed interaction steps, so the diagram below includes URL paths, technologies, and the final UI state after backend completion. The project also requires both HTTP and message-based communication, so this flow combines synchronous reservation with asynchronous booking confirmation and UI polling.[^1][^2]
 
 ### Microservice Interaction Diagram — Step 1A: Seats Available + Polling to Final Success
 
@@ -122,7 +121,6 @@ sequenceDiagram
     UI->>UI: Display "Booking confirmed. Seat D12. E-ticket sent to your email."
 ```
 
-
 ### Interaction Steps — Step 1A
 
 1. **Start reservation request**: Ticketing System UI sends `HTTP POST /reserve` to Kong with `{userID, eventID, seatCategory, qty}`.
@@ -147,11 +145,11 @@ sequenceDiagram
 20. **Return terminal status to UI**: On the next poll, Booking Status Service reads Payment Service, Inventory Service, and E-Ticket Service, derives `{uiStatus:"CONFIRMED", ticketID, seatNumber}`, and returns it to the UI.
 21. **Display final success state**: Ticketing System UI displays **“Booking confirmed. Seat D12. E-ticket sent to your email.”**
 
-***
+---
 
 ## Step 1B — Sold Out to Waitlist
 
-This part still follows the proposal template pattern of a user action through the UI that triggers multiple services, but the final user-visible state is a successful waitlist enrollment instead of a booking confirmation.  Because the project values user-visible inputs and outputs in the demo, this version makes the UI show a clear success page and then poll the waitlist position.[^2][^1]
+This part still follows the proposal template pattern of a user action through the UI that triggers multiple services, but the final user-visible state is a successful waitlist enrollment instead of a booking confirmation. Because the project values user-visible inputs and outputs in the demo, this version makes the UI show a clear success page and then poll the waitlist position.[^2][^1]
 
 ### Microservice Interaction Diagram — Step 1B: Sold Out → Join Waitlist → Poll Position
 
@@ -198,7 +196,6 @@ sequenceDiagram
     end
 ```
 
-
 ### Interaction Steps — Step 1B
 
 1. **Start reservation request**: Ticketing System UI sends `POST /reserve` through Kong.
@@ -213,11 +210,11 @@ sequenceDiagram
 10. **Display final success state for Step 1B**: Ticketing System UI displays **“Joined waitlist successfully. Current position: 3.”**
 11. **Optional live refresh**: The UI polls `GET /waitlist/{waitlistID}` every 5 seconds to refresh the displayed position, but the scenario is already complete from the user’s perspective once the join is acknowledged.
 
-***
+---
 
 ## Step 1C and 1D — Waitlist Promotion and Timeout
 
-The project requirements explicitly highlight asynchronous request-reply and choreography as markers of more interesting scenarios, and this part is the main asynchronous core of Scenario 1.  The revised design also removes the earlier structural gap by making Waitlist Promotion Orchestrator call Waitlist API and Inventory Service over HTTP, rather than reading or writing any datastore directly, which preserves datastore ownership boundaries required by the project.[^2]
+The project requirements explicitly highlight asynchronous request-reply and choreography as markers of more interesting scenarios, and this part is the main asynchronous core of Scenario 1. The revised design also removes the earlier structural gap by making Waitlist Promotion Orchestrator call Waitlist API and Inventory Service over HTTP, rather than reading or writing any datastore directly, which preserves datastore ownership boundaries required by the project.[^2]
 
 ### Microservice Interaction Diagram — Step 1C: Seat Released → Protected Waitlist Promotion → Polling to Final Success
 
@@ -324,7 +321,6 @@ sequenceDiagram
     UI->>UI: Display "Waitlist booking confirmed. Seat D12. E-ticket sent to your email."
 ```
 
-
 ### Interaction Steps — Step 1C
 
 1. **Release trigger occurs internally**: A previously occupied or held seat becomes free due to cancellation or an earlier timeout.
@@ -425,7 +421,6 @@ sequenceDiagram
     UI->>UI: Display "Payment window expired. This hold is no longer valid."
 ```
 
-
 ### Interaction Steps — Step 1D
 
 1. **Hold reaches deadline**: The user does not complete payment before `holdExpiry`.
@@ -445,67 +440,67 @@ sequenceDiagram
 15. **Return final UI state for the timed-out user**: Booking Status Service returns `{uiStatus:"EXPIRED"}` for `H-002`.
 16. **Display final timeout state**: Ticketing System UI displays **“Payment window expired. This hold is no longer valid.”**
 
-***
+---
 
 ## API Docs, External Services, and Beyond the Labs
 
-The proposal template sample technical overview explicitly expects service names, operations, database/storage names, and schemas, so the following tables are provided in that format.  The project requirements also require at least three atomic services, at least one OutSystems service, reuse across scenarios, HTTP communication, message-based communication, and exclusive datastore ownership.[^1][^2]
+The proposal template sample technical overview explicitly expects service names, operations, database/storage names, and schemas, so the following tables are provided in that format. The project requirements also require at least three atomic services, at least one OutSystems service, reuse across scenarios, HTTP communication, message-based communication, and exclusive datastore ownership.[^1][^2]
 
 ### Application / UI
 
-| Application / UI Name | Menu Items |
-| :-- | :-- |
-| Ticketing System UI | Browse Events, Book Ticket, View Waitlist Status, Complete Waitlist Offer, View Booking Status |
+| Application / UI Name | Menu Items                                                                                     |
+| :-------------------- | :--------------------------------------------------------------------------------------------- |
+| Ticketing System UI   | Browse Events, Book Ticket, View Waitlist Status, Complete Waitlist Offer, View Booking Status |
 
 ### Atomic Microservices
 
-| Service Name | Operations | Database / Storage | Table Name \& Schema |
-| :-- | :-- | :-- | :-- |
-| **User Service** | `[GET] /user/{userID}` | `ticketblitz_db` | `users`: `userID` INT PK, `name` VARCHAR(100), `email` VARCHAR(150), `phone` VARCHAR(20), `createdAt` TIMESTAMP |
-| **Inventory Service** | `[GET] /inventory/{eventID}/{seatCategory}`; `[POST] /inventory/hold`; `[GET] /inventory/hold/{holdID}`; `[PUT] /inventory/hold/{holdID}/confirm`; `[PUT] /inventory/hold/{holdID}/release`; `[PUT] /inventory/seat/{seatID}/status`; `[POST] /inventory/maintenance/expire-holds` | `ticketblitz_db` | `seats`: `seatID` INT PK, `eventID` INT, `seatCategory` VARCHAR(50), `seatNumber` VARCHAR(10), `status` ENUM('AVAILABLE','PENDING_WAITLIST','HELD','SOLD'), `version` INT; `seat_holds`: `holdID` VARCHAR PK, `seatID` INT, `userID` INT, `holdExpiry` TIMESTAMP, `status` ENUM('HELD','CONFIRMED','EXPIRED','RELEASED'), `createdAt` TIMESTAMP |
-| **Payment Service** | `[POST] /payment/initiate`; `[POST] /payment/webhook`; `[GET] /payment/hold/{holdID}` | `ticketblitz_db` | `transactions`: `transactionID` INT PK, `holdID` VARCHAR, `userID` INT, `amount` DECIMAL(8,2), `currency` VARCHAR(3), `stripePaymentIntentID` VARCHAR(100), `status` ENUM('PENDING','SUCCEEDED','FAILED'), `createdAt` TIMESTAMP |
-| **Waitlist API** | `[POST] /waitlist/join`; `[GET] /waitlist/{waitlistID}`; `[GET] /waitlist/next?eventID=&seatCategory=`; `[GET] /waitlist/by-hold/{holdID}`; `[PUT] /waitlist/{waitlistID}/offer`; `[PUT] /waitlist/{waitlistID}/confirm`; `[PUT] /waitlist/{waitlistID}/expire` | `ticketblitz_db` | `waitlist_entries`: `waitlistID` VARCHAR PK, `eventID` INT, `userID` INT, `seatCategory` VARCHAR(50), `status` ENUM('WAITING','HOLD_OFFERED','CONFIRMED','EXPIRED'), `joinedAt` TIMESTAMP, `holdID` VARCHAR NULL |
-| **Notification Service** | Consumes `[BKEY] notification.send` | No storage | Stateless consumer; sends email via SendGrid |
-| **E-Ticket Service (OutSystems REST)** | `[POST] /eticket/generate`; `[GET] /eticket/hold/{holdID}` | OutSystems DB | `etickets`: `ticketID` VARCHAR PK, `holdID` VARCHAR, `userID` INT, `eventID` INT, `seatID` INT, `seatNumber` VARCHAR(10), `status` ENUM('VALID','USED','CANCELLED'), `generatedAt` DATETIME |
+| Service Name                           | Operations                                                                                                                                                                                                                                                                         | Database / Storage | Table Name \& Schema                                                                                                                                                                                                                                                                                                                            |
+| :------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :----------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **User Service**                       | `[GET] /user/{userID}`                                                                                                                                                                                                                                                             | `ticketblitz_db`   | `users`: `userID` INT PK, `name` VARCHAR(100), `email` VARCHAR(150), `phone` VARCHAR(20), `createdAt` TIMESTAMP                                                                                                                                                                                                                                 |
+| **Inventory Service**                  | `[GET] /inventory/{eventID}/{seatCategory}`; `[POST] /inventory/hold`; `[GET] /inventory/hold/{holdID}`; `[PUT] /inventory/hold/{holdID}/confirm`; `[PUT] /inventory/hold/{holdID}/release`; `[PUT] /inventory/seat/{seatID}/status`; `[POST] /inventory/maintenance/expire-holds` | `ticketblitz_db`   | `seats`: `seatID` INT PK, `eventID` INT, `seatCategory` VARCHAR(50), `seatNumber` VARCHAR(10), `status` ENUM('AVAILABLE','PENDING_WAITLIST','HELD','SOLD'), `version` INT; `seat_holds`: `holdID` VARCHAR PK, `seatID` INT, `userID` INT, `holdExpiry` TIMESTAMP, `status` ENUM('HELD','CONFIRMED','EXPIRED','RELEASED'), `createdAt` TIMESTAMP |
+| **Payment Service**                    | `[POST] /payment/initiate`; `[POST] /payment/webhook`; `[GET] /payment/hold/{holdID}`                                                                                                                                                                                              | `ticketblitz_db`   | `transactions`: `transactionID` INT PK, `holdID` VARCHAR, `userID` INT, `amount` DECIMAL(8,2), `currency` VARCHAR(3), `stripePaymentIntentID` VARCHAR(100), `status` ENUM('PENDING','SUCCEEDED','FAILED'), `createdAt` TIMESTAMP                                                                                                                |
+| **Waitlist API**                       | `[POST] /waitlist/join`; `[GET] /waitlist/{waitlistID}`; `[GET] /waitlist/next?eventID=&seatCategory=`; `[GET] /waitlist/by-hold/{holdID}`; `[PUT] /waitlist/{waitlistID}/offer`; `[PUT] /waitlist/{waitlistID}/confirm`; `[PUT] /waitlist/{waitlistID}/expire`                    | `ticketblitz_db`   | `waitlist_entries`: `waitlistID` VARCHAR PK, `eventID` INT, `userID` INT, `seatCategory` VARCHAR(50), `status` ENUM('WAITING','HOLD_OFFERED','CONFIRMED','EXPIRED'), `joinedAt` TIMESTAMP, `holdID` VARCHAR NULL                                                                                                                                |
+| **Notification Service**               | Consumes `[BKEY] notification.send`                                                                                                                                                                                                                                                | No storage         | Stateless consumer; sends email via SendGrid                                                                                                                                                                                                                                                                                                    |
+| **E-Ticket Service (OutSystems REST)** | `[POST] /eticket/generate`; `[GET] /eticket/hold/{holdID}`                                                                                                                                                                                                                         | OutSystems DB      | `etickets`: `ticketID` VARCHAR PK, `holdID` VARCHAR, `userID` INT, `eventID` INT, `seatID` INT, `seatNumber` VARCHAR(10), `status` ENUM('VALID','USED','CANCELLED'), `generatedAt` DATETIME                                                                                                                                                     |
 
 ### Composite Services
 
-| Service Name | Type | Operations / Trigger | Notes |
-| :-- | :-- | :-- | :-- |
-| **Reservation Orchestrator** | Composite | `[POST] /reserve`; `[POST] /reserve/confirm`; `[GET] /waitlist/confirm/{holdID}` | Handles pre-payment reservation flow only |
-| **Booking Fulfillment Orchestrator** | Composite | Consumes `[BKEY] booking.confirmed` | Confirms seat, generates e-ticket, updates waitlist if needed, publishes final notification |
-| **Booking Status Service** | Composite read service | `[GET] /booking-status/{holdID}` | Read-only UI polling facade; no database |
-| **Waitlist Promotion Orchestrator** | Composite | Consumes `[BKEY] seat.released` | Promotes next waitlisted user, manages hold offers, calls Inventory/Waitlist/User over HTTP |
-| **Expiry Scheduler Service** | Composite worker | Periodic call to `POST /inventory/maintenance/expire-holds` | Separate process to avoid in-service scheduler threads |
+| Service Name                         | Type                   | Operations / Trigger                                                             | Notes                                                                                       |
+| :----------------------------------- | :--------------------- | :------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------ |
+| **Reservation Orchestrator**         | Composite              | `[POST] /reserve`; `[POST] /reserve/confirm`; `[GET] /waitlist/confirm/{holdID}` | Handles pre-payment reservation flow only                                                   |
+| **Booking Fulfillment Orchestrator** | Composite              | Consumes `[BKEY] booking.confirmed`                                              | Confirms seat, generates e-ticket, updates waitlist if needed, publishes final notification |
+| **Booking Status Service**           | Composite read service | `[GET] /booking-status/{holdID}`                                                 | Read-only UI polling facade; no database                                                    |
+| **Waitlist Promotion Orchestrator**  | Composite              | Consumes `[BKEY] seat.released`                                                  | Promotes next waitlisted user, manages hold offers, calls Inventory/Waitlist/User over HTTP |
+| **Expiry Scheduler Service**         | Composite worker       | Periodic call to `POST /inventory/maintenance/expire-holds`                      | Separate process to avoid in-service scheduler threads                                      |
 
 ### Booking Status API contract
 
-| Endpoint | Derived Inputs | Returned UI Status | Meaning |
-| :-- | :-- | :-- | :-- |
-| `[GET] /booking-status/{holdID}` | Payment + Inventory + E-Ticket | `PROCESSING` | Payment submitted or fulfillment still running |
-| `[GET] /booking-status/{holdID}` | Payment + Inventory | `FAILED_PAYMENT` | Payment failed |
-| `[GET] /booking-status/{holdID}` | Inventory | `EXPIRED` | Hold expired before confirmation |
-| `[GET] /booking-status/{holdID}` | Payment + Inventory + E-Ticket | `CONFIRMED` | Payment succeeded, hold confirmed, ticket generated |
+| Endpoint                         | Derived Inputs                 | Returned UI Status | Meaning                                             |
+| :------------------------------- | :----------------------------- | :----------------- | :-------------------------------------------------- |
+| `[GET] /booking-status/{holdID}` | Payment + Inventory + E-Ticket | `PROCESSING`       | Payment submitted or fulfillment still running      |
+| `[GET] /booking-status/{holdID}` | Payment + Inventory            | `FAILED_PAYMENT`   | Payment failed                                      |
+| `[GET] /booking-status/{holdID}` | Inventory                      | `EXPIRED`          | Hold expired before confirmation                    |
+| `[GET] /booking-status/{holdID}` | Payment + Inventory + E-Ticket | `CONFIRMED`        | Payment succeeded, hold confirmed, ticket generated |
 
 ### AMQP model
 
-| Exchange | Type | Binding Key | Publisher | Consumer | Payload |
-| :-- | :-- | :-- | :-- | :-- | :-- |
-| `ticketblitz` | Topic | `booking.confirmed` | Payment Service | Booking Fulfillment Orchestrator | `{holdID,userID,eventID,email,correlationID}` |
-| `ticketblitz` | Topic | `seat.released` | Inventory Service | Waitlist Promotion Orchestrator | `{eventID,seatCategory,seatID,qty,reason,expiredHoldID?}` |
-| `ticketblitz` | Topic | `notification.send` | Reservation Orchestrator, Booking Fulfillment Orchestrator, Waitlist Promotion Orchestrator | Notification Service | `{type,email,eventName,position?,holdID?,holdExpiry?,paymentURL?,seatNumber?,ticketID?}` |
+| Exchange      | Type  | Binding Key         | Publisher                                                                                   | Consumer                         | Payload                                                                                  |
+| :------------ | :---- | :------------------ | :------------------------------------------------------------------------------------------ | :------------------------------- | :--------------------------------------------------------------------------------------- |
+| `ticketblitz` | Topic | `booking.confirmed` | Payment Service                                                                             | Booking Fulfillment Orchestrator | `{holdID,userID,eventID,email,correlationID}`                                            |
+| `ticketblitz` | Topic | `seat.released`     | Inventory Service                                                                           | Waitlist Promotion Orchestrator  | `{eventID,seatCategory,seatID,qty,reason,expiredHoldID?}`                                |
+| `ticketblitz` | Topic | `notification.send` | Reservation Orchestrator, Booking Fulfillment Orchestrator, Waitlist Promotion Orchestrator | Notification Service             | `{type,email,eventName,position?,holdID?,holdExpiry?,paymentURL?,seatNumber?,ticketID?}` |
 
 ### Key JSON payloads
 
-| API / Message | Example payload |
-| :-- | :-- |
-| `POST /reserve` | `{ "userID": "U-001", "eventID": "EVT-301", "seatCategory": "CAT1", "qty": 1 }` |
-| `POST /inventory/hold` public | `{ "eventID": "EVT-301", "userID": "U-001", "seatCategory": "CAT1", "qty": 1, "fromWaitlist": false }` |
-| `POST /inventory/hold` waitlist | `{ "eventID": "EVT-301", "userID": "U-077", "seatCategory": "CAT1", "qty": 1, "fromWaitlist": true }` |
-| `POST /payment/initiate` | `{ "holdID": "H-001", "userID": "U-001", "amount": 160.00 }` |
-| `booking.confirmed` | `{ "holdID": "H-001", "userID": "U-001", "eventID": "EVT-301", "email": "fan@email.com", "correlationID": "corr-123" }` |
-| `notification.send` booking confirmed | `{ "type": "BOOKING_CONFIRMED", "email": "fan@email.com", "eventName": "Coldplay Live", "seatNumber": "D12", "ticketID": "TKT-9988" }` |
-| `notification.send` seat available | `{ "type": "SEAT_AVAILABLE", "email": "fan2@email.com", "holdID": "H-002", "holdExpiry": "2026-03-18T15:20:00Z", "paymentURL": "/waitlist/confirm/H-002" }` |
+| API / Message                         | Example payload                                                                                                                                             |
+| :------------------------------------ | :---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /reserve`                       | `{ "userID": "U-001", "eventID": "EVT-301", "seatCategory": "CAT1", "qty": 1 }`                                                                             |
+| `POST /inventory/hold` public         | `{ "eventID": "EVT-301", "userID": "U-001", "seatCategory": "CAT1", "qty": 1, "fromWaitlist": false }`                                                      |
+| `POST /inventory/hold` waitlist       | `{ "eventID": "EVT-301", "userID": "U-077", "seatCategory": "CAT1", "qty": 1, "fromWaitlist": true }`                                                       |
+| `POST /payment/initiate`              | `{ "holdID": "H-001", "userID": "U-001", "amount": 160.00 }`                                                                                                |
+| `booking.confirmed`                   | `{ "holdID": "H-001", "userID": "U-001", "eventID": "EVT-301", "email": "fan@email.com", "correlationID": "corr-123" }`                                     |
+| `notification.send` booking confirmed | `{ "type": "BOOKING_CONFIRMED", "email": "fan@email.com", "eventName": "Coldplay Live", "seatNumber": "D12", "ticketID": "TKT-9988" }`                      |
+| `notification.send` seat available    | `{ "type": "SEAT_AVAILABLE", "email": "fan2@email.com", "holdID": "H-002", "holdExpiry": "2026-03-18T15:20:00Z", "paymentURL": "/waitlist/confirm/H-002" }` |
 
 ### External Services
 
@@ -527,7 +522,6 @@ Stripe is used for payment authorization and confirmation through PaymentIntents
 - Supports idempotent server-side fulfillment via webhook-driven confirmation.
 - Fits the flash-sale reservation model where seat confirmation must happen only after verified payment.
 
-
 #### SendGrid
 
 SendGrid is used by Notification Service for transactional email delivery.
@@ -543,14 +537,13 @@ SendGrid is used by Notification Service for transactional email delivery.
 - `HOLD_EXPIRED`
 - `BOOKING_CONFIRMED`
 
-
 ### Beyond the Labs
 
 The project specification explicitly cites reasonable use of a message broker and an API gateway such as Kong as valid Beyond-the-Labs directions, and it also rewards technical choices that are clearly justified for the scenario.[^2]
 
 #### BTL 1 — Kong API Gateway for flash-sale edge protection
 
-Kong sits in front of all UI HTTP calls, including `POST /reserve`, `POST /reserve/confirm`, `GET /booking-status/{holdID}`, and waitlist status calls.  This is a good BTL choice because the project requirements explicitly list API gateways such as Kong as a reasonable BTL example.[^2]
+Kong sits in front of all UI HTTP calls, including `POST /reserve`, `POST /reserve/confirm`, `GET /booking-status/{holdID}`, and waitlist status calls. This is a good BTL choice because the project requirements explicitly list API gateways such as Kong as a reasonable BTL example.[^2]
 
 **Why beneficial here**
 
@@ -558,10 +551,9 @@ Kong sits in front of all UI HTTP calls, including `POST /reserve`, `POST /reser
 - Authentication stays at the edge.
 - Polling traffic from Booking Status Service and Waitlist API is centralized behind one gateway.
 
-
 #### BTL 2 — Event-driven waitlist promotion with protected inventory handoff
 
-This scenario uses RabbitMQ beyond a trivial notification pattern by choreographing `seat.released`, `booking.confirmed`, and `notification.send` events across multiple services.  That matches the project’s emphasis on message-based communication and more interesting asynchronous scenarios.[^2]
+This scenario uses RabbitMQ beyond a trivial notification pattern by choreographing `seat.released`, `booking.confirmed`, and `notification.send` events across multiple services. That matches the project’s emphasis on message-based communication and more interesting asynchronous scenarios.[^2]
 
 **Why beneficial here**
 
@@ -569,10 +561,9 @@ This scenario uses RabbitMQ beyond a trivial notification pattern by choreograph
 - The system can continue processing even when users are offline.
 - Public buyers cannot steal a released seat because `PENDING_WAITLIST` blocks non-waitlist holds until the waitlist path is resolved.
 
-
 #### BTL 3 — No-threading worker split with Booking Status polling
 
-The final design avoids in-process threading by separating AMQP consumers and periodic schedulers into independent worker services, which is a sound fit for a Docker Compose microservices deployment.  This also avoids the complexity of sharing a blocking AMQP client inside threaded Flask processes, which is important because pika’s blocking adapter documents thread-safety constraints and only `add_callback_threadsafe` as thread-safe.[^3][^2]
+The final design avoids in-process threading by separating AMQP consumers and periodic schedulers into independent worker services, which is a sound fit for a Docker Compose microservices deployment. This also avoids the complexity of sharing a blocking AMQP client inside threaded Flask processes, which is important because pika’s blocking adapter documents thread-safety constraints and only `add_callback_threadsafe` as thread-safe.[^3][^2]
 
 **Why beneficial here**
 
@@ -582,10 +573,9 @@ The final design avoids in-process threading by separating AMQP consumers and pe
 - Waitlist Promotion Orchestrator stays AMQP-only.
 - Expiry Scheduler Service stays a separate timer-driven worker.
 
-
 #### BTL 4 — OutSystems used through REST, not gRPC
 
-OutSystems officially documents exposing REST APIs, so the E-Ticket Service boundary is correctly modeled as REST.  This is the correct structural choice for this project because it avoids inventing an unsupported or unnecessarily risky protocol boundary at the OutSystems edge.[^6][^4][^5]
+OutSystems officially documents exposing REST APIs, so the E-Ticket Service boundary is correctly modeled as REST. This is the correct structural choice for this project because it avoids inventing an unsupported or unnecessarily risky protocol boundary at the OutSystems edge.[^6][^4][^5]
 
 **Why beneficial here**
 
@@ -594,8 +584,6 @@ OutSystems officially documents exposing REST APIs, so the E-Ticket Service boun
 - Reduces implementation risk while preserving the required OutSystems component.[^2]
 
 This revised Scenario 1 write-up is therefore internally consistent with the proposal template structure, the project’s microservice constraints, the no-threading requirement, the need for visible final UI states, and the corrected architectural boundaries for messaging, polling, and OutSystems integration.[^3][^4][^1][^2]
-
-
 
 [^1]: Proposal-Template.pdf
 
@@ -609,8 +597,7 @@ This revised Scenario 1 write-up is therefore internally consistent with the pro
 
 [^6]: https://success.outsystems.com/documentation/outsystems_developer_cloud/integration_with_external_systems/exposing_rest_apis/
 
-
-***
+---
 
 ## Solution Scoping
 
@@ -637,7 +624,7 @@ Scenario 2 has three parts:
 - The Ticketing System UI shows updated prices through periodic polling of `GET /pricing/{eventID}` through Kong, rather than a persistent WebSocket connection. This keeps the implementation simple and consistent with the polling pattern used in Scenario 1.
 - All UI-facing HTTP requests enter and exit through Kong. No service responds directly to the UI.
 
-***
+---
 
 ## Step 2A — Flash Sale Launch
 
@@ -689,7 +676,6 @@ sequenceDiagram
     UI->>UI: Display "Flash sale pricing is now active. 50% discount applied. Expires at 4:54 PM."
 ```
 
-
 ### Interaction Steps — Step 2A
 
 1. **Trigger flash sale launch:** Organiser Dashboard UI sends `HTTP POST /flash-sale/launch` to Kong with `{eventID, discountPercentage:50, durationMinutes:120}`.
@@ -707,7 +693,7 @@ sequenceDiagram
 13. **Return final response to UI:** Flash Sale Orchestrator returns `{status:"success", flashSaleID, activePrices, expiresAt}` to Kong, which forwards it to the Organiser Dashboard UI.
 14. **Display final success state:** Organiser Dashboard UI displays **"Flash sale pricing is now active. 50% discount applied. Expires at 4:54 PM."**
 
-***
+---
 
 ## Step 2B — Dynamic Price Escalation
 
@@ -764,7 +750,6 @@ sequenceDiagram
     UI->>UI: Display "CAT1 Sold Out. Remaining prices updated — CAT2: $100.80 | PEN: $232.80."
 ```
 
-
 ### Interaction Steps — Step 2B
 
 1. **Category sold-out detected:** Inventory Service identifies that all `CAT1` seats have reached `SOLD` status during the active flash sale. This is a state transition triggered as part of Scenario 1's booking confirmation flow when the last CAT1 hold is confirmed.
@@ -782,7 +767,7 @@ sequenceDiagram
 13. **UI reflects updated prices on next poll:** Ticketing System UI polls `GET /pricing/{eventID}` through Kong. Pricing Service returns the current effective prices including the newly escalated values and the `SOLD_OUT` flag for CAT1.
 14. **Display final updated price state:** Ticketing System UI displays **"CAT1 Sold Out. Remaining prices updated — CAT2: \$100.80 | PEN: \$232.80."**
 
-***
+---
 
 ## Step 2C — Flash Sale Ended
 
@@ -838,7 +823,6 @@ sequenceDiagram
     UI->>UI: Display "Flash sale ended. Standard pricing has been restored for all available categories."
 ```
 
-
 ### Interaction Steps — Step 2C
 
 1. **Trigger flash sale end:** Organiser Dashboard UI sends `HTTP POST /flash-sale/end` to Kong with `{eventID, flashSaleID}`.
@@ -856,60 +840,60 @@ sequenceDiagram
 13. **Return final response to UI:** Flash Sale Orchestrator returns `{status:"success", message:"Flash sale ended. Standard pricing restored."}` to Kong, which forwards it to the Organiser Dashboard UI.
 14. **Display final success state:** Organiser Dashboard UI displays **"Flash sale ended. Standard pricing has been restored for all available categories."**
 
-***
+---
 
 ## API Docs, External Services, and Beyond the Labs
 
 ### Application / UI
 
-| Application / UI Name | Menu Items |
-| :-- | :-- |
+| Application / UI Name  | Menu Items                                                             |
+| :--------------------- | :--------------------------------------------------------------------- |
 | Organiser Dashboard UI | Launch Flash Sale, End Flash Sale, View Sales Analytics, Manage Events |
-| Ticketing System UI | Browse Events, View Prices (reused from Scenario 1) |
+| Ticketing System UI    | Browse Events, View Prices (reused from Scenario 1)                    |
 
 ### Atomic Microservices — New for Scenario 2
 
-| Service Name | Operations | Database / Storage | Table Name \& Schema |
-| :-- | :-- | :-- | :-- |
-| **Event Service** | `[GET] /event/{eventID}`; `[GET] /event/{eventID}/categories`; `[PUT] /event/{eventID}/status`; `[PUT] /event/{eventID}/categories/prices` | `ticketblitz_db` | `events`: `event_id` UUID PK, `name` VARCHAR(200), `venue` VARCHAR(200), `event_date` TIMESTAMPTZ, `total_capacity` INT, `status` VARCHAR(20) CHECK('SCHEDULED','ACTIVE','FLASH_SALE_ACTIVE','CANCELLED','COMPLETED'), `created_at` TIMESTAMPTZ, `updated_at` TIMESTAMPTZ, `deleted_at` TIMESTAMPTZ; `seat_categories`: `category_id` UUID PK, `event_id` UUID, `name` VARCHAR(50), `price` DECIMAL(10,2), `total_seats` INT, `created_at` TIMESTAMPTZ, `updated_at` TIMESTAMPTZ, `deleted_at` TIMESTAMPTZ |
-| **Pricing Service** | `[POST] /pricing/flash-sale/configure`; `[GET] /pricing/{eventID}/flash-sale/active`; `[POST] /pricing/escalate`; `[PUT] /pricing/{flashSaleID}/end`; `[GET] /pricing/{eventID}/history`; `[GET] /pricing/{eventID}` | `ticketblitz_db` | `flash_sales`: `flash_sale_id` UUID PK, `event_id` UUID, `discount_percentage` DECIMAL(5,2), `escalation_percentage` DECIMAL(5,2), `start_time` TIMESTAMPTZ, `end_time` TIMESTAMPTZ, `status` VARCHAR(20) CHECK('ACTIVE','ENDED'), `created_at` TIMESTAMPTZ, `updated_at` TIMESTAMPTZ, `deleted_at` TIMESTAMPTZ; `price_changes`: `change_id` UUID PK, `flash_sale_id` UUID, `event_id` UUID, `category` VARCHAR(50), `old_price` DECIMAL(10,2), `new_price` DECIMAL(10,2), `reason` VARCHAR(20) CHECK('FLASH_SALE','ESCALATION','REVERT'), `changed_at` TIMESTAMPTZ, `created_at` TIMESTAMPTZ, `deleted_at` TIMESTAMPTZ |
+| Service Name        | Operations                                                                                                                                                                                                           | Database / Storage | Table Name \& Schema                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| :------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :----------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Event Service**   | `[GET] /event/{eventID}`; `[GET] /event/{eventID}/categories`; `[PUT] /event/{eventID}/status`; `[PUT] /event/{eventID}/categories/prices`                                                                           | `ticketblitz_db`   | `events`: `event_id` UUID PK, `name` VARCHAR(200), `venue` VARCHAR(200), `event_date` TIMESTAMPTZ, `total_capacity` INT, `status` VARCHAR(20) CHECK('SCHEDULED','ACTIVE','FLASH_SALE_ACTIVE','CANCELLED','COMPLETED'), `created_at` TIMESTAMPTZ, `updated_at` TIMESTAMPTZ, `deleted_at` TIMESTAMPTZ; `seat_categories`: `category_id` UUID PK, `event_id` UUID, `name` VARCHAR(50), `price` DECIMAL(10,2), `total_seats` INT, `created_at` TIMESTAMPTZ, `updated_at` TIMESTAMPTZ, `deleted_at` TIMESTAMPTZ                                                                                                               |
+| **Pricing Service** | `[POST] /pricing/flash-sale/configure`; `[GET] /pricing/{eventID}/flash-sale/active`; `[POST] /pricing/escalate`; `[PUT] /pricing/{flashSaleID}/end`; `[GET] /pricing/{eventID}/history`; `[GET] /pricing/{eventID}` | `ticketblitz_db`   | `flash_sales`: `flash_sale_id` UUID PK, `event_id` UUID, `discount_percentage` DECIMAL(5,2), `escalation_percentage` DECIMAL(5,2), `start_time` TIMESTAMPTZ, `end_time` TIMESTAMPTZ, `status` VARCHAR(20) CHECK('ACTIVE','ENDED'), `created_at` TIMESTAMPTZ, `updated_at` TIMESTAMPTZ, `deleted_at` TIMESTAMPTZ; `price_changes`: `change_id` UUID PK, `flash_sale_id` UUID, `event_id` UUID, `category` VARCHAR(50), `old_price` DECIMAL(10,2), `new_price` DECIMAL(10,2), `reason` VARCHAR(20) CHECK('FLASH_SALE','ESCALATION','REVERT'), `changed_at` TIMESTAMPTZ, `created_at` TIMESTAMPTZ, `deleted_at` TIMESTAMPTZ |
 
 ### Atomic Microservices — Reused from Scenario 1
 
-| Service Name | New Operations Added for Scenario 2 | Notes |
-| :-- | :-- | :-- |
-| **Inventory Service** | `[PUT] /inventory/{eventID}/flash-sale {active, flashSaleID}` | Activates and deactivates flash sale mode on the event inventory |
-| **Waitlist API** | `[GET] /waitlist?eventID=&status=` | New query endpoint for batch retrieval; used by both Flash Sale Orchestrator and Pricing Orchestrator |
-| **Notification Service** | Consumes `[FANOUT] price.broadcast` from `ticketblitz.price` exchange in addition to existing `notification.send` | Handles both topic and fanout queues in one pika blocking loop |
+| Service Name             | New Operations Added for Scenario 2                                                                               | Notes                                                                                                 |
+| :----------------------- | :---------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------- |
+| **Inventory Service**    | `[PUT] /inventory/{eventID}/flash-sale {active, flashSaleID}`                                                     | Activates and deactivates flash sale mode on the event inventory                                      |
+| **Waitlist API**         | `[GET] /waitlist?eventID=&status=`                                                                                | New query endpoint for batch retrieval; used by both Flash Sale Orchestrator and Pricing Orchestrator |
+| **Notification Service** | Consumes `[FANOUT] price.broadcast` from `ticketblitz.price` exchange in addition to existing `notification.send` | Handles both topic and fanout queues in one pika blocking loop                                        |
 
 ### Composite Services
 
-| Service Name | Type | Operations / Trigger | Notes |
-| :-- | :-- | :-- | :-- |
-| **Flash Sale Orchestrator** | Composite HTTP | `[POST] /flash-sale/launch`; `[POST] /flash-sale/end`; `[GET] /flash-sale/{eventID}/status` | Single orchestrator handles both launch (2A) and end (2C) |
-| **Pricing Orchestrator** | Composite AMQP worker | Consumes `[BKEY] category.sold_out` from `ticketblitz` topic exchange | Pure consumer; no HTTP endpoints; triggers 2B escalation flow |
+| Service Name                | Type                  | Operations / Trigger                                                                        | Notes                                                         |
+| :-------------------------- | :-------------------- | :------------------------------------------------------------------------------------------ | :------------------------------------------------------------ |
+| **Flash Sale Orchestrator** | Composite HTTP        | `[POST] /flash-sale/launch`; `[POST] /flash-sale/end`; `[GET] /flash-sale/{eventID}/status` | Single orchestrator handles both launch (2A) and end (2C)     |
+| **Pricing Orchestrator**    | Composite AMQP worker | Consumes `[BKEY] category.sold_out` from `ticketblitz` topic exchange                       | Pure consumer; no HTTP endpoints; triggers 2B escalation flow |
 
 ### AMQP Model
 
-| Exchange | Type | Binding Key / Pattern | Publisher | Consumer | Payload |
-| :-- | :-- | :-- | :-- | :-- | :-- |
-| `ticketblitz` | Topic | `category.sold_out` | Inventory Service | Pricing Orchestrator | `{eventID, category, flashSaleID, soldAt}` |
-| `ticketblitz.price` | **Fanout** | N/A | Flash Sale Orchestrator, Pricing Orchestrator | Notification Service | `{type, eventID, flashSaleID, updatedPrices[], revertedPrices[], waitlistEmails[], soldOutCategory?, expiresAt?}` |
-| `ticketblitz` | Topic | `notification.send` | Multiple (Scenario 1 reuse) | Notification Service | `{type, email, ...}` |
+| Exchange            | Type       | Binding Key / Pattern | Publisher                                     | Consumer             | Payload                                                                                                           |
+| :------------------ | :--------- | :-------------------- | :-------------------------------------------- | :------------------- | :---------------------------------------------------------------------------------------------------------------- |
+| `ticketblitz`       | Topic      | `category.sold_out`   | Inventory Service                             | Pricing Orchestrator | `{eventID, category, flashSaleID, soldAt}`                                                                        |
+| `ticketblitz.price` | **Fanout** | N/A                   | Flash Sale Orchestrator, Pricing Orchestrator | Notification Service | `{type, eventID, flashSaleID, updatedPrices[], revertedPrices[], waitlistEmails[], soldOutCategory?, expiresAt?}` |
+| `ticketblitz`       | Topic      | `notification.send`   | Multiple (Scenario 1 reuse)                   | Notification Service | `{type, email, ...}`                                                                                              |
 
 ### Key JSON Payloads
 
-| API / Message | Example Payload |
-| :-- | :-- |
-| `POST /flash-sale/launch` | `{"eventID":"EVT-301","discountPercentage":50,"durationMinutes":120}` |
-| `POST /pricing/flash-sale/configure` | `{"eventID":"EVT-301","discountPercentage":50,"durationMinutes":120,"escalationPercentage":20,"categories":[{"categoryID":"C-01","basePrice":288.00}]}` |
-| `POST /pricing/escalate` | `{"eventID":"EVT-301","flashSaleID":"FS-001","soldOutCategory":"CAT1","escalationPercentage":20,"remainingCategories":[{"categoryID":"C-02","category":"CAT2","currentPrice":84.00}]}` |
-| `PUT /event/{eventID}/categories/prices` | `{"updates":[{"categoryID":"C-02","newPrice":100.80}],"reason":"ESCALATION","flashSaleID":"FS-001"}` |
-| `GET /waitlist?eventID=EVT-301&status=WAITING` response | `[{"waitlistID":"WL-057","userID":"U-099","email":"fan4@email.com","seatCategory":"CAT2"}]` |
-| `price.broadcast` launch | `{"type":"FLASH_SALE_LAUNCHED","eventID":"EVT-301","flashSaleID":"FS-001","updatedPrices":[{"category":"CAT1","oldPrice":288.00,"newPrice":144.00}],"waitlistEmails":["fan2@email.com"],"expiresAt":"2026-03-24T16:54:00Z"}` |
-| `price.broadcast` escalation | `{"type":"PRICE_ESCALATED","eventID":"EVT-301","flashSaleID":"FS-001","soldOutCategory":"CAT1","updatedPrices":[{"category":"CAT2","oldPrice":84.00,"newPrice":100.80}],"waitlistEmails":["fan4@email.com"]}` |
-| `price.broadcast` ended | `{"type":"FLASH_SALE_ENDED","eventID":"EVT-301","flashSaleID":"FS-001","revertedPrices":[{"category":"CAT2","oldPrice":100.80,"newPrice":168.00}],"waitlistEmails":["fan4@email.com"]}` |
-| `category.sold_out` | `{"eventID":"EVT-301","category":"CAT1","flashSaleID":"FS-001","soldAt":"2026-03-24T15:10:00Z"}` |
+| API / Message                                           | Example Payload                                                                                                                                                                                                              |
+| :------------------------------------------------------ | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /flash-sale/launch`                               | `{"eventID":"EVT-301","discountPercentage":50,"durationMinutes":120}`                                                                                                                                                        |
+| `POST /pricing/flash-sale/configure`                    | `{"eventID":"EVT-301","discountPercentage":50,"durationMinutes":120,"escalationPercentage":20,"categories":[{"categoryID":"C-01","basePrice":288.00}]}`                                                                      |
+| `POST /pricing/escalate`                                | `{"eventID":"EVT-301","flashSaleID":"FS-001","soldOutCategory":"CAT1","escalationPercentage":20,"remainingCategories":[{"categoryID":"C-02","category":"CAT2","currentPrice":84.00}]}`                                       |
+| `PUT /event/{eventID}/categories/prices`                | `{"updates":[{"categoryID":"C-02","newPrice":100.80}],"reason":"ESCALATION","flashSaleID":"FS-001"}`                                                                                                                         |
+| `GET /waitlist?eventID=EVT-301&status=WAITING` response | `[{"waitlistID":"WL-057","userID":"U-099","email":"fan4@email.com","seatCategory":"CAT2"}]`                                                                                                                                  |
+| `price.broadcast` launch                                | `{"type":"FLASH_SALE_LAUNCHED","eventID":"EVT-301","flashSaleID":"FS-001","updatedPrices":[{"category":"CAT1","oldPrice":288.00,"newPrice":144.00}],"waitlistEmails":["fan2@email.com"],"expiresAt":"2026-03-24T16:54:00Z"}` |
+| `price.broadcast` escalation                            | `{"type":"PRICE_ESCALATED","eventID":"EVT-301","flashSaleID":"FS-001","soldOutCategory":"CAT1","updatedPrices":[{"category":"CAT2","oldPrice":84.00,"newPrice":100.80}],"waitlistEmails":["fan4@email.com"]}`                |
+| `price.broadcast` ended                                 | `{"type":"FLASH_SALE_ENDED","eventID":"EVT-301","flashSaleID":"FS-001","revertedPrices":[{"category":"CAT2","oldPrice":100.80,"newPrice":168.00}],"waitlistEmails":["fan4@email.com"]}`                                      |
+| `category.sold_out`                                     | `{"eventID":"EVT-301","category":"CAT1","flashSaleID":"FS-001","soldAt":"2026-03-24T15:10:00Z"}`                                                                                                                             |
 
 ### External Services
 
@@ -925,7 +909,7 @@ SendGrid handles transactional email delivery for all three steps of Scenario 2.
 - `PRICE_ESCALATED` — sent to fans waiting for categories that had prices change
 - `FLASH_SALE_ENDED` — sent to remaining waitlisted fans when standard pricing is restored
 
-***
+---
 
 ### Beyond the Labs
 
@@ -941,7 +925,6 @@ A **fanout exchange** (`ticketblitz.price`) is introduced specifically for the `
 - The business logic is correct: a price change is a broadcast event. If a third service such as an analytics service or a push notification gateway were added later, it binds to the fanout exchange without any change to the publisher.
 - Notification Service now consumes from **two different exchange types** in a single pika blocking loop — the topic exchange for `notification.send` (Scenario 1) and the fanout exchange for `price.broadcast` (Scenario 2) — demonstrating a richer use of RabbitMQ than a simple single-queue consumer.[^2]
 
-
 #### BTL 2 — Kong Rate Limiting on Organiser Endpoints
 
 `POST /flash-sale/launch` is rated at a strict 5 requests per minute in Kong. This is intentional: a flash sale launch is a high-impact operation and should be idempotent and deliberate. Allowing rapid repeated calls would create duplicate flash sale records and conflicting price states.[^2]
@@ -954,16 +937,296 @@ Every price change is recorded in `price_changes` with its `reason` field (`FLAS
 
 #### BTL 4 — Service Reuse Across Scenarios (Formal Justification)
 
-The project requires at least one microservice to be reused across different user scenarios with a clear explanation of the benefit.  Scenario 2 reuses four services from Scenario 1:[^2]
+The project requires at least one microservice to be reused across different user scenarios with a clear explanation of the benefit. Scenario 2 reuses four services from Scenario 1:[^2]
 
-
-| Service Reused | Reuse in Scenario 2 | Benefit |
-| :-- | :-- | :-- |
-| Inventory Service | New `PUT /inventory/{eventID}/flash-sale` operation | Inventory state for flash sale controlled centrally without a new service |
-| Waitlist API | New `GET /waitlist?eventID=&status=WAITING` query | Fan waitlist data consumed by both booking and pricing flows without duplication |
-| Notification Service | Consumes `price.broadcast` fanout in addition to `notification.send` topic | One delivery service handles all outbound email regardless of trigger type |
-| SendGrid | Same external email API | No second external email provider needed; consistent delivery |
+| Service Reused       | Reuse in Scenario 2                                                        | Benefit                                                                          |
+| :------------------- | :------------------------------------------------------------------------- | :------------------------------------------------------------------------------- |
+| Inventory Service    | New `PUT /inventory/{eventID}/flash-sale` operation                        | Inventory state for flash sale controlled centrally without a new service        |
+| Waitlist API         | New `GET /waitlist?eventID=&status=WAITING` query                          | Fan waitlist data consumed by both booking and pricing flows without duplication |
+| Notification Service | Consumes `price.broadcast` fanout in addition to `notification.send` topic | One delivery service handles all outbound email regardless of trigger type       |
+| SendGrid             | Same external email API                                                    | No second external email provider needed; consistent delivery                    |
 
 <div align="center">⁂</div>
 
+# Scenario 3: Fan Cancels Ticket and Requests a Refund
 
+## Solution Scoping
+
+This scenario follows the proposal template pattern of starting from a user action through a UI, then tracing the triggered microservices, external services, and business exception paths in detail. It fits the project's expectation that interesting scenarios go beyond simple CRUD by handling asynchronous behaviour, external payment failures, SAGA-based rollback compensation, and waitlist reallocation logic.
+
+### Overall Business Scenario
+
+TicketBlitz is a flash-sale concert ticketing platform that allows users to cancel their confirmed ticket bookings and receive a refund, subject to a defined cancellation policy. The system supports automated refund processing through Stripe, intelligent ticket reallocation to waitlisted customers, and robust failure handling using a SAGA rollback pattern when the payment provider is unavailable.
+
+### User Scenario Implemented Here
+
+**Scenario 3: Fan Cancels Ticket and Requests a Refund**
+
+### Design Assumptions Used in This Scenario
+
+- All user-facing HTTP traffic goes through **Kong API Gateway**.
+- The cancellation refund policy permits cancellations made at least **48 hours before the show date**. Requests within 48 hours are denied.
+- Upon a successful refund, the customer receives **90% of the ticket price**; the remaining **10% is retained as a cancellation fee**.
+- The **Cancellation Orchestrator** is a composite service that coordinates the end-to-end cancellation flow across E-Ticket, Payment, Inventory, Waitlist, and Notification services.
+- The **E-Ticket Service** is called via **gRPC** (`ValidateTicket`) for ownership validation, consistent with the existing inter-service contract.
+- **RabbitMQ** is used for all asynchronous event publishing (cancellation confirmations, refund outcomes, ticket availability alerts, and error notifications).
+- **Notification Service** consumes enriched AMQP events that already contain the recipient's email, keeping it stateless.
+- In the SAGA rollback scenario (Figure 3c), Stripe is retried at least 3 times before the failure is escalated. The ticket status is set to **"Cancellation In Progress"** so the refund can be resolved manually or through a retry mechanism.
+- When no waitlisted customer exists (Figure 3d), the freed ticket is returned to general public inventory and broadcast via a `ticket.available` event.
+
+### Scenario Summary
+
+The scenario covers four distinct paths:
+
+1. **Figure 3a — Successful Refund & Ticket Reallocation:**![Scenario 3.1](./images/Scenario3.1.png "Figure 3a - Successful refund process") The cancellation is within the 48-hour policy window. Stripe processes the refund successfully and the freed ticket is allocated to the first customer on the waitlist, who is then notified and guided through payment.
+2. **Figure 3b — Not Within Refund Policy:** ![Scenario 3.2](./images/Scenario3.2.png "Figure 3b - Not within refund policy process") The cancellation request falls within 48 hours of the show. The system denies the cancellation, publishes a `cancellation.denied` event, and notifies the fan that the refund is not eligible.
+3. **Figure 3c — Stripe Refund Failure (SAGA Rollback):** ![Scenario 3.3](./images/Scenario3.3.png "Figure 3c - Stripe refund error process") The cancellation is eligible, but Stripe fails to process the refund after at least 3 attempts. The system performs SAGA compensation by reverting statuses and alerting the fan of the error and next steps.
+4. **Figure 3d — No One on the Waitlist:** ![Scenario 3.4](./images/Scenario3.4.png "Figure 3d - No one in the waitlist for cancelled ticket process") The cancellation and refund succeed, but there are no customers in the waitlist. The ticket is returned to general inventory and a `ticket.available` notification is broadcast.
+
+---
+
+## Figure 3a — Successful Refund & Ticket Reallocation
+
+This is the primary happy path. The cancellation request passes all validation checks and falls within the 48-hour refund policy window. Stripe processes the refund, the Inventory Service adds the ticket back to the pool, and the Waitlist Service identifies the next eligible customer. The waitlisted customer is notified and guided through payment to confirm their new booking. The final UI state confirms both the refund and the reallocation of the ticket.
+
+### Microservice Interaction Diagram — Figure 3a: Successful Refund & Ticket Reallocation
+
+![Diagram 1: Successful Refund & Ticket Reallocation](Screenshot-2026-04-01-at-4.22.35-PM-4.jpg)
+
+### Interaction Steps — Figure 3a
+
+1. **Initiate cancellation:** Fan clicks "Cancel Ticket" on the My Tickets page. Ticketing System UI sends `HTTP POST /bookings/cancel/{bookingID}` through Kong API Gateway with `{userID, bookingID}`.
+2. **Gateway authentication and routing:** Kong Key Auth plugin verifies the fan's session token and routes `HTTP POST /orchestrator/cancellation` to the Cancellation Orchestrator once the customer token is verified.
+3. **Request ticket ownership validation:** Cancellation Orchestrator calls the E-Ticket Service via `gRPC ValidateTicket` to request the validity of the ticket ownership for `{userID}`, ensuring the fan owns the ticket they are trying to cancel.
+4. **Confirm ticket ownership:** The E-Ticket Service confirms the ticket ownership is validated and the status is returned to the Orchestrator.
+5. **Fetch transaction record:** Cancellation Orchestrator calls `HTTP GET /payments/verify/{bookingID}` on the Payment Service to retrieve the purchase date and ensure it is within the 48h refund policy window.
+6. **Confirm refund eligibility:** The Payment Service confirms the purchase date is valid. The Orchestrator then sends `HTTP PUT /payments/status/{bookingID}` to amend the record status to `"Processing Refund"`.
+7. **Publish cancellation confirmation event:** Cancellation Orchestrator publishes a `cancellation.confirmed` event to RabbitMQ to initiate the downstream notification and inventory updates.
+8. **Notify fan of confirmed cancellation:** Notification Service consumes the `cancellation.confirmed` event and triggers `HTTP POST /notifications/send` to SendGrid to inform the fan of the confirmed cancellation.
+9. **Request financial refund:** Payment Service sends `HTTP POST /v1/refunds` to Stripe to request the actual refund for the customer.
+10. **Refund confirmed by Stripe:** Stripe processes the transaction and responds with a message that the refund was successfully provided.
+11. **Update payment record to refund successful:** Cancellation Orchestrator sends `HTTP PUT /payments/update/{bookingID}` to amend the payment status to `"Refund successful"` and publishes the `refund.successful` event to RabbitMQ.
+12. **Restore inventory:** Cancellation Orchestrator sends `HTTP PUT /inventory/tickets/{ticketID}` to the Inventory Service to amend the record and add one available ticket back to the pool.
+13. **Check waitlist:** Cancellation Orchestrator calls `HTTP GET /waitlist/status/{ticketID}` on the Waitlist Service to check if there are people waiting for the newly available ticket.
+14. **Identify next customer:** The Waitlist Service returns the record of customers currently in the waitlist to the Orchestrator.
+15. **Notify waitlisted fan:** Cancellation Orchestrator publishes a `ticket.available` event to RabbitMQ. Notification Service consumes the event and sends `HTTP POST /notifications/waitlist` via SendGrid to inform the waitlisted customer of availability.
+16. **Reallocate and bill:** Cancellation Orchestrator sends `HTTP DELETE /waitlist/users/{userID}` to remove the top-priority customer from the waitlist and triggers `HTTP POST /payments/create` to the Payment Service to initialise the payment record for the new customer.
+17. **New customer completes payment:** The new customer completes their purchase via `HTTP POST /v1/charges` through Stripe.
+18. **Finalise ownership transfer:** Stripe sends a callback to the Cancellation Orchestrator to amend the payment record status to `"Payment made"`. The Orchestrator then publishes a `ticket.confirmation` event and sends `HTTP POST /etickets/update` to the E-Ticket Service to add the new booking record and cancel the old customer's ticket.
+19. **Confirm purchase to new customer:** Notification Service consumes the `ticket.confirmation` event and sends `HTTP POST /notifications/confirm` via SendGrid to the new customer to confirm the ticket purchase.
+20. **Update portal with refund and reallocation status:** Cancellation Orchestrator sends an update to the Ticketing System UI to confirm the refund and the new allocation of the ticket.
+21. **Route updates to the UI:** The final UI state is updated to confirm both the refund to the original customer and the successful reallocation of the ticket to the new customer.
+
+---
+
+## Figure 3b — Not Within Refund Policy
+
+This path handles the business exception where the cancellation request is submitted within 48 hours of the concert date. The Cancellation Orchestrator detects this after querying the Payment Service and immediately rejects the request. A `cancellation.denied` event is published to RabbitMQ, the fan is notified of the denial via email, and the portal is updated to reflect the rejected request. No changes are made to the ticket, payment, or inventory records.
+
+### Microservice Interaction Diagram — Figure 3b: Not Within Refund Policy
+
+![Diagram 2: Not within refund policy](Screenshot-2026-04-01-at-4.22.27-PM-3.jpg)
+
+### Interaction Steps — Figure 3b
+
+1. **Initiate cancellation:** Fan clicks "Cancel Ticket" on the My Tickets page. Ticketing System UI sends `HTTP POST /bookings/cancel/{bookingID}` through Kong API Gateway with `{bookingID, userID}`.
+2. **Gateway authentication and routing:** Kong Key Auth plugin verifies the fan's session token and routes `HTTP POST /orchestrator/cancellation` to the Cancellation Orchestrator once the customer token is verified.
+3. **Request ticket ownership validation:** Cancellation Orchestrator calls the E-Ticket Service via `gRPC ValidateTicket` to request the validity of the ticket ownership for `{userID}`.
+4. **Confirm ticket ownership:** The E-Ticket Service processes the request and returns the successful validation and ticket status to the Orchestrator.
+5. **Fetch transaction record:** Cancellation Orchestrator calls `HTTP GET /payments/verify-policy/{bookingID}` on the Payment Service to verify if the purchase date is at least 48h before the concert date.
+6. **Refund eligibility check fails:** The Payment Service determines the request is invalid and responds with `"Verified purchase date is NOT within refund policy"`.
+7. **Publish cancellation denied event:** Cancellation Orchestrator publishes a `cancellation.denied` event to RabbitMQ to trigger the rejection workflow.
+8. **Notify fan of denial:** Notification Service consumes the `cancellation.denied` event and triggers `HTTP POST /notifications/denied` to SendGrid to send the cancellation denied notification to the fan.
+9. **Update portal to confirm denial:** Cancellation Orchestrator sends `HTTP POST /ui/update-status` back through Kong to the Ticketing System UI to confirm that the refund request has been denied.
+10. **Route updates to the UI:** The final UI state is updated to inform the fan that their cancellation request has been rejected because it falls within the 48-hour restricted window.
+
+---
+
+## Figure 3c — Refund Issue with Stripe (SAGA Rollback)
+
+This path handles the failure scenario where the cancellation is valid and within the refund policy, but Stripe repeatedly fails to process the refund after at least 3 attempts. The system applies SAGA rollback compensation by setting the payment status to `"Refund failed"` and the ticket status to `"Cancellation In Progress"`, preserving a recoverable intermediate state. The fan is notified of the error along with next steps, and the portal is updated accordingly. No inventory or waitlist changes are made because the refund was never confirmed.
+
+### Microservice Interaction Diagram — Figure 3c: Refund Issue with Stripe (SAGA Rollback)
+
+![Diagram 3: Refund issue with Stripe - SAGA rollback](Screenshot-2026-04-01-at-4.22.15-PM-2.jpg)
+
+### Interaction Steps — Figure 3c
+
+1. **Initiate cancellation:** Fan clicks "Cancel Ticket" on the Ticketing System UI. Ticketing System UI sends `HTTP POST /bookings/cancel/{bookingID}` through Kong API Gateway with `{userID, bookingID}`.
+2. **Gateway authentication and routing:** Kong Key Auth plugin verifies the customer token and routes `HTTP POST /orchestrator/cancellation` to the Cancellation Orchestrator once the fan's session is verified.
+3. **Request ticket ownership validation:** Cancellation Orchestrator calls the E-Ticket Service via `gRPC ValidateTicket` to request the validity of the ticket ownership for `{userID}`.
+4. **Confirm ticket ownership:** The E-Ticket Service validates the ownership and returns a successful validation and ticket status to the Orchestrator.
+5. **Fetch transaction record:** Cancellation Orchestrator calls `HTTP GET /payments/verify/{bookingID}` on the Payment Service to verify if the purchase date is within the 48h refund policy window.
+6. **Confirm refund eligibility:** The Payment Service confirms the purchase date is verified. The Orchestrator then sends `HTTP PUT /payments/status/{bookingID}` to amend the record status to `"Processing Refund"`.
+7. **Publish cancellation confirmation event:** Cancellation Orchestrator publishes a `cancellation.confirmed` event to RabbitMQ.
+8. **Notify fan of confirmed cancellation:** Notification Service consumes the `cancellation.confirmed` event and triggers `HTTP POST /notifications/send` to SendGrid to inform the fan that the cancellation is confirmed.
+9. **Stripe refund failure after retries:** Payment Service sends `HTTP POST /v1/refunds` to Stripe, attempted at least 3 times. Stripe responds with a refund failed message for all 3 requests.
+10. **SAGA compensation — update payment status:** Cancellation Orchestrator sends `HTTP PUT /payments/status/fail` to the Payment Service to amend the payment record status to `"Refund failed"`.
+11. **SAGA compensation — update ticket status:** Cancellation Orchestrator sends `HTTP PUT /tickets/status/progress` to the E-Ticket Service to set the ticket status to `"Cancellation In Progress"`, preserving a recoverable intermediate state without completing the cancellation.
+12. **Update portal with error information:** Cancellation Orchestrator sends `HTTP POST /portal/update/error` to the Ticketing System UI to update the portal with details of the failed refund and the next steps the fan should take.
+13. **Publish refund error event:** Cancellation Orchestrator publishes a `refund.error` event to RabbitMQ to trigger the customer error notification workflow.
+14. **Notify fan of refund error:** Notification Service consumes the `refund.error` event and triggers `HTTP POST /notifications/error` via SendGrid to alert the customer about the refund error and provide guidance.
+15. **Route updates to the UI:** The final UI state reflects the failed refund, the `"Cancellation In Progress"` ticket status, and the next steps for the customer to retrieve their refund.
+
+---
+
+## Figure 3d — No One on the Waitlist
+
+This path follows the same successful refund flow as Figure 3a up until inventory is restored. When the Waitlist Service returns no active customers waiting for the freed ticket, the Cancellation Orchestrator makes the ticket publicly available instead of allocating it to a specific person. A `ticket.available` event is published so that interested customers are notified of general availability, and the portal is updated to reflect the ticket being on general sale.
+
+### Microservice Interaction Diagram — Figure 3d: No One on the Waitlist
+
+![Diagram 4: No one on the waiting list](Screenshot-2026-04-01-at-4.22.11-PM.jpg)
+
+### Interaction Steps — Figure 3d
+
+1. **Initiate cancellation:** Fan clicks "Cancel Ticket" on the My Tickets page. Ticketing System UI sends `HTTP POST /bookings/cancel` through Kong API Gateway with `{bookingID, userID}`.
+2. **Gateway authentication and routing:** Kong Key Auth plugin verifies the customer session token and routes `HTTP POST /orchestrator/cancellation` to the Cancellation Orchestrator once the token is verified.
+3. **Request ticket ownership validation:** Cancellation Orchestrator calls the E-Ticket Service via `gRPC ValidateTicket` to request the validity of the ticket ownership for `{userID}`.
+4. **Confirm ticket ownership:** The E-Ticket Service processes the request and returns successful validation and ticket status back to the Orchestrator.
+5. **Fetch transaction record:** Cancellation Orchestrator calls `HTTP GET /payments/verify/{bookingID}` on the Payment Service to verify if the purchase date is within the 48h refund policy window.
+6. **Confirm refund eligibility:** The Payment Service confirms the verified purchase date is within the refund policy. The Orchestrator then sends `HTTP PUT /payments/processing/{bookingID}` to amend the payment record status to `"Processing Refund"`.
+7. **Publish cancellation confirmation event:** Cancellation Orchestrator publishes a `cancellation.confirmed` event to RabbitMQ to signal the start of the refund process.
+8. **Notify fan of confirmed cancellation:** Notification Service consumes the `cancellation.confirmed` event and triggers `HTTP POST /notifications/send` to SendGrid to inform the fan of the confirmed cancellation.
+9. **Request financial refund:** Payment Service sends `HTTP POST /v1/refunds` to Stripe to request the financial refund for the customer.
+10. **Refund confirmed by Stripe:** Stripe processes the transaction and responds confirming the refund was successfully provided.
+11. **Update payment record to refund successful:** Cancellation Orchestrator sends `HTTP PUT /payments/success/{bookingID}` to amend the record status to `"Refund successful"` and publishes the `refund.successful` event to RabbitMQ.
+12. **Restore inventory:** Cancellation Orchestrator sends `HTTP PUT /inventory/tickets/add` to the Inventory Service to amend the ticket record and add one available ticket back to the system.
+13. **Check waitlist:** Cancellation Orchestrator calls `HTTP GET /waitlist/status/{ticketID}` on the Waitlist Service to check if there are people currently waiting for the given ticket.
+14. **No waitlist found:** The Waitlist Service returns a response indicating no one is in the waitlist. The Orchestrator proceeds to make the ticket available to the general public.
+15. **Publish ticket availability event:** Cancellation Orchestrator publishes a `ticket.available` event to RabbitMQ. Notification Service consumes the event and sends `HTTP POST /notifications/availability` via SendGrid to inform potential customers of the new ticket availability.
+16. **Update portal with refund and availability status:** Cancellation Orchestrator sends `HTTP POST /portal/update` to the Ticketing System UI to confirm the refund and update the portal to show the ticket is now available for general sale.
+17. **Route updates to the UI:** The final UI state is updated to confirm the refund to the original customer and display the newly available ticket on the general listings page.
+
+---
+
+## API Docs, External Services, and Beyond the Labs
+
+### Application / UI
+
+| Application / UI Name | Menu Items                                                                       |
+| :-------------------- | :------------------------------------------------------------------------------- |
+| Ticketing System UI   | My Tickets, Cancel Ticket, View Booking Status, Refund Status, Available Tickets |
+
+### Atomic Microservices
+
+| Service Name             | Operations                                                                                                                                                                                                                                                                                                                                                                                                                   | Database / Storage | Table Name & Schema                                                                                                                                                                                                                                                                                                                         |
+| :----------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :----------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **E-Ticket Service**     | `gRPC ValidateTicket`; `[HTTP PUT] /tickets/status/{ticketID}`; `[HTTP POST] /etickets/update`                                                                                                                                                                                                                                                                                                                               | `ticketblitz_db`   | `etickets`: `ticketID` VARCHAR PK, `bookingID` VARCHAR, `userID` INT, `eventID` INT, `seatNumber` VARCHAR(10), `status` ENUM('VALID','CANCELLED','CANCELLATION_IN_PROGRESS'), `createdAt` TIMESTAMP                                                                                                                                         |
+| **Payment Service**      | `[HTTP GET] /payments/verify/{bookingID}`; `[HTTP GET] /payments/verify-policy/{bookingID}`; `[HTTP PUT] /payments/status/{bookingID}`; `[HTTP PUT] /payments/update/{bookingID}`; `[HTTP PUT] /payments/success/{bookingID}`; `[HTTP PUT] /payments/processing/{bookingID}`; `[HTTP PUT] /payments/status/fail`; `[HTTP POST] /payments/create`; `[HTTP POST] /v1/refunds` via Stripe; `[HTTP POST] /v1/charges` via Stripe | `ticketblitz_db`   | `transactions`: `transactionID` INT PK, `bookingID` VARCHAR, `userID` INT, `amount` DECIMAL(8,2), `refundAmount` DECIMAL(8,2), `currency` VARCHAR(3), `stripePaymentIntentID` VARCHAR(100), `status` ENUM('CONFIRMED','PROCESSING_REFUND','REFUND_SUCCESSFUL','REFUND_FAILED','PAYMENT_MADE'), `createdAt` TIMESTAMP, `updatedAt` TIMESTAMP |
+| **Inventory Service**    | `[HTTP PUT] /inventory/tickets/{ticketID}`; `[HTTP PUT] /inventory/tickets/add`; `[HTTP PUT] /inventory/seat/{seatID}/status`                                                                                                                                                                                                                                                                                                | `ticketblitz_db`   | `inventory`: `inventoryID` INT PK, `ticketID` VARCHAR, `eventID` INT, `seatCategory` VARCHAR(50), `availableCount` INT, `status` ENUM('AVAILABLE','SOLD_OUT'), `updatedAt` TIMESTAMP                                                                                                                                                        |
+| **Waitlist Service**     | `[HTTP GET] /waitlist/status/{ticketID}`; `[HTTP DELETE] /waitlist/users/{userID}`                                                                                                                                                                                                                                                                                                                                           | `ticketblitz_db`   | `waitlist_entries`: `waitlistID` VARCHAR PK, `ticketID` VARCHAR, `eventID` INT, `userID` INT, `seatCategory` VARCHAR(50), `status` ENUM('WAITING','HOLD_OFFERED','CONFIRMED','EXPIRED'), `joinedAt` TIMESTAMP                                                                                                                               |
+| **Notification Service** | Consumes `[BKEY] cancellation.confirmed`; `[BKEY] cancellation.denied`; `[BKEY] refund.successful`; `[BKEY] refund.error`; `[BKEY] ticket.available`; `[BKEY] ticket.confirmation`                                                                                                                                                                                                                                           | No storage         | Stateless consumer; sends email via SendGrid                                                                                                                                                                                                                                                                                                |
+
+### Composite Services
+
+| Service Name                  | Type      | Operations / Trigger                                    | Notes                                                                                                                |
+| :---------------------------- | :-------- | :------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------- |
+| **Cancellation Orchestrator** | Composite | `[HTTP POST] /orchestrator/cancellation` routed by Kong | Coordinates the full cancellation lifecycle across E-Ticket, Payment, Inventory, Waitlist, and Notification services |
+
+### AMQP Model
+
+| Exchange      | Type  | Binding Key              | Publisher                 | Consumer             | Payload                                                      |
+| :------------ | :---- | :----------------------- | :------------------------ | :------------------- | :----------------------------------------------------------- |
+| `ticketblitz` | Topic | `cancellation.confirmed` | Cancellation Orchestrator | Notification Service | `{bookingID, userID, email, eventName}`                      |
+| `ticketblitz` | Topic | `cancellation.denied`    | Cancellation Orchestrator | Notification Service | `{bookingID, userID, email, reason}`                         |
+| `ticketblitz` | Topic | `refund.successful`      | Cancellation Orchestrator | Notification Service | `{bookingID, userID, email, refundAmount}`                   |
+| `ticketblitz` | Topic | `refund.error`           | Cancellation Orchestrator | Notification Service | `{bookingID, userID, email, errorDetail, nextSteps}`         |
+| `ticketblitz` | Topic | `ticket.available`       | Cancellation Orchestrator | Notification Service | `{ticketID, eventID, seatCategory, waitlistUserID?, email?}` |
+| `ticketblitz` | Topic | `ticket.confirmation`    | Cancellation Orchestrator | Notification Service | `{bookingID, newUserID, email, ticketID, seatNumber}`        |
+
+### Key JSON Payloads
+
+| API / Message                                | Example Payload                                                                                                                      |
+| :------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /bookings/cancel/{bookingID}`          | `{ "userID": "U-001", "bookingID": "BK-500" }`                                                                                       |
+| `gRPC ValidateTicket`                        | `{ "userID": "U-001", "bookingID": "BK-500" }`                                                                                       |
+| `GET /payments/verify/{bookingID}` response  | `{ "bookingID": "BK-500", "purchaseDate": "2026-03-10T10:00:00Z", "withinPolicy": true }`                                            |
+| `PUT /payments/status/{bookingID}`           | `{ "status": "PROCESSING_REFUND" }`                                                                                                  |
+| `cancellation.confirmed` event               | `{ "bookingID": "BK-500", "userID": "U-001", "email": "fan@email.com", "eventName": "Coldplay Live" }`                               |
+| `PUT /payments/update/{bookingID}` success   | `{ "status": "REFUND_SUCCESSFUL", "refundAmount": 144.00 }`                                                                          |
+| `PUT /payments/status/fail` SAGA rollback    | `{ "bookingID": "BK-500", "status": "REFUND_FAILED" }`                                                                               |
+| `PUT /tickets/status/progress` SAGA rollback | `{ "bookingID": "BK-500", "status": "CANCELLATION_IN_PROGRESS" }`                                                                    |
+| `ticket.available` event with waitlist       | `{ "ticketID": "TKT-9988", "eventID": "EVT-301", "seatCategory": "CAT1", "waitlistUserID": "U-077", "email": "waitlist@email.com" }` |
+| `ticket.available` event no waitlist         | `{ "ticketID": "TKT-9988", "eventID": "EVT-301", "seatCategory": "CAT1", "publicAvailability": true }`                               |
+| `POST /payments/create` new customer         | `{ "userID": "U-077", "ticketID": "TKT-9988", "amount": 160.00 }`                                                                    |
+| `ticket.confirmation` event                  | `{ "bookingID": "BK-501", "newUserID": "U-077", "email": "waitlist@email.com", "ticketID": "TKT-9989", "seatNumber": "D12" }`        |
+
+### External Services
+
+#### Stripe
+
+Stripe is used by the Payment Service for processing both customer refunds on cancellation and new payment charges when a waitlisted customer completes their purchase. It is the appropriate external payment boundary because it handles all financial transactions outside of the platform's own services.
+
+**APIs used**
+
+- `POST /v1/refunds` — triggered by Payment Service to refund the original customer
+- `POST /v1/charges` — triggered by Payment Service to charge the new waitlisted customer
+
+**Why used here**
+
+- Provides a reliable, idempotent refund API with retry support for SAGA compensation flows.
+- Supports callback-based confirmation to enable asynchronous ownership transfer upon successful payment.
+- Decouples financial processing from business logic, consistent with microservices boundary design.
+
+#### SendGrid
+
+SendGrid is used by the Notification Service to deliver all transactional emails associated with the cancellation workflow.
+
+**API used**
+
+- `POST /v3/mail/send`
+
+**Email types in this scenario**
+
+- Cancellation confirmation (Figures 3a, 3c, 3d)
+- Cancellation denial — outside refund policy (Figure 3b)
+- Refund confirmation (Figures 3a, 3d)
+- Refund error alert and next steps (Figure 3c)
+- Ticket availability notification to waitlisted customer (Figure 3a)
+- Ticket availability broadcast to general public (Figure 3d)
+- New ticket purchase confirmation for reallocated customer (Figure 3a)
+
+---
+
+## Beyond the Labs
+
+### BTL 1 — Kong API Gateway for Centralised Cancellation Entry Point
+
+Kong sits at the entry point for all cancellation requests through `HTTP POST /bookings/cancel/{bookingID}` and handles routing, authentication via the Key Auth plugin, and request throttling before any request reaches the Cancellation Orchestrator.
+
+**Why beneficial here**
+
+- Prevents unauthenticated or unauthorised cancellation requests from ever reaching internal services.
+- Provides a single controlled entry point for all cancellation traffic, simplifying audit trails for financial workflows.
+- Rate limiting reduces the risk of abuse against the refund endpoint during peak demand periods.
+
+### BTL 2 — Event-Driven Notification Choreography with RabbitMQ
+
+This scenario uses RabbitMQ beyond a simple notification pattern by publishing distinct domain events (`cancellation.confirmed`, `refund.successful`, `refund.error`, `ticket.available`, `ticket.confirmation`) each triggering independent consumer behaviour in the Notification Service without tight coupling to the Orchestrator.
+
+**Why beneficial here**
+
+- The Cancellation Orchestrator does not need to know how notifications are delivered; it simply publishes domain state events.
+- Notification Service remains stateless and independently scalable.
+- Individual binding keys allow selective consumption and future extensibility, for example adding an audit logging consumer to `refund.error` without modifying the Orchestrator.
+
+### BTL 3 — SAGA Rollback Pattern for Stripe Failure Compensation
+
+When Stripe fails to process a refund after 3 retries, the system applies SAGA compensation by explicitly resetting the payment record to `"Refund failed"` and the ticket to `"Cancellation In Progress"`, preserving a consistent and recoverable intermediate state rather than leaving orphaned records.
+
+**Why beneficial here**
+
+- Prevents the system from being left in an inconsistent state where the cancellation is acknowledged but the refund is silently unprocessed.
+- The `"Cancellation In Progress"` ticket status serves as a clear signal for customer support or an automated retry mechanism to resolve the refund asynchronously.
+- Demonstrates a practical application of SAGA compensating transactions in a distributed payment flow without requiring a two-phase commit.
+
+### BTL 4 — Conditional Waitlist Reallocation vs. General Public Release
+
+After a successful refund, the system branches based on waitlist occupancy. If a waitlisted customer exists (Figure 3a), the ticket is allocated directly and the customer is guided through payment. If no one is on the waitlist (Figure 3d), the ticket is returned to general inventory and a broadcast notification is published.
+
+**Why beneficial here**
+
+- Models a real-world business rule where priority allocation to waitlisted customers must occur before public resale.
+- Demonstrates conditional orchestration logic within a single composite service, keeping the decision centralised and auditable.
+- Reuses the same `ticket.available` AMQP binding key for both paths, with the payload distinguishing allocation type, keeping the Notification Service interface consistent.
