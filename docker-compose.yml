@@ -35,6 +35,12 @@ services:
     environment:
       PORT: "5000"
       SERVICE_NAME: event-service
+      RABBITMQ_CONNECTION_ATTEMPTS: "1"
+      RABBITMQ_RETRY_DELAY: "0.5"
+      RABBITMQ_BLOCKED_TIMEOUT: "5"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
     ports:
       - "5001:5000"
     healthcheck:

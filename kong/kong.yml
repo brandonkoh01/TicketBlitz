@@ -15,6 +15,72 @@ services:
           - GET
           - OPTIONS
         strip_path: false
+      - name: get-event-by-id
+        paths:
+          - ~/event/[^/]+$
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
+      - name: get-event-categories
+        paths:
+          - ~/event/[^/]+/categories$
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
+      - name: update-event-status
+        paths:
+          - ~/event/[^/]+/status$
+        methods:
+          - PUT
+          - OPTIONS
+        strip_path: false
+        plugins:
+          - name: key-auth
+            config:
+              key_names:
+                - x-organiser-api-key
+              hide_credentials: true
+              run_on_preflight: false
+          - name: acl
+            config:
+              allow:
+                - organisers
+              hide_groups_header: true
+      - name: update-event-category-prices
+        paths:
+          - ~/event/[^/]+/categories/prices$
+        methods:
+          - PUT
+          - OPTIONS
+        strip_path: false
+        plugins:
+          - name: key-auth
+            config:
+              key_names:
+                - x-organiser-api-key
+              hide_credentials: true
+              run_on_preflight: false
+          - name: acl
+            config:
+              allow:
+                - organisers
+              hide_groups_header: true
+      - name: get-event-flash-sale-status
+        paths:
+          - ~/event/[^/]+/flash-sale/status$
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
+      - name: get-event-price-history
+        paths:
+          - ~/event/[^/]+/price-history$
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
     plugins:
       - name: rate-limiting
         config:
@@ -54,3 +120,11 @@ services:
         methods:
           - POST
         strip_path: false
+
+consumers:
+  - username: organiser-dashboard
+    custom_id: organiser-dashboard
+    keyauth_credentials:
+      - key: ticketblitz-organiser-dev-key
+    acls:
+      - group: organisers
