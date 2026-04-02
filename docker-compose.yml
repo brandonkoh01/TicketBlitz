@@ -171,6 +171,27 @@ services:
     networks:
       - ticketblitz-net
 
+  expiry-scheduler-service:
+    build:
+      context: .
+      dockerfile: backend/atomic/expiry-scheduler-service/Dockerfile
+    container_name: ticketblitz-expiry-scheduler-service
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      SERVICE_NAME: expiry-scheduler-service
+      INVENTORY_SERVICE_URL: ${INVENTORY_SERVICE_URL:-http://inventory-service:5000}
+      INTERNAL_AUTH_HEADER: ${INTERNAL_AUTH_HEADER:-X-Internal-Token}
+      EXPIRY_INTERVAL_SECONDS: ${EXPIRY_INTERVAL_SECONDS:-60}
+      EXPIRY_ERROR_RETRY_DELAY_SECONDS: ${EXPIRY_ERROR_RETRY_DELAY_SECONDS:-5}
+      EXPIRY_ERROR_RETRY_JITTER_SECONDS: ${EXPIRY_ERROR_RETRY_JITTER_SECONDS:-0.5}
+    depends_on:
+      inventory-service:
+        condition: service_healthy
+    networks:
+      - ticketblitz-net
+
   kong:
     image: kong/kong-gateway:3.9
     container_name: ticketblitz-kong
