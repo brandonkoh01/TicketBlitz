@@ -4,10 +4,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/backend
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd --create-home --no-log-init --shell /bin/bash appuser
+RUN useradd --create-home --no-log-init --shell /bin/bash appuser
 
 WORKDIR /app
 
@@ -19,8 +16,6 @@ COPY backend/shared backend/shared
 COPY backend/atomic/notification-service backend/atomic/notification-service
 
 USER appuser
-
-EXPOSE 5000
 
 STOPSIGNAL SIGTERM
 
