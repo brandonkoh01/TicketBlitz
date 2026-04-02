@@ -79,6 +79,9 @@ services:
     environment:
       PORT: "5000"
       SERVICE_NAME: inventory-service
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
     ports:
       - "5003:5000"
     healthcheck:
@@ -178,6 +181,8 @@ services:
       KONG_LOG_LEVEL: info
     depends_on:
       event-service:
+        condition: service_healthy
+      inventory-service:
         condition: service_healthy
       waitlist-service:
         condition: service_healthy
