@@ -99,6 +99,9 @@ services:
           - /waitlist
         methods:
           - GET
+          - POST
+          - PUT
+          - DELETE
           - OPTIONS
         strip_path: false
     plugins:

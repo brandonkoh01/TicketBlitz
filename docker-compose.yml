@@ -135,6 +135,9 @@ services:
     environment:
       PORT: "5000"
       SERVICE_NAME: waitlist-service
+      REQUIRE_INTERNAL_AUTH: ${REQUIRE_INTERNAL_AUTH:-1}
+      WAITLIST_SERVICE_AUTH_HEADER: ${WAITLIST_SERVICE_AUTH_HEADER:-X-Internal-Token}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-ticketblitz-internal-token}
     ports:
       - "5005:5000"
     healthcheck:
