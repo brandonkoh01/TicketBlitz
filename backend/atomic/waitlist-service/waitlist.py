@@ -1649,8 +1649,12 @@ def _build_openapi_spec(base_url: str, auth_header_name: str) -> dict[str, Any]:
             "/waitlist/{waitlist_id}": {
                 "get": {
                     "summary": "Get one waitlist entry",
-                    "description": "includeEmail=true requires the internal token header.",
+                    "description": (
+                        "Reads a single waitlist entry. "
+                        "Runtime auth is enforced when includeEmail=true."
+                    ),
                     "tags": ["Waitlist"],
+                    "security": [{"InternalToken": []}],
                     "parameters": [
                         {
                             "name": "waitlist_id",
@@ -1662,6 +1666,7 @@ def _build_openapi_spec(base_url: str, auth_header_name: str) -> dict[str, Any]:
                             "name": "includeEmail",
                             "in": "query",
                             "required": False,
+                            "description": "When true, the response includes email and requires a valid internal token.",
                             "schema": {"type": "boolean", "default": False},
                         },
                     ],

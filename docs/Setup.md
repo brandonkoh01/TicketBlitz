@@ -1260,6 +1260,23 @@ Swagger docs (event service):
 http://localhost:5001/apidocs/
 ```
 
+Swagger docs (waitlist service):
+
+```text
+http://localhost:5005/docs
+```
+
+Waitlist includeEmail auth check:
+
+```bash
+# Public read (no auth needed)
+curl -i "http://localhost:5005/waitlist/<waitlistID>"
+
+# includeEmail=true requires internal token
+curl -i "http://localhost:5005/waitlist/<waitlistID>?includeEmail=true" \
+  -H "X-Internal-Token: <INTERNAL_SERVICE_TOKEN>"
+```
+
 Protected organiser write route check:
 
 ```bash

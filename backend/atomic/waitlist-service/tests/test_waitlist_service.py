@@ -91,6 +91,10 @@ class WaitlistServiceTestCase(unittest.TestCase):
             payload["components"]["securitySchemes"]["InternalToken"]["name"],
             AUTH_HEADER_NAME,
         )
+        self.assertEqual(
+            payload["paths"]["/waitlist/{waitlist_id}"]["get"]["security"],
+            [{"InternalToken": []}],
+        )
 
     @patch.object(waitlist_service, "db_configured", return_value=True)
     def test_swagger_docs_endpoint_is_public(self, _mock_db_configured):
@@ -239,6 +243,53 @@ class WaitlistServiceTestCase(unittest.TestCase):
         client = self._build_client(repo)
         response = client.get(f"/waitlist/{WAITLIST_ID}?includeEmail=true")
         self.assertEqual(response.status_code, 401)
+
+    @patch.object(waitlist_service, "db_configured", return_value=True)
+    def test_get_waitlist_by_id_include_email_with_auth_returns_email(self, _mock_db_configured):
+        repo = Mock()
+        repo.get_entry.return_value = _entry(status="WAITING")
+        repo.get_positions.return_value = {WAITLIST_ID: 1}
+        repo.get_category_map.return_value = {
+            CATEGORY_ID: {
+                "category_id": CATEGORY_ID,
+                "event_id": EVENT_ID,
+                "category_code": "CAT1",
+                "name": "Category 1",
+            }
+        }
+        repo.get_user_email_map.return_value = {USER_ID: "fan001@example.com"}
+
+        client = self._build_client(repo)
+        response = client.get(
+            f"/waitlist/{WAITLIST_ID}?includeEmail=true",
+            headers=self._auth_headers(),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["email"], "fan001@example.com")
+
+    @patch.object(waitlist_service, "db_configured", return_value=True)
+    def test_get_waitlist_by_id_include_email_false_is_public(self, _mock_db_configured):
+        repo = Mock()
+        repo.get_entry.return_value = _entry(status="WAITING")
+        repo.get_positions.return_value = {WAITLIST_ID: 1}
+        repo.get_category_map.return_value = {
+            CATEGORY_ID: {
+                "category_id": CATEGORY_ID,
+                "event_id": EVENT_ID,
+                "category_code": "CAT1",
+                "name": "Category 1",
+            }
+        }
+
+        client = self._build_client(repo)
+        response = client.get(f"/waitlist/{WAITLIST_ID}?includeEmail=false")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertNotIn("email", payload)
+        repo.get_user_email_map.assert_not_called()
 
     @patch.object(waitlist_service, "db_configured", return_value=True)
     def test_get_next_waitlist_requires_params(self, _mock_db_configured):
