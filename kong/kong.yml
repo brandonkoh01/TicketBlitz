@@ -108,6 +108,26 @@ services:
           policy: local
           fault_tolerant: true
 
+  - name: inventory-service-public
+    url: http://inventory-service:5000
+    connect_timeout: 5000
+    read_timeout: 15000
+    write_timeout: 10000
+    routes:
+      - name: inventory-api
+        paths:
+          - /inventory
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 180
+          policy: local
+          fault_tolerant: true
+
   - name: payment-webhook
     url: http://payment-service:5000
     connect_timeout: 5000
