@@ -321,6 +321,13 @@ WAITLIST_SERVICE_URL=http://waitlist-service:5000
 FLASK_ENV=development
 FLASK_DEBUG=0
 
+# ── Internal Service Auth ────────────────────────────────────
+# Used by internal-only endpoints on atomic services (for example user/waitlist)
+REQUIRE_INTERNAL_AUTH=1
+INTERNAL_SERVICE_TOKEN=ticketblitz-internal-token
+USER_SERVICE_AUTH_HEADER=X-Internal-Token
+WAITLIST_SERVICE_AUTH_HEADER=X-Internal-Token
+
 # ── Expiry Scheduler ─────────────────────────────────────────
 EXPIRY_INTERVAL_SECONDS=60
 ```
@@ -377,6 +384,8 @@ When running outside Docker, the internal Docker DNS hostnames (`rabbitmq`, `use
 export SUPABASE_URL="https://your-project-ref.supabase.co"
 export SUPABASE_SERVICE_KEY="eyJ..."
 export RABBITMQ_URL="amqp://ticketblitz:change_me_before_demo@localhost:5672/"
+export REQUIRE_INTERNAL_AUTH=1
+export INTERNAL_SERVICE_TOKEN="ticketblitz-internal-token"
 export PORT=5002
 ```
 
@@ -385,6 +394,8 @@ export PORT=5002
 $env:SUPABASE_URL="https://your-project-ref.supabase.co"
 $env:SUPABASE_SERVICE_KEY="eyJ..."
 $env:RABBITMQ_URL="amqp://ticketblitz:change_me_before_demo@localhost:5672/"
+$env:REQUIRE_INTERNAL_AUTH="1"
+$env:INTERNAL_SERVICE_TOKEN="ticketblitz-internal-token"
 $env:PORT=5002
 ```
 
@@ -1079,6 +1090,10 @@ Invoke-RestMethod -Method Put -Uri "http://localhost:15672/api/exchanges/%2F/tic
 
 Kong is DB-less — its configuration lives entirely in `kong/kong.yml`. No database required.
 
+Event write endpoints are protected with Kong `key-auth` and `acl` plugins. For local development, use header `x-organiser-api-key: ticketblitz-organiser-dev-key` on:
+- `PUT /event/{eventID}/status`
+- `PUT /event/{eventID}/categories/prices`
+
 ### 12.1 — `kong/kong.yml`
 
 ```yaml
@@ -1103,6 +1118,13 @@ services:
           minute: 120
           policy: local
           fault_tolerant: true
+
+consumers:
+  - username: organiser-dashboard
+    keyauth_credentials:
+      - key: ticketblitz-organiser-dev-key
+    acls:
+      - group: organisers
 
   - name: reservation-orchestrator
     url: http://reservation-orchestrator:5000
@@ -1230,6 +1252,44 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/events
 ```powershell
 (Invoke-WebRequest -Uri "http://localhost:8000/events" -UseBasicParsing).StatusCode
 # Expected: 200
+```
+
+Swagger docs (event service):
+
+```text
+http://localhost:5001/apidocs/
+```
+
+Swagger docs (waitlist service):
+
+```text
+http://localhost:5005/docs
+```
+
+Waitlist includeEmail auth check:
+
+```bash
+# Public read (no auth needed)
+curl -i "http://localhost:5005/waitlist/<waitlistID>"
+
+# includeEmail=true requires internal token
+curl -i "http://localhost:5005/waitlist/<waitlistID>?includeEmail=true" \
+  -H "X-Internal-Token: <INTERNAL_SERVICE_TOKEN>"
+```
+
+Protected organiser write route check:
+
+```bash
+# Missing API key (expected 401)
+curl -i -X PUT http://localhost:8000/event/<eventID>/status \
+  -H "Content-Type: application/json" \
+  -d '{"status":"ACTIVE"}'
+
+# With API key (expected 200/409 depending on current state)
+curl -i -X PUT http://localhost:8000/event/<eventID>/status \
+  -H "Content-Type: application/json" \
+  -H "x-organiser-api-key: ticketblitz-organiser-dev-key" \
+  -d '{"status":"ACTIVE"}'
 ```
 
 ### 13.3 — Access points

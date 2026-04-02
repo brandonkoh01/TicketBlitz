@@ -35,6 +35,12 @@ services:
     environment:
       PORT: "5000"
       SERVICE_NAME: event-service
+      RABBITMQ_CONNECTION_ATTEMPTS: "1"
+      RABBITMQ_RETRY_DELAY: "0.5"
+      RABBITMQ_BLOCKED_TIMEOUT: "5"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
     ports:
       - "5001:5000"
     healthcheck:
@@ -57,8 +63,11 @@ services:
     environment:
       PORT: "5000"
       SERVICE_NAME: user-service
+      REQUIRE_INTERNAL_AUTH: ${REQUIRE_INTERNAL_AUTH:-1}
+      USER_SERVICE_AUTH_HEADER: ${USER_SERVICE_AUTH_HEADER:-X-Internal-Token}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-ticketblitz-internal-token}
     ports:
-      - "5002:5000"
+      - "127.0.0.1:5002:5000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 10s
@@ -79,6 +88,9 @@ services:
     environment:
       PORT: "5000"
       SERVICE_NAME: inventory-service
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
     ports:
       - "5003:5000"
     healthcheck:
@@ -126,6 +138,9 @@ services:
     environment:
       PORT: "5000"
       SERVICE_NAME: waitlist-service
+      REQUIRE_INTERNAL_AUTH: ${REQUIRE_INTERNAL_AUTH:-1}
+      WAITLIST_SERVICE_AUTH_HEADER: ${WAITLIST_SERVICE_AUTH_HEADER:-X-Internal-Token}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-ticketblitz-internal-token}
     ports:
       - "5005:5000"
     healthcheck:
@@ -172,6 +187,8 @@ services:
       KONG_LOG_LEVEL: info
     depends_on:
       event-service:
+        condition: service_healthy
+      inventory-service:
         condition: service_healthy
       waitlist-service:
         condition: service_healthy

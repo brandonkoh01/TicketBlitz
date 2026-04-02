@@ -830,4 +830,691 @@ comment on table integration_events is
 comment on materialized view mv_sales_velocity_hourly is
   'Hourly sales rollup used by Organiser Dashboard analytics; refresh on schedule.';
 
+create or replace function inventory_create_hold(
+  p_event_id uuid,
+  p_user_id uuid,
+  p_seat_category text,
+  p_from_waitlist boolean default false,
+  p_hold_duration_seconds integer default 600,
+  p_idempotency_key text default null
+)
+returns table (
+  outcome text,
+  hold_id uuid,
+  seat_id uuid,
+  event_id uuid,
+  category_id uuid,
+  user_id uuid,
+  from_waitlist boolean,
+  hold_expires_at timestamptz,
+  status hold_status_t,
+  release_reason hold_release_reason_t,
+  amount money_amount_t,
+  currency currency_code_t,
+  idempotency_key text,
+  correlation_id uuid,
+  confirmed_at timestamptz,
+  released_at timestamptz,
+  expired_at timestamptz,
+  created_at timestamptz,
+  seat_target_status seat_status_t
+)
+language plpgsql
+set search_path = public, extensions
+as $$
+declare
+  v_category seat_categories%rowtype;
+  v_hold seat_holds%rowtype;
+  v_source seat_status_t;
+  v_key text;
+  v_seat_id uuid;
+begin
+  if p_hold_duration_seconds < 1 then
+    raise exception 'p_hold_duration_seconds must be >= 1';
+  end if;
+
+  if p_seat_category is null or btrim(p_seat_category) = '' then
+    outcome := 'CATEGORY_NOT_FOUND';
+    return next;
+    return;
+  end if;
+
+  select *
+  into v_category
+  from seat_categories sc
+  where sc.event_id = p_event_id
+    and sc.category_code = upper(btrim(p_seat_category))
+    and sc.is_active = true
+  limit 1;
+
+  if not found then
+    outcome := 'CATEGORY_NOT_FOUND';
+    return next;
+    return;
+  end if;
+
+  v_key := nullif(btrim(p_idempotency_key), '');
+  if v_key is not null then
+    select *
+    into v_hold
+    from seat_holds sh
+    where sh.idempotency_key = v_key
+    limit 1;
+
+    if found then
+      if v_hold.event_id <> p_event_id
+         or v_hold.user_id <> p_user_id
+         or v_hold.category_id <> v_category.category_id
+         or v_hold.from_waitlist <> coalesce(p_from_waitlist, false) then
+        outcome := 'IDEMPOTENCY_KEY_CONFLICT';
+        return next;
+        return;
+      end if;
+
+      outcome := 'IDEMPOTENT';
+      hold_id := v_hold.hold_id;
+      seat_id := v_hold.seat_id;
+      event_id := v_hold.event_id;
+      category_id := v_hold.category_id;
+      user_id := v_hold.user_id;
+      from_waitlist := v_hold.from_waitlist;
+      hold_expires_at := v_hold.hold_expires_at;
+      status := v_hold.status;
+      release_reason := v_hold.release_reason;
+      amount := v_hold.amount;
+      currency := v_hold.currency;
+      idempotency_key := v_hold.idempotency_key;
+      correlation_id := v_hold.correlation_id;
+      confirmed_at := v_hold.confirmed_at;
+      released_at := v_hold.released_at;
+      expired_at := v_hold.expired_at;
+      created_at := v_hold.created_at;
+      seat_target_status := null;
+      return next;
+      return;
+    end if;
+  end if;
+
+  v_source := case
+    when coalesce(p_from_waitlist, false) then 'PENDING_WAITLIST'::seat_status_t
+    else 'AVAILABLE'::seat_status_t
+  end;
+
+  select s.seat_id
+  into v_seat_id
+  from seats s
+  where s.event_id = p_event_id
+    and s.category_id = v_category.category_id
+    and s.status = v_source
+  order by s.seat_id
+  for update skip locked
+  limit 1;
+
+  if not found then
+    outcome := 'NO_SEAT_AVAILABLE';
+    return next;
+    return;
+  end if;
+
+  update seats
+  set status = 'HELD'
+  where seats.seat_id = v_seat_id
+    and seats.status = v_source;
+
+  if not found then
+    outcome := 'NO_SEAT_AVAILABLE';
+    return next;
+    return;
+  end if;
+
+  begin
+    insert into seat_holds (
+      seat_id,
+      event_id,
+      category_id,
+      user_id,
+      from_waitlist,
+      hold_expires_at,
+      status,
+      amount,
+      currency,
+      idempotency_key
+    )
+    values (
+      v_seat_id,
+      p_event_id,
+      v_category.category_id,
+      p_user_id,
+      coalesce(p_from_waitlist, false),
+      now() + make_interval(secs => p_hold_duration_seconds),
+      'HELD',
+      v_category.current_price,
+      v_category.currency,
+      v_key
+    )
+    returning * into v_hold;
+  exception
+    when unique_violation then
+      update seats s
+      set status = v_source
+      where s.seat_id = v_seat_id
+        and s.status = 'HELD';
+
+      if v_key is not null then
+        select *
+        into v_hold
+        from seat_holds sh
+        where sh.idempotency_key = v_key
+        limit 1;
+
+        if found then
+          if v_hold.event_id <> p_event_id
+             or v_hold.user_id <> p_user_id
+             or v_hold.category_id <> v_category.category_id
+             or v_hold.from_waitlist <> coalesce(p_from_waitlist, false) then
+            outcome := 'IDEMPOTENCY_KEY_CONFLICT';
+            return next;
+            return;
+          end if;
+
+          outcome := 'IDEMPOTENT';
+          hold_id := v_hold.hold_id;
+          seat_id := v_hold.seat_id;
+          event_id := v_hold.event_id;
+          category_id := v_hold.category_id;
+          user_id := v_hold.user_id;
+          from_waitlist := v_hold.from_waitlist;
+          hold_expires_at := v_hold.hold_expires_at;
+          status := v_hold.status;
+          release_reason := v_hold.release_reason;
+          amount := v_hold.amount;
+          currency := v_hold.currency;
+          idempotency_key := v_hold.idempotency_key;
+          correlation_id := v_hold.correlation_id;
+          confirmed_at := v_hold.confirmed_at;
+          released_at := v_hold.released_at;
+          expired_at := v_hold.expired_at;
+          created_at := v_hold.created_at;
+          seat_target_status := null;
+          return next;
+          return;
+        end if;
+      end if;
+
+      outcome := 'NO_SEAT_AVAILABLE';
+      return next;
+      return;
+  end;
+
+  outcome := 'CREATED';
+  hold_id := v_hold.hold_id;
+  seat_id := v_hold.seat_id;
+  event_id := v_hold.event_id;
+  category_id := v_hold.category_id;
+  user_id := v_hold.user_id;
+  from_waitlist := v_hold.from_waitlist;
+  hold_expires_at := v_hold.hold_expires_at;
+  status := v_hold.status;
+  release_reason := v_hold.release_reason;
+  amount := v_hold.amount;
+  currency := v_hold.currency;
+  idempotency_key := v_hold.idempotency_key;
+  correlation_id := v_hold.correlation_id;
+  confirmed_at := v_hold.confirmed_at;
+  released_at := v_hold.released_at;
+  expired_at := v_hold.expired_at;
+  created_at := v_hold.created_at;
+  seat_target_status := null;
+  return next;
+end;
+$$;
+
+create or replace function inventory_confirm_hold(
+  p_hold_id uuid,
+  p_correlation_id uuid default null
+)
+returns table (
+  outcome text,
+  hold_id uuid,
+  seat_id uuid,
+  event_id uuid,
+  category_id uuid,
+  user_id uuid,
+  from_waitlist boolean,
+  hold_expires_at timestamptz,
+  status hold_status_t,
+  release_reason hold_release_reason_t,
+  amount money_amount_t,
+  currency currency_code_t,
+  idempotency_key text,
+  correlation_id uuid,
+  confirmed_at timestamptz,
+  released_at timestamptz,
+  expired_at timestamptz,
+  created_at timestamptz,
+  seat_target_status seat_status_t
+)
+language plpgsql
+set search_path = public, extensions
+as $$
+declare
+  v_hold seat_holds%rowtype;
+begin
+  select *
+  into v_hold
+  from seat_holds sh
+  where sh.hold_id = p_hold_id
+  for update;
+
+  if not found then
+    outcome := 'HOLD_NOT_FOUND';
+    return next;
+    return;
+  end if;
+
+  if v_hold.status = 'CONFIRMED' then
+    outcome := 'ALREADY_CONFIRMED';
+    hold_id := v_hold.hold_id;
+    seat_id := v_hold.seat_id;
+    event_id := v_hold.event_id;
+    category_id := v_hold.category_id;
+    user_id := v_hold.user_id;
+    from_waitlist := v_hold.from_waitlist;
+    hold_expires_at := v_hold.hold_expires_at;
+    status := v_hold.status;
+    release_reason := v_hold.release_reason;
+    amount := v_hold.amount;
+    currency := v_hold.currency;
+    idempotency_key := v_hold.idempotency_key;
+    correlation_id := v_hold.correlation_id;
+    confirmed_at := v_hold.confirmed_at;
+    released_at := v_hold.released_at;
+    expired_at := v_hold.expired_at;
+    created_at := v_hold.created_at;
+    seat_target_status := null;
+    return next;
+    return;
+  end if;
+
+  if v_hold.status <> 'HELD' then
+    outcome := 'INVALID_STATUS';
+    hold_id := v_hold.hold_id;
+    seat_id := v_hold.seat_id;
+    event_id := v_hold.event_id;
+    category_id := v_hold.category_id;
+    user_id := v_hold.user_id;
+    from_waitlist := v_hold.from_waitlist;
+    hold_expires_at := v_hold.hold_expires_at;
+    status := v_hold.status;
+    release_reason := v_hold.release_reason;
+    amount := v_hold.amount;
+    currency := v_hold.currency;
+    idempotency_key := v_hold.idempotency_key;
+    correlation_id := v_hold.correlation_id;
+    confirmed_at := v_hold.confirmed_at;
+    released_at := v_hold.released_at;
+    expired_at := v_hold.expired_at;
+    created_at := v_hold.created_at;
+    seat_target_status := null;
+    return next;
+    return;
+  end if;
+
+  if v_hold.hold_expires_at <= now() then
+    outcome := 'HOLD_EXPIRED';
+    hold_id := v_hold.hold_id;
+    seat_id := v_hold.seat_id;
+    event_id := v_hold.event_id;
+    category_id := v_hold.category_id;
+    user_id := v_hold.user_id;
+    from_waitlist := v_hold.from_waitlist;
+    hold_expires_at := v_hold.hold_expires_at;
+    status := v_hold.status;
+    release_reason := v_hold.release_reason;
+    amount := v_hold.amount;
+    currency := v_hold.currency;
+    idempotency_key := v_hold.idempotency_key;
+    correlation_id := v_hold.correlation_id;
+    confirmed_at := v_hold.confirmed_at;
+    released_at := v_hold.released_at;
+    expired_at := v_hold.expired_at;
+    created_at := v_hold.created_at;
+    seat_target_status := null;
+    return next;
+    return;
+  end if;
+
+  update seats s
+  set status = 'SOLD',
+      sold_at = now()
+  where s.seat_id = v_hold.seat_id
+    and s.status = 'HELD';
+
+  if not found then
+    outcome := 'SEAT_CONFLICT';
+    hold_id := v_hold.hold_id;
+    seat_id := v_hold.seat_id;
+    event_id := v_hold.event_id;
+    category_id := v_hold.category_id;
+    user_id := v_hold.user_id;
+    from_waitlist := v_hold.from_waitlist;
+    hold_expires_at := v_hold.hold_expires_at;
+    status := v_hold.status;
+    release_reason := v_hold.release_reason;
+    amount := v_hold.amount;
+    currency := v_hold.currency;
+    idempotency_key := v_hold.idempotency_key;
+    correlation_id := v_hold.correlation_id;
+    confirmed_at := v_hold.confirmed_at;
+    released_at := v_hold.released_at;
+    expired_at := v_hold.expired_at;
+    created_at := v_hold.created_at;
+    seat_target_status := null;
+    return next;
+    return;
+  end if;
+
+  update seat_holds sh
+  set status = 'CONFIRMED',
+      confirmed_at = now(),
+      correlation_id = coalesce(p_correlation_id, sh.correlation_id)
+  where sh.hold_id = p_hold_id
+    and sh.status = 'HELD'
+  returning sh.* into v_hold;
+
+  if not found then
+    update seats s
+    set status = 'HELD',
+        sold_at = null
+    where s.seat_id = v_hold.seat_id
+      and s.status = 'SOLD';
+
+    outcome := 'HOLD_CONFLICT';
+    return next;
+    return;
+  end if;
+
+  outcome := 'CONFIRMED';
+  hold_id := v_hold.hold_id;
+  seat_id := v_hold.seat_id;
+  event_id := v_hold.event_id;
+  category_id := v_hold.category_id;
+  user_id := v_hold.user_id;
+  from_waitlist := v_hold.from_waitlist;
+  hold_expires_at := v_hold.hold_expires_at;
+  status := v_hold.status;
+  release_reason := v_hold.release_reason;
+  amount := v_hold.amount;
+  currency := v_hold.currency;
+  idempotency_key := v_hold.idempotency_key;
+  correlation_id := v_hold.correlation_id;
+  confirmed_at := v_hold.confirmed_at;
+  released_at := v_hold.released_at;
+  expired_at := v_hold.expired_at;
+  created_at := v_hold.created_at;
+  seat_target_status := null;
+  return next;
+end;
+$$;
+
+create or replace function inventory_release_hold(
+  p_hold_id uuid,
+  p_reason hold_release_reason_t default 'MANUAL_RELEASE'
+)
+returns table (
+  outcome text,
+  hold_id uuid,
+  seat_id uuid,
+  event_id uuid,
+  category_id uuid,
+  user_id uuid,
+  from_waitlist boolean,
+  hold_expires_at timestamptz,
+  status hold_status_t,
+  release_reason hold_release_reason_t,
+  amount money_amount_t,
+  currency currency_code_t,
+  idempotency_key text,
+  correlation_id uuid,
+  confirmed_at timestamptz,
+  released_at timestamptz,
+  expired_at timestamptz,
+  created_at timestamptz,
+  seat_target_status seat_status_t
+)
+language plpgsql
+set search_path = public, extensions
+as $$
+declare
+  v_hold seat_holds%rowtype;
+  v_target seat_status_t;
+begin
+  select *
+  into v_hold
+  from seat_holds sh
+  where sh.hold_id = p_hold_id
+  for update;
+
+  if not found then
+    outcome := 'HOLD_NOT_FOUND';
+    return next;
+    return;
+  end if;
+
+  if v_hold.status = 'RELEASED' then
+    outcome := 'ALREADY_RELEASED';
+    hold_id := v_hold.hold_id;
+    seat_id := v_hold.seat_id;
+    event_id := v_hold.event_id;
+    category_id := v_hold.category_id;
+    user_id := v_hold.user_id;
+    from_waitlist := v_hold.from_waitlist;
+    hold_expires_at := v_hold.hold_expires_at;
+    status := v_hold.status;
+    release_reason := v_hold.release_reason;
+    amount := v_hold.amount;
+    currency := v_hold.currency;
+    idempotency_key := v_hold.idempotency_key;
+    correlation_id := v_hold.correlation_id;
+    confirmed_at := v_hold.confirmed_at;
+    released_at := v_hold.released_at;
+    expired_at := v_hold.expired_at;
+    created_at := v_hold.created_at;
+    seat_target_status := null;
+    return next;
+    return;
+  end if;
+
+  if v_hold.status <> 'HELD' then
+    outcome := 'INVALID_STATUS';
+    hold_id := v_hold.hold_id;
+    seat_id := v_hold.seat_id;
+    event_id := v_hold.event_id;
+    category_id := v_hold.category_id;
+    user_id := v_hold.user_id;
+    from_waitlist := v_hold.from_waitlist;
+    hold_expires_at := v_hold.hold_expires_at;
+    status := v_hold.status;
+    release_reason := v_hold.release_reason;
+    amount := v_hold.amount;
+    currency := v_hold.currency;
+    idempotency_key := v_hold.idempotency_key;
+    correlation_id := v_hold.correlation_id;
+    confirmed_at := v_hold.confirmed_at;
+    released_at := v_hold.released_at;
+    expired_at := v_hold.expired_at;
+    created_at := v_hold.created_at;
+    seat_target_status := null;
+    return next;
+    return;
+  end if;
+
+  v_target := case
+    when p_reason = 'PAYMENT_TIMEOUT' or v_hold.from_waitlist then 'PENDING_WAITLIST'::seat_status_t
+    else 'AVAILABLE'::seat_status_t
+  end;
+
+  update seats s
+  set status = v_target,
+      sold_at = null
+  where s.seat_id = v_hold.seat_id
+    and s.status = 'HELD';
+
+  if not found then
+    outcome := 'SEAT_CONFLICT';
+    hold_id := v_hold.hold_id;
+    seat_id := v_hold.seat_id;
+    event_id := v_hold.event_id;
+    category_id := v_hold.category_id;
+    user_id := v_hold.user_id;
+    from_waitlist := v_hold.from_waitlist;
+    hold_expires_at := v_hold.hold_expires_at;
+    status := v_hold.status;
+    release_reason := v_hold.release_reason;
+    amount := v_hold.amount;
+    currency := v_hold.currency;
+    idempotency_key := v_hold.idempotency_key;
+    correlation_id := v_hold.correlation_id;
+    confirmed_at := v_hold.confirmed_at;
+    released_at := v_hold.released_at;
+    expired_at := v_hold.expired_at;
+    created_at := v_hold.created_at;
+    seat_target_status := null;
+    return next;
+    return;
+  end if;
+
+  update seat_holds sh
+  set status = 'RELEASED',
+      release_reason = p_reason,
+      released_at = now()
+  where sh.hold_id = p_hold_id
+    and sh.status = 'HELD'
+  returning sh.* into v_hold;
+
+  if not found then
+    update seats s
+    set status = 'HELD'
+    where s.seat_id = v_hold.seat_id
+      and s.status = v_target;
+
+    outcome := 'HOLD_CONFLICT';
+    return next;
+    return;
+  end if;
+
+  outcome := 'RELEASED';
+  hold_id := v_hold.hold_id;
+  seat_id := v_hold.seat_id;
+  event_id := v_hold.event_id;
+  category_id := v_hold.category_id;
+  user_id := v_hold.user_id;
+  from_waitlist := v_hold.from_waitlist;
+  hold_expires_at := v_hold.hold_expires_at;
+  status := v_hold.status;
+  release_reason := v_hold.release_reason;
+  amount := v_hold.amount;
+  currency := v_hold.currency;
+  idempotency_key := v_hold.idempotency_key;
+  correlation_id := v_hold.correlation_id;
+  confirmed_at := v_hold.confirmed_at;
+  released_at := v_hold.released_at;
+  expired_at := v_hold.expired_at;
+  created_at := v_hold.created_at;
+  seat_target_status := v_target;
+  return next;
+end;
+$$;
+
+create or replace function inventory_expire_holds(
+  p_limit integer default 200
+)
+returns table (
+  outcome text,
+  hold_id uuid,
+  seat_id uuid,
+  event_id uuid,
+  category_id uuid,
+  user_id uuid,
+  from_waitlist boolean,
+  hold_expires_at timestamptz,
+  status hold_status_t,
+  release_reason hold_release_reason_t,
+  amount money_amount_t,
+  currency currency_code_t,
+  idempotency_key text,
+  correlation_id uuid,
+  confirmed_at timestamptz,
+  released_at timestamptz,
+  expired_at timestamptz,
+  created_at timestamptz,
+  seat_target_status seat_status_t
+)
+language plpgsql
+set search_path = public, extensions
+as $$
+declare
+  v_hold seat_holds%rowtype;
+  v_updated seat_holds%rowtype;
+  v_target seat_status_t;
+  v_max integer;
+begin
+  v_max := greatest(coalesce(p_limit, 200), 1);
+
+  for v_hold in
+    select *
+    from seat_holds sh
+    where sh.status = 'HELD'
+      and sh.hold_expires_at <= now()
+    order by sh.hold_expires_at, sh.hold_id
+    for update skip locked
+    limit v_max
+  loop
+    v_target := case
+      when v_hold.from_waitlist then 'PENDING_WAITLIST'::seat_status_t
+      else 'AVAILABLE'::seat_status_t
+    end;
+
+    update seat_holds sh
+    set status = 'EXPIRED',
+        expired_at = now(),
+        release_reason = 'PAYMENT_TIMEOUT'
+    where sh.hold_id = v_hold.hold_id
+      and sh.status = 'HELD'
+    returning sh.* into v_updated;
+
+    if not found then
+      continue;
+    end if;
+
+    update seats s
+    set status = v_target,
+        sold_at = null
+    where s.seat_id = v_updated.seat_id
+      and s.status = 'HELD';
+
+    outcome := 'EXPIRED';
+    hold_id := v_updated.hold_id;
+    seat_id := v_updated.seat_id;
+    event_id := v_updated.event_id;
+    category_id := v_updated.category_id;
+    user_id := v_updated.user_id;
+    from_waitlist := v_updated.from_waitlist;
+    hold_expires_at := v_updated.hold_expires_at;
+    status := v_updated.status;
+    release_reason := v_updated.release_reason;
+    amount := v_updated.amount;
+    currency := v_updated.currency;
+    idempotency_key := v_updated.idempotency_key;
+    correlation_id := v_updated.correlation_id;
+    confirmed_at := v_updated.confirmed_at;
+    released_at := v_updated.released_at;
+    expired_at := v_updated.expired_at;
+    created_at := v_updated.created_at;
+    seat_target_status := v_target;
+    return next;
+  end loop;
+end;
+$$;
+
 commit;
