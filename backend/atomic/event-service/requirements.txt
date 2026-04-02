@@ -1,1 +1,3 @@
 -r ../../shared/requirements.txt
+flasgger==0.9.7.1
+pika==1.3.2

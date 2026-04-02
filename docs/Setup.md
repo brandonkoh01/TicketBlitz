@@ -1079,6 +1079,10 @@ Invoke-RestMethod -Method Put -Uri "http://localhost:15672/api/exchanges/%2F/tic
 
 Kong is DB-less — its configuration lives entirely in `kong/kong.yml`. No database required.
 
+Event write endpoints are protected with Kong `key-auth` and `acl` plugins. For local development, use header `x-organiser-api-key: ticketblitz-organiser-dev-key` on:
+- `PUT /event/{eventID}/status`
+- `PUT /event/{eventID}/categories/prices`
+
 ### 12.1 — `kong/kong.yml`
 
 ```yaml
@@ -1103,6 +1107,13 @@ services:
           minute: 120
           policy: local
           fault_tolerant: true
+
+consumers:
+  - username: organiser-dashboard
+    keyauth_credentials:
+      - key: ticketblitz-organiser-dev-key
+    acls:
+      - group: organisers
 
   - name: reservation-orchestrator
     url: http://reservation-orchestrator:5000
@@ -1230,6 +1241,27 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/events
 ```powershell
 (Invoke-WebRequest -Uri "http://localhost:8000/events" -UseBasicParsing).StatusCode
 # Expected: 200
+```
+
+Swagger docs (event service):
+
+```text
+http://localhost:5001/apidocs/
+```
+
+Protected organiser write route check:
+
+```bash
+# Missing API key (expected 401)
+curl -i -X PUT http://localhost:8000/event/<eventID>/status \
+  -H "Content-Type: application/json" \
+  -d '{"status":"ACTIVE"}'
+
+# With API key (expected 200/409 depending on current state)
+curl -i -X PUT http://localhost:8000/event/<eventID>/status \
+  -H "Content-Type: application/json" \
+  -H "x-organiser-api-key: ticketblitz-organiser-dev-key" \
+  -d '{"status":"ACTIVE"}'
 ```
 
 ### 13.3 — Access points
