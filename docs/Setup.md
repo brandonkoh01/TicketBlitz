@@ -321,6 +321,13 @@ WAITLIST_SERVICE_URL=http://waitlist-service:5000
 FLASK_ENV=development
 FLASK_DEBUG=0
 
+# ── Internal Service Auth ────────────────────────────────────
+# Used by internal-only endpoints on atomic services (for example user/waitlist)
+REQUIRE_INTERNAL_AUTH=1
+INTERNAL_SERVICE_TOKEN=ticketblitz-internal-token
+USER_SERVICE_AUTH_HEADER=X-Internal-Token
+WAITLIST_SERVICE_AUTH_HEADER=X-Internal-Token
+
 # ── Expiry Scheduler ─────────────────────────────────────────
 EXPIRY_INTERVAL_SECONDS=60
 ```
@@ -377,6 +384,8 @@ When running outside Docker, the internal Docker DNS hostnames (`rabbitmq`, `use
 export SUPABASE_URL="https://your-project-ref.supabase.co"
 export SUPABASE_SERVICE_KEY="eyJ..."
 export RABBITMQ_URL="amqp://ticketblitz:change_me_before_demo@localhost:5672/"
+export REQUIRE_INTERNAL_AUTH=1
+export INTERNAL_SERVICE_TOKEN="ticketblitz-internal-token"
 export PORT=5002
 ```
 
@@ -385,6 +394,8 @@ export PORT=5002
 $env:SUPABASE_URL="https://your-project-ref.supabase.co"
 $env:SUPABASE_SERVICE_KEY="eyJ..."
 $env:RABBITMQ_URL="amqp://ticketblitz:change_me_before_demo@localhost:5672/"
+$env:REQUIRE_INTERNAL_AUTH="1"
+$env:INTERNAL_SERVICE_TOKEN="ticketblitz-internal-token"
 $env:PORT=5002
 ```
 
@@ -1247,6 +1258,23 @@ Swagger docs (event service):
 
 ```text
 http://localhost:5001/apidocs/
+```
+
+Swagger docs (waitlist service):
+
+```text
+http://localhost:5005/docs
+```
+
+Waitlist includeEmail auth check:
+
+```bash
+# Public read (no auth needed)
+curl -i "http://localhost:5005/waitlist/<waitlistID>"
+
+# includeEmail=true requires internal token
+curl -i "http://localhost:5005/waitlist/<waitlistID>?includeEmail=true" \
+  -H "X-Internal-Token: <INTERNAL_SERVICE_TOKEN>"
 ```
 
 Protected organiser write route check:
