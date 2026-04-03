@@ -5,12 +5,11 @@ import { useAuthStore } from '@/stores/authStore'
 const authStore = useAuthStore()
 const isAuthenticated = computed(() => authStore.isAuthenticated.value)
 
-const navItems = [
+const navItems = computed(() => [
   { label: 'Events', to: '#' },
   { label: 'Venues', to: '#' },
   { label: 'My Tickets', to: '/my-tickets' },
-  { label: 'Dashboard', to: '/organiser-dashboard' },
-]
+])
 
 const heroMetrics = [
   { label: 'Global Tickets Sold', value: '2.5M+' },

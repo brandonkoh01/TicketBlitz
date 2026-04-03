@@ -52,6 +52,8 @@ describe('router auth guards', () => {
       initializeAuthStore: vi.fn().mockResolvedValue(undefined),
       authEnabled: true,
       isAuthenticated: { value: true },
+      currentRole: { value: 'fan' },
+      roleHomePath: { value: '/my-tickets' },
     }
 
     const router = await loadRouterWithStore(store)
@@ -62,11 +64,13 @@ describe('router auth guards', () => {
     expect(router.currentRoute.value.name).toBe('my-tickets')
   })
 
-  it('normalizes unsafe redirect query to home', async () => {
+  it('normalizes unsafe redirect query to role home', async () => {
     const store = {
       initializeAuthStore: vi.fn().mockResolvedValue(undefined),
       authEnabled: true,
       isAuthenticated: { value: true },
+      currentRole: { value: 'fan' },
+      roleHomePath: { value: '/my-tickets' },
     }
 
     const router = await loadRouterWithStore(store)
@@ -74,6 +78,40 @@ describe('router auth guards', () => {
     await router.push('/sign-in?redirect=https://evil.example')
     await router.isReady()
 
-    expect(router.currentRoute.value.path).toBe('/')
+    expect(router.currentRoute.value.path).toBe('/my-tickets')
+  })
+
+  it('redirects fan users away from organiser dashboard', async () => {
+    const store = {
+      initializeAuthStore: vi.fn().mockResolvedValue(undefined),
+      authEnabled: true,
+      isAuthenticated: { value: true },
+      currentRole: { value: 'fan' },
+      roleHomePath: { value: '/my-tickets' },
+    }
+
+    const router = await loadRouterWithStore(store)
+
+    await router.push('/organiser-dashboard')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('my-tickets')
+  })
+
+  it('redirects organisers away from fan dashboard', async () => {
+    const store = {
+      initializeAuthStore: vi.fn().mockResolvedValue(undefined),
+      authEnabled: true,
+      isAuthenticated: { value: true },
+      currentRole: { value: 'organiser' },
+      roleHomePath: { value: '/organiser-dashboard' },
+    }
+
+    const router = await loadRouterWithStore(store)
+
+    await router.push('/my-tickets')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('organiser-dashboard')
   })
 })

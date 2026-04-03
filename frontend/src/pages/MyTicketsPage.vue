@@ -5,12 +5,11 @@ import { useAuthStore } from '@/stores/authStore'
 const authStore = useAuthStore()
 const isAuthenticated = computed(() => authStore.isAuthenticated.value)
 
-const navItems = [
+const navItems = computed(() => [
   { label: 'Events', to: '#' },
   { label: 'Venues', to: '#' },
-  { label: 'My Tickets', to: '#' },
-  { label: 'Dashboard', to: '/organiser-dashboard' },
-]
+  { label: 'My Tickets', to: '/my-tickets' },
+])
 
 const footerGroups = [
   {

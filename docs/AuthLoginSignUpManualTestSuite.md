@@ -101,7 +101,7 @@ Implication for testing:
 ## 4.3 Route/redirect guard expected flow
 1. Unauthenticated user accessing protected routes (`/organiser-dashboard`, `/ticket-purchase`, `/my-tickets`) is redirected to `/sign-in?redirect=<original-path>`.
 2. Authenticated user accessing guest-only routes (`/sign-in`, `/sign-up`) is redirected away.
-3. Redirect normalization blocks unsafe values (`https://...`, `//...`) and falls back to `/`.
+3. Redirect normalization blocks unsafe values (`https://...`, `//...`) and falls back to the authenticated user's role-home route (`/my-tickets` for fans, `/organiser-dashboard` for organisers).
 
 ---
 
@@ -119,6 +119,8 @@ Use these values consistently in manual tests.
 ### Useful existing data points
 - `SEEDED_PUBLIC_EMAIL`: `brandon@ticketblitz.com` (present in `public.users`)
 - `CURRENT_AUTH_EMAIL`: `user@ticketblitz.com` (present in `auth.users`)
+- `ORGANISER_AUTH_EMAIL`: `organiser@ticketblitz.com` (role: organiser)
+- `ORGANISER_AUTH_PASSWORD`: `organiser123`
 
 Note: Seeded public profile emails do not imply valid auth credentials.
 
@@ -155,7 +157,7 @@ Each case includes explicit input and expected output.
   1. Visit `/sign-in?redirect=https://evil.example` while authenticated.
 - Expected output:
   1. Redirect target is normalized.
-  2. Final location is `/` (not external).
+  2. Final location is role-home (`/my-tickets` for fans, `/organiser-dashboard` for organisers), not an external URL.
 
 ### TC-AUTH-004 - Guest-only route blocked when authenticated
 - Priority: Medium
@@ -404,6 +406,41 @@ Each case includes explicit input and expected output.
   1. Password input toggles between masked and plain text.
   2. No value loss while toggling.
 
+### TC-AUTH-023 - Fan blocked from organiser dashboard
+- Priority: High
+- Preconditions: Logged in as a fan account
+- Test input: Direct URL `/organiser-dashboard`
+- Steps:
+  1. Navigate to `/organiser-dashboard`.
+- Expected output:
+  1. Access to organiser dashboard is denied.
+  2. User is redirected to `/my-tickets`.
+
+### TC-AUTH-024 - Organiser blocked from fan dashboard
+- Priority: High
+- Preconditions: Logged in as organiser (`ORGANISER_AUTH_EMAIL` / `ORGANISER_AUTH_PASSWORD`)
+- Test input: Direct URL `/my-tickets`
+- Steps:
+  1. Navigate to `/my-tickets`.
+- Expected output:
+  1. Access to fan dashboard is denied.
+  2. User is redirected to `/organiser-dashboard`.
+
+### TC-AUTH-025 - Organiser account dashboard access
+- Priority: High
+- Preconditions: Organiser account exists in auth + public user profile
+- Test input:
+  - URL: `/sign-in`
+  - email: `ORGANISER_AUTH_EMAIL`
+  - password: `ORGANISER_AUTH_PASSWORD`
+- Steps:
+  1. Sign in with organiser credentials.
+  2. Navigate to `/organiser-dashboard`.
+- Expected output:
+  1. Sign-in succeeds.
+  2. Organiser dashboard is accessible.
+  3. Session role indicator displays organiser role.
+
 ---
 
 ## 7) Optional SQL Assertions (Post-Test Validation)
@@ -426,7 +463,7 @@ This manual suite covers:
 2. Local validation edge cases.
 3. Backend error handling and fallback branches.
 4. Security-sensitive redirect normalization.
-5. Protected route guard behavior.
+5. Protected route guard behavior including strict fan/organiser dashboard isolation.
 6. UX state behavior (loading and message reset).
 7. Environment misconfiguration behavior.
 8. Live Supabase data realities that affect demo reliability.

@@ -33,13 +33,12 @@ const userLabel = computed(() => {
 })
 
 const userRoleLabel = computed(() => {
-  const role = authStore.state.user?.user_metadata?.role
+  const role = authStore.currentRole?.value
 
-  if (typeof role === 'string' && role.trim()) {
-    return role.trim()
-  }
+  if (role === 'organiser') return 'Organiser'
+  if (role === 'fan') return 'Fan'
 
-  return 'Verified User'
+  return 'Fan'
 })
 
 async function handleSignOut() {

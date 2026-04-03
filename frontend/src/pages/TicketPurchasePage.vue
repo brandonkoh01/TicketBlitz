@@ -1,10 +1,11 @@
 <script setup>
-const navItems = [
+import { computed } from 'vue'
+
+const navItems = computed(() => [
   { label: 'Events', to: '/' },
   { label: 'Venues', to: '#' },
   { label: 'My Tickets', to: '/my-tickets' },
-  { label: 'Dashboard', to: '/organiser-dashboard' },
-]
+])
 
 const footerGroups = [
   {

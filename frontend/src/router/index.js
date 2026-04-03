@@ -17,6 +17,10 @@ function normalizeInternalRedirect(target) {
   return trimmed
 }
 
+function resolveRoleHomePath(authStore) {
+  return normalizeInternalRedirect(authStore.roleHomePath?.value)
+}
+
 const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -31,6 +35,7 @@ const router = createRouter({
       component: OrganiserDashboardPage,
       meta: {
         requiresAuth: true,
+        allowedRoles: ['organiser'],
       },
     },
     {
@@ -47,6 +52,7 @@ const router = createRouter({
       component: MyTicketsPage,
       meta: {
         requiresAuth: true,
+        allowedRoles: ['fan'],
       },
     },
     {
@@ -89,6 +95,7 @@ router.beforeEach(async (to) => {
   }
 
   const isAuthenticated = authStore.isAuthenticated.value
+  const roleHomePath = resolveRoleHomePath(authStore)
 
   if (to.meta.requiresAuth && !isAuthenticated) {
     return {
@@ -102,11 +109,20 @@ router.beforeEach(async (to) => {
   if (to.meta.guestOnly && isAuthenticated) {
     const queryRedirect = normalizeInternalRedirect(to.query.redirect)
 
-    if (queryRedirect === '/sign-in' || queryRedirect === '/sign-up') {
-      return '/'
+    if (queryRedirect === '/sign-in' || queryRedirect === '/sign-up' || queryRedirect === '/') {
+      return roleHomePath
     }
 
     return queryRedirect
+  }
+
+  if (to.meta.requiresAuth && isAuthenticated) {
+    const allowedRoles = Array.isArray(to.meta.allowedRoles) ? to.meta.allowedRoles : []
+    const currentRole = typeof authStore.currentRole?.value === 'string' ? authStore.currentRole.value : 'fan'
+
+    if (allowedRoles.length > 0 && !allowedRoles.includes(currentRole)) {
+      return roleHomePath
+    }
   }
 
   return true

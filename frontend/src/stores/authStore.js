@@ -1,6 +1,25 @@
 import { computed, reactive, readonly } from 'vue'
 import { getSupabaseClient, hasSupabaseConfig } from '@/lib/supabaseClient'
 
+const FAN_ROLE = 'fan'
+const ORGANISER_ROLE = 'organiser'
+const SUPPORTED_ROLES = new Set([FAN_ROLE, ORGANISER_ROLE])
+
+function normalizeRole(role) {
+  if (typeof role !== 'string') return FAN_ROLE
+
+  const normalized = role.trim().toLowerCase()
+  return SUPPORTED_ROLES.has(normalized) ? normalized : FAN_ROLE
+}
+
+function getUserRole(user) {
+  return normalizeRole(user?.user_metadata?.role)
+}
+
+function getRoleHomePath(role) {
+  return role === ORGANISER_ROLE ? '/organiser-dashboard' : '/my-tickets'
+}
+
 const state = reactive({
   session: null,
   user: null,
@@ -84,11 +103,19 @@ async function signOut() {
 }
 
 const isAuthenticated = computed(() => Boolean(state.session))
+const currentRole = computed(() => getUserRole(state.user))
+const isFan = computed(() => currentRole.value === FAN_ROLE)
+const isOrganiser = computed(() => currentRole.value === ORGANISER_ROLE)
+const roleHomePath = computed(() => getRoleHomePath(currentRole.value))
 
 export function useAuthStore() {
   return {
     state: readonly(state),
     isAuthenticated,
+    currentRole,
+    isFan,
+    isOrganiser,
+    roleHomePath,
     authEnabled: hasSupabaseConfig,
     initializeAuthStore,
     setAuthSession,
