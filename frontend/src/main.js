@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'
 import UiButton from './components/ui/UiButton.vue'
+import AuthSessionControls from './components/ui/AuthSessionControls.vue'
 import SectionLabel from './components/ui/SectionLabel.vue'
 import FeatureCard from './components/ui/FeatureCard.vue'
 import StatCard from './components/ui/StatCard.vue'
@@ -20,6 +21,7 @@ import './style.css'
 const app = createApp(App)
 
 app.component('UiButton', UiButton)
+app.component('AuthSessionControls', AuthSessionControls)
 app.component('SectionLabel', SectionLabel)
 app.component('FeatureCard', FeatureCard)
 app.component('StatCard', StatCard)

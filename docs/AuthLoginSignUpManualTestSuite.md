@@ -221,19 +221,20 @@ Each case includes explicit input and expected output.
 - Expected output:
   1. Error message: `Please provide a valid email address.`
 
-### TC-AUTH-009 - Backend email validation failure path
+### TC-AUTH-009 - Backend password policy validation failure path
 - Priority: Medium
 - Preconditions: On `/sign-up`, terms checked
 - Test input:
-  - full name: `Mik`
-  - email: `m@test.com`
-  - password: `VALID_PASSWORD`
+  - full name: `QA Password Policy`
+  - email: `NEW_EMAIL_2`
+  - password: `123`
 - Steps:
   1. Submit form.
 - Expected output:
-  1. Frontend accepts format check, then backend rejects.
-  2. Error shown from Supabase/Auth (for example invalid email format).
-  3. User remains on sign-up page.
+  1. Frontend local validation passes and request is sent.
+  2. Backend rejects the weak password due to password policy.
+  3. Error shown from Supabase/Auth (for example `Password should be at least 6 characters`).
+  4. User remains on sign-up page.
 
 ### TC-AUTH-010 - Verify sign-up payload includes redirect and role metadata
 - Priority: Medium
@@ -256,10 +257,11 @@ Each case includes explicit input and expected output.
   - full name: `QA Auto Auth`
   - email: `NEW_EMAIL_1`
   - password: `VALID_PASSWORD`
-  - URL: `/sign-up?redirect=/my-tickets`
+  - URL: `/sign-in?redirect=/my-tickets`
 - Steps:
-  1. Open `/sign-up?redirect=/my-tickets`.
-  2. Submit valid inputs.
+  1. Open `/sign-in?redirect=/my-tickets`.
+  2. Click `Need account?` (or top action) to navigate to `/sign-up`.
+  3. Submit valid inputs.
 - Expected output:
   1. If session is established (immediate or fallback sign-in), user is redirected to `/my-tickets`.
   2. Protected page is accessible without another login.
@@ -271,8 +273,11 @@ Each case includes explicit input and expected output.
   - full name: `QA Confirm Required`
   - email: `NEW_EMAIL_2`
   - password: `VALID_PASSWORD`
+  - URL: `/sign-in`
 - Steps:
-  1. Submit sign-up.
+  1. Open `/sign-in`.
+  2. Click `Need account?` (or top action) to navigate to `/sign-up`.
+  3. Submit sign-up.
 - Expected output:
   1. If fallback sign-in fails, user remains on sign-up page.
   2. Error message from sign-in attempt is displayed.
@@ -288,7 +293,7 @@ Each case includes explicit input and expected output.
 - Steps:
   1. Attempt sign-up again with same email.
 - Expected output:
-  1. Sign-up fails with duplicate/exists-style error from Supabase.
+  1. Sign-up fails with: `A user with the same email already exists. Please log in instead.`
   2. User remains on sign-up.
 
 ### TC-AUTH-014 - Sign-in success with preserved internal redirect
@@ -313,7 +318,7 @@ Each case includes explicit input and expected output.
 - Steps:
   1. Submit sign-in.
 - Expected output:
-  1. Error message shown (invalid credentials style).
+  1. Error message shown: `Email or password is wrong.`
   2. Stay on sign-in page.
 
 ### TC-AUTH-016 - Seeded public profile email cannot login by default

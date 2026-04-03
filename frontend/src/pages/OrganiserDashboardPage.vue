@@ -1,4 +1,10 @@
 <script setup>
+import { computed } from 'vue'
+import { useAuthStore } from '@/stores/authStore'
+
+const authStore = useAuthStore()
+const isAuthenticated = computed(() => authStore.isAuthenticated.value)
+
 const sideNavLinks = [
   { icon: 'dashboard', label: 'Dashboard', active: true },
   { icon: 'event', label: 'Events', active: false },
@@ -44,14 +50,17 @@ const alertRows = [
     <div class="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden">
       <header class="flex items-center justify-between whitespace-nowrap border-b border-slate-200 bg-white px-6 py-3 lg:px-10">
         <div class="flex items-center gap-8">
-          <div class="flex items-center gap-3 text-slate-900">
-            <div class="flex items-center justify-center rounded bg-[#ffd900] p-1">
+          <RouterLink
+            to="/"
+            class="flex items-center gap-3 text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffd900] focus-visible:ring-offset-2"
+          >
+            <div class="flex items-center justify-center border-2 border-black bg-[#ffd900] p-1">
               <UiMaterialIcon name="confirmation_number" class="text-slate-900" />
             </div>
             <h2 class="text-lg font-black leading-tight tracking-tight uppercase">
               TicketBlitz <span class="font-light text-slate-500">Organiser</span>
             </h2>
-          </div>
+          </RouterLink>
 
           <div class="hidden md:flex flex-col min-w-64 max-w-md">
             <div class="relative flex w-full items-stretch h-10">
@@ -79,18 +88,7 @@ const alertRows = [
 
           <div class="h-8 w-px bg-slate-200" />
 
-          <div class="flex items-center gap-3">
-            <div class="text-right hidden sm:block">
-              <p class="text-xs font-bold leading-none">Studio Arena</p>
-              <p class="mt-1 text-[10px] text-slate-500 uppercase tracking-widest">Verified Organiser</p>
-            </div>
-            <div class="bg-[#ffd900]/20 p-0.5 rounded-full ring-2 ring-[#ffd900]">
-              <div
-                class="bg-center bg-no-repeat aspect-square bg-cover rounded-full size-8"
-                style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuAEP-eZJilXh7kK2h3K2dYqTwvqlinHJWvkn0LyXM202NVjxIA2plIpoftjSfV2-VP1lXmfsrAYCW9EuO-TU5Z9RiJesDMTLKW5ofdwxN9ace1Oc2NpS1o0gBypByS7K3ePWzWX0bpAg1tQq5V3-H6MYdxmPC8IUaS60px0nsA6LQf2MwHT4rcg6XHePgXxLLj5jA555xFopHt9wJQ0gdKmSPShKimn8NX4QapJZBH7OV_COOYtO08ikklffTSMYgrYfTqVBTCMrPch")'
-              />
-            </div>
-          </div>
+          <AuthSessionControls v-if="isAuthenticated" />
         </div>
       </header>
 

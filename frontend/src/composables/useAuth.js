@@ -6,8 +6,31 @@ const FULL_NAME_MIN_LENGTH = 1
 const FULL_NAME_MAX_LENGTH = 100
 
 function normalizeErrorMessage(error) {
-  if (!error) return 'Authentication failed. Please try again.'
-  return error.message || 'Authentication failed. Please try again.'
+  const fallbackMessage = 'Authentication failed. Please try again.'
+
+  if (!error) return fallbackMessage
+
+  const message = typeof error === 'string' ? error : error.message
+  if (!message) return fallbackMessage
+
+  const normalizedMessage = message.toLowerCase()
+
+  if (
+    normalizedMessage.includes('already registered') ||
+    normalizedMessage.includes('already exists') ||
+    normalizedMessage.includes('already been registered')
+  ) {
+    return 'A user with the same email already exists. Please log in instead.'
+  }
+
+  if (
+    normalizedMessage.includes('invalid login credentials') ||
+    normalizedMessage.includes('invalid email or password')
+  ) {
+    return 'Email or password is wrong.'
+  }
+
+  return message
 }
 
 function buildSignInRedirectUrl() {
@@ -30,6 +53,22 @@ function validateSignUpInput({ fullName, email }) {
   }
 
   return null
+}
+
+function isObfuscatedDuplicateSignUpResponse({ signUpData, normalizedEmail }) {
+  const user = signUpData?.user
+
+  if (signUpData?.session || !user) {
+    return false
+  }
+
+  const userEmail = typeof user.email === 'string' ? user.email.trim().toLowerCase() : ''
+
+  if (!userEmail || userEmail !== normalizedEmail) {
+    return false
+  }
+
+  return Array.isArray(user.identities) && user.identities.length === 0
 }
 
 export function useAuth() {
@@ -137,6 +176,16 @@ export function useAuth() {
           session: data.session,
           user: data.user,
           error: null,
+        }
+      }
+
+      if (isObfuscatedDuplicateSignUpResponse({ signUpData: data, normalizedEmail })) {
+        const duplicateSignUpError = new Error('User already registered')
+        errorMessage.value = normalizeErrorMessage(duplicateSignUpError)
+        return {
+          session: null,
+          user: data?.user ?? null,
+          error: duplicateSignUpError,
         }
       }
 

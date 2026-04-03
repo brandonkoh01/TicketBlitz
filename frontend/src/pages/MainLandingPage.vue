@@ -1,4 +1,10 @@
 <script setup>
+import { computed } from 'vue'
+import { useAuthStore } from '@/stores/authStore'
+
+const authStore = useAuthStore()
+const isAuthenticated = computed(() => authStore.isAuthenticated.value)
+
 const navItems = [
   { label: 'Events', to: '#' },
   { label: 'Venues', to: '#' },
@@ -87,7 +93,9 @@ const footerGroups = [
           >
             ⌕
           </button>
-          <UiButton to="/sign-up" variant="primary" class="min-w-[9rem]">Sign Up</UiButton>
+
+          <AuthSessionControls v-if="isAuthenticated" />
+          <UiButton v-else to="/sign-in" variant="primary" class="min-w-[9rem]">Login</UiButton>
         </div>
       </div>
     </header>

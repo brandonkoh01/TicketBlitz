@@ -85,7 +85,75 @@ describe('useAuth', () => {
 
     expect(result.error).toBe(signInError)
     expect(auth.successMessage.value).toBe('')
-    expect(auth.errorMessage.value).toContain('Invalid login credentials')
+    expect(auth.errorMessage.value).toBe('Email or password is wrong.')
+  })
+
+  it('maps duplicate sign-up errors to a friendly duplicate-account message', async () => {
+    const signUpError = { message: 'User already registered' }
+
+    const supabaseMock = {
+      auth: {
+        signUp: vi.fn().mockResolvedValue({
+          data: {
+            session: null,
+            user: null,
+          },
+          error: signUpError,
+        }),
+        signInWithPassword: vi.fn(),
+      },
+    }
+
+    const { useAuth } = await loadUseAuth({ supabaseMock })
+    const auth = useAuth()
+
+    const result = await auth.signUpFan({
+      fullName: 'Ticket Blitz Fan',
+      email: 'fan@example.com',
+      password: 'password-123',
+    })
+
+    expect(result.error).toBe(signUpError)
+    expect(auth.errorMessage.value).toBe('A user with the same email already exists. Please log in instead.')
+    expect(auth.successMessage.value).toBe('')
+  })
+
+  it('treats obfuscated duplicate sign-up responses as duplicate accounts', async () => {
+    const existingUser = {
+      id: 'existing-user-1',
+      email: 'fan@example.com',
+      identities: [],
+    }
+
+    const supabaseMock = {
+      auth: {
+        signUp: vi.fn().mockResolvedValue({
+          data: {
+            session: null,
+            user: existingUser,
+          },
+          error: null,
+        }),
+        signInWithPassword: vi.fn(),
+      },
+    }
+
+    const { useAuth } = await loadUseAuth({ supabaseMock })
+    const auth = useAuth()
+
+    const result = await auth.signUpFan({
+      fullName: 'Ticket Blitz Fan',
+      email: 'fan@example.com',
+      password: 'password-123',
+    })
+
+    expect(supabaseMock.auth.signInWithPassword).not.toHaveBeenCalled()
+    expect(result.session).toBeNull()
+    expect(result.user).toEqual(existingUser)
+    expect(result.error).toBeInstanceOf(Error)
+    expect(result.error.message).toContain('already registered')
+    expect(auth.errorMessage.value).toBe('A user with the same email already exists. Please log in instead.')
+    expect(auth.successMessage.value).toBe('')
   })
 
   it('passes emailRedirectTo when signing up', async () => {
