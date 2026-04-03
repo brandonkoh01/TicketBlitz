@@ -53,7 +53,7 @@ function handleSubmit(event) {
           >
             ⌕
           </button>
-          <UiButton variant="primary" class="min-w-[9rem]">Sign Up</UiButton>
+          <UiButton to="/sign-up" variant="primary" class="min-w-[9rem]">Sign Up</UiButton>
         </div>
       </div>
     </header>

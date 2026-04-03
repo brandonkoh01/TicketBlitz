@@ -72,6 +72,11 @@ main {
   background-size: 16px 16px;
 }
 
+.swiss-dot-grid {
+  background-image: radial-gradient(rgb(0 0 0 / 0.09) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
 .swiss-diagonal {
   background-image: repeating-linear-gradient(
     45deg,

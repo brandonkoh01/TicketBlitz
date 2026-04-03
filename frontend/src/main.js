@@ -11,6 +11,10 @@ import FooterLinkGroup from './components/ui/FooterLinkGroup.vue'
 import UiMaterialIcon from './components/ui/UiMaterialIcon.vue'
 import UiDashboardPanel from './components/ui/UiDashboardPanel.vue'
 import UiToggleSwitch from './components/ui/UiToggleSwitch.vue'
+import AuthPageFrame from './components/auth/AuthPageFrame.vue'
+import AuthFooter from './components/auth/AuthFooter.vue'
+import AuthFormField from './components/auth/AuthFormField.vue'
+import { useAuthStore } from './stores/authStore'
 import './style.css'
 
 const app = createApp(App)
@@ -25,7 +29,13 @@ app.component('FooterLinkGroup', FooterLinkGroup)
 app.component('UiMaterialIcon', UiMaterialIcon)
 app.component('UiDashboardPanel', UiDashboardPanel)
 app.component('UiToggleSwitch', UiToggleSwitch)
+app.component('AuthPageFrame', AuthPageFrame)
+app.component('AuthFooter', AuthFooter)
+app.component('AuthFormField', AuthFormField)
 
 app.use(router)
+
+const authStore = useAuthStore()
+authStore.initializeAuthStore()
 
 app.mount('#app')

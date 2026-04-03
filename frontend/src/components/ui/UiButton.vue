@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import { RouterLink } from 'vue-router'
 
 const props = defineProps({
   as: {
@@ -8,6 +9,10 @@ const props = defineProps({
   },
   href: {
     type: String,
+    default: '',
+  },
+  to: {
+    type: [String, Object],
     default: '',
   },
   type: {
@@ -25,6 +30,7 @@ const props = defineProps({
 })
 
 const tag = computed(() => {
+  if (props.to) return RouterLink
   if (props.href) return 'a'
   return props.as
 })
@@ -45,6 +51,7 @@ const variantClasses = computed(() => {
 <template>
   <component
     :is="tag"
+    :to="props.to || undefined"
     :href="href || undefined"
     :type="tag === 'button' ? type : undefined"
     class="inline-flex h-14 items-center justify-center border-2 px-6 text-xs font-black uppercase tracking-[0.24em] transition duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--swiss-accent)] focus-visible:ring-offset-2"
