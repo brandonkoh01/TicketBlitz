@@ -131,7 +131,7 @@ notification-service   booking-fulfillment   waitlist-promotion
 |---|---|---|---|
 | 8 | Tue 8 Apr | Fan Booking UI (all pages: browse, book, pending, confirmed, waitlist) | Brandon + Boone |
 | 8 | Tue 8 Apr | Flash Sale Orchestrator (Scenario 2A + 2B) | Mik |
-| 9 | Wed 9 Apr | Cancellation Orchestrator (Scenario 3) | Brandon |
+| 9 | Wed 9 Apr | Cancellation Orchestrator (Scenario 3) | Shirin |
 | 9 | Wed 9 Apr | Organiser Dashboard UI (launch flash sale, analytics, manage events) | Boone |
 | 10 | Thu 10 Apr | Scenario 2 E2E test (flash sale launch → dynamic pricing → broadcast) | Mik |
 | 10 | Thu 10 Apr | Scenario 3 E2E test (cancellation SAGA rollback) | Shirin |
