@@ -239,11 +239,10 @@ ticketblitz/
 │   └── notification-service/
 ├── composite/
 │   ├── booking-status-service/
-│   └── scenario-1/
-│       ├── reservation-orchestrator/
-│       ├── booking-fulfillment-orchestrator/
-│       ├── waitlist-promotion-orchestrator/
-│       └── expiry-scheduler-service/
+│   └── reservation-orchestrator/
+│   └── booking-fulfillment-orchestrator/
+│   └──  waitlist-promotion-orchestrator/
+│   └── expiry-scheduler-service/
 └── ui/
     ├── fan-booking-ui/
     └── organiser-dashboard-ui/
