@@ -171,6 +171,33 @@ services:
     networks:
       - ticketblitz-net
 
+  booking-status-service:
+    build:
+      context: .
+      dockerfile: backend/composite/booking-status-service/Dockerfile
+    container_name: ticketblitz-booking-status-service
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      PORT: "5000"
+      SERVICE_NAME: booking-status-service
+    depends_on:
+      inventory-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+    ports:
+      - "6002:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - ticketblitz-net
+
   kong:
     image: kong/kong-gateway:3.9
     container_name: ticketblitz-kong
@@ -193,6 +220,8 @@ services:
       waitlist-service:
         condition: service_healthy
       payment-service:
+        condition: service_healthy
+      booking-status-service:
         condition: service_healthy
     volumes:
       - ./kong:/kong/declarative:ro
