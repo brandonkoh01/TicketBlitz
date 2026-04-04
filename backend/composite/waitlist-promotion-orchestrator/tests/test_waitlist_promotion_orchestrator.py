@@ -15,6 +15,15 @@ if str(SERVICE_ROOT) not in sys.path:
 
 import waitlist_promotion
 
+EVENT_ID = "11111111-1111-4111-8111-111111111111"
+SEAT_ID = "22222222-2222-4222-8222-222222222222"
+WAITLIST_ID = "33333333-3333-4333-8333-333333333333"
+USER_ID = "44444444-4444-4444-8444-444444444444"
+HOLD_ID = "55555555-5555-4555-8555-555555555555"
+OLD_WAITLIST_ID = "66666666-6666-4666-8666-666666666666"
+OLD_USER_ID = "77777777-7777-4777-8777-777777777777"
+OLD_HOLD_ID = "88888888-8888-4888-8888-888888888888"
+
 
 class _FakeResponse:
     def __init__(self, status_code=200, payload=None, text=None):
@@ -65,12 +74,19 @@ class _FakeChannel:
     def __init__(self):
         self.is_open = True
         self.acked = []
+        self.nacked = []
         self.published = []
+        self.publish_error = None
 
     def basic_ack(self, delivery_tag):
         self.acked.append(delivery_tag)
 
+    def basic_nack(self, delivery_tag, requeue=False):
+        self.nacked.append({"delivery_tag": delivery_tag, "requeue": requeue})
+
     def basic_publish(self, **kwargs):
+        if self.publish_error is not None:
+            raise self.publish_error
         self.published.append(kwargs)
 
 
@@ -133,35 +149,35 @@ class WaitlistPromotionWorkerTests(unittest.TestCase):
         routes = {
             (
                 "GET",
-                "http://waitlist-service:5000/waitlist/next?eventID=evt-1&seatCategory=CAT1",
+                f"http://waitlist-service:5000/waitlist/next?eventID={EVENT_ID}&seatCategory=CAT1",
             ): _FakeResponse(
                 200,
                 {
-                    "waitlistID": "w-1",
-                    "userID": "u-1",
+                    "waitlistID": WAITLIST_ID,
+                    "userID": USER_ID,
                     "status": "WAITING",
                 },
             ),
-            ("GET", "http://user-service:5000/user/u-1"): _FakeResponse(
+            ("GET", f"http://user-service:5000/user/{USER_ID}"): _FakeResponse(
                 200,
                 {
-                    "userID": "u-1",
+                    "userID": USER_ID,
                     "email": "fan@example.com",
                 },
             ),
             ("POST", "http://inventory-service:5000/inventory/hold"): _FakeResponse(
                 201,
                 {
-                    "holdID": "h-1",
+                    "holdID": HOLD_ID,
                     "holdExpiry": "2026-04-04T10:00:00+00:00",
                 },
             ),
-            ("PUT", "http://waitlist-service:5000/waitlist/w-1/offer"): _FakeResponse(
+            ("PUT", f"http://waitlist-service:5000/waitlist/{WAITLIST_ID}/offer"): _FakeResponse(
                 200,
                 {
-                    "waitlistID": "w-1",
+                    "waitlistID": WAITLIST_ID,
                     "status": "HOLD_OFFERED",
-                    "holdID": "h-1",
+                    "holdID": HOLD_ID,
                 },
             ),
         }
@@ -176,9 +192,9 @@ class WaitlistPromotionWorkerTests(unittest.TestCase):
 
         worker.process_payload(
             {
-                "eventID": "evt-1",
+                "eventID": EVENT_ID,
                 "seatCategory": "cat1",
-                "seatID": "s-1",
+                "seatID": SEAT_ID,
                 "reason": "MANUAL_RELEASE",
             }
         )
@@ -187,8 +203,8 @@ class WaitlistPromotionWorkerTests(unittest.TestCase):
         payload = published[0]["payload"]
         self.assertEqual(payload["type"], "SEAT_AVAILABLE")
         self.assertEqual(payload["email"], "fan@example.com")
-        self.assertEqual(payload["holdID"], "h-1")
-        self.assertEqual(payload["paymentURL"], "/waitlist/confirm/h-1")
+        self.assertEqual(payload["holdID"], HOLD_ID)
+        self.assertEqual(payload["paymentURL"], f"/waitlist/confirm/{HOLD_ID}")
 
         hold_call = next(call for call in session.calls if call["url"].endswith("/inventory/hold"))
         self.assertTrue(hold_call["json"]["fromWaitlist"])
@@ -198,11 +214,11 @@ class WaitlistPromotionWorkerTests(unittest.TestCase):
         routes = {
             (
                 "GET",
-                "http://waitlist-service:5000/waitlist/next?eventID=evt-1&seatCategory=CAT1",
+                f"http://waitlist-service:5000/waitlist/next?eventID={EVENT_ID}&seatCategory=CAT1",
             ): _FakeResponse(404, {"error": "No waiting users"}),
-            ("PUT", "http://inventory-service:5000/inventory/seat/s-1/status"): _FakeResponse(
+            ("PUT", f"http://inventory-service:5000/inventory/seat/{SEAT_ID}/status"): _FakeResponse(
                 200,
-                {"seatID": "s-1", "status": "AVAILABLE"},
+                {"seatID": SEAT_ID, "status": "AVAILABLE"},
             ),
         }
         session = _FakeSession(routes)
@@ -216,37 +232,42 @@ class WaitlistPromotionWorkerTests(unittest.TestCase):
 
         worker.process_payload(
             {
-                "eventID": "evt-1",
+                "eventID": EVENT_ID,
                 "seatCategory": "CAT1",
-                "seatID": "s-1",
+                "seatID": SEAT_ID,
                 "reason": "MANUAL_RELEASE",
             }
         )
 
         self.assertEqual(len(published), 0)
-        self.assertTrue(any(call["url"].endswith("/inventory/seat/s-1/status") for call in session.calls))
+        self.assertTrue(any(call["url"].endswith(f"/inventory/seat/{SEAT_ID}/status") for call in session.calls))
 
     def test_process_payload_handles_timeout_branch_and_emits_hold_expired(self):
         routes = {
-            ("GET", "http://waitlist-service:5000/waitlist/by-hold/h-old"): _FakeResponse(
+            ("GET", f"http://waitlist-service:5000/waitlist/by-hold/{OLD_HOLD_ID}"): _FakeResponse(
                 200,
-                {"waitlistID": "w-old", "userID": "u-old", "holdID": "h-old", "status": "HOLD_OFFERED"},
+                {
+                    "waitlistID": OLD_WAITLIST_ID,
+                    "userID": OLD_USER_ID,
+                    "holdID": OLD_HOLD_ID,
+                    "status": "HOLD_OFFERED",
+                },
             ),
-            ("PUT", "http://waitlist-service:5000/waitlist/w-old/expire"): _FakeResponse(
+            ("PUT", f"http://waitlist-service:5000/waitlist/{OLD_WAITLIST_ID}/expire"): _FakeResponse(
                 200,
-                {"waitlistID": "w-old", "status": "EXPIRED", "holdID": "h-old"},
+                {"waitlistID": OLD_WAITLIST_ID, "status": "EXPIRED", "holdID": OLD_HOLD_ID},
             ),
-            ("GET", "http://user-service:5000/user/u-old"): _FakeResponse(
+            ("GET", f"http://user-service:5000/user/{OLD_USER_ID}"): _FakeResponse(
                 200,
-                {"userID": "u-old", "email": "old@example.com"},
+                {"userID": OLD_USER_ID, "email": "old@example.com"},
             ),
             (
                 "GET",
-                "http://waitlist-service:5000/waitlist/next?eventID=evt-1&seatCategory=CAT1",
+                f"http://waitlist-service:5000/waitlist/next?eventID={EVENT_ID}&seatCategory=CAT1",
             ): _FakeResponse(404, {"error": "No waiting users"}),
-            ("PUT", "http://inventory-service:5000/inventory/seat/s-1/status"): _FakeResponse(
+            ("PUT", f"http://inventory-service:5000/inventory/seat/{SEAT_ID}/status"): _FakeResponse(
                 200,
-                {"seatID": "s-1", "status": "AVAILABLE"},
+                {"seatID": SEAT_ID, "status": "AVAILABLE"},
             ),
         }
         session = _FakeSession(routes)
@@ -260,11 +281,11 @@ class WaitlistPromotionWorkerTests(unittest.TestCase):
 
         worker.process_payload(
             {
-                "eventID": "evt-1",
+                "eventID": EVENT_ID,
                 "seatCategory": "CAT1",
-                "seatID": "s-1",
+                "seatID": SEAT_ID,
                 "reason": "PAYMENT_TIMEOUT",
-                "expiredHoldID": "h-old",
+                "expiredHoldID": OLD_HOLD_ID,
             }
         )
 
@@ -276,24 +297,24 @@ class WaitlistPromotionWorkerTests(unittest.TestCase):
         routes = {
             (
                 "GET",
-                "http://waitlist-service:5000/waitlist/next?eventID=evt-1&seatCategory=CAT1",
-            ): _FakeResponse(200, {"waitlistID": "w-1", "userID": "u-1", "status": "WAITING"}),
-            ("GET", "http://user-service:5000/user/u-1"): _FakeResponse(200, {"email": "fan@example.com"}),
+                f"http://waitlist-service:5000/waitlist/next?eventID={EVENT_ID}&seatCategory=CAT1",
+            ): _FakeResponse(200, {"waitlistID": WAITLIST_ID, "userID": USER_ID, "status": "WAITING"}),
+            ("GET", f"http://user-service:5000/user/{USER_ID}"): _FakeResponse(200, {"email": "fan@example.com"}),
             ("POST", "http://inventory-service:5000/inventory/hold"): _FakeResponse(
                 200,
-                {"holdID": "h-1", "holdExpiry": "2026-04-04T10:00:00+00:00"},
+                {"holdID": HOLD_ID, "holdExpiry": "2026-04-04T10:00:00+00:00"},
             ),
-            ("PUT", "http://waitlist-service:5000/waitlist/w-1/offer"): _FakeResponse(
+            ("PUT", f"http://waitlist-service:5000/waitlist/{WAITLIST_ID}/offer"): _FakeResponse(
                 409,
                 {"error": "Cannot transition"},
             ),
-            ("GET", "http://waitlist-service:5000/waitlist/w-1"): _FakeResponse(
+            ("GET", f"http://waitlist-service:5000/waitlist/{WAITLIST_ID}"): _FakeResponse(
                 200,
                 {
-                    "waitlistID": "w-1",
+                    "waitlistID": WAITLIST_ID,
                     "status": "HOLD_OFFERED",
-                    "holdID": "h-1",
-                    "userID": "u-1",
+                    "holdID": HOLD_ID,
+                    "userID": USER_ID,
                 },
             ),
         }
@@ -308,15 +329,69 @@ class WaitlistPromotionWorkerTests(unittest.TestCase):
 
         worker.process_payload(
             {
-                "eventID": "evt-1",
+                "eventID": EVENT_ID,
                 "seatCategory": "CAT1",
-                "seatID": "s-1",
+                "seatID": SEAT_ID,
                 "reason": "MANUAL_RELEASE",
             }
         )
 
         self.assertEqual(len(published), 1)
         self.assertEqual(published[0]["payload"]["type"], "SEAT_AVAILABLE")
+
+    def test_process_payload_releases_hold_when_offer_returns_missing_hold_id(self):
+        routes = {
+            (
+                "GET",
+                f"http://waitlist-service:5000/waitlist/next?eventID={EVENT_ID}&seatCategory=CAT1",
+            ): _FakeResponse(200, {"waitlistID": WAITLIST_ID, "userID": USER_ID, "status": "WAITING"}),
+            ("GET", f"http://user-service:5000/user/{USER_ID}"): _FakeResponse(200, {"email": "fan@example.com"}),
+            ("POST", "http://inventory-service:5000/inventory/hold"): _FakeResponse(
+                200,
+                {"holdID": HOLD_ID, "holdExpiry": "2026-04-04T10:00:00+00:00"},
+            ),
+            ("PUT", f"http://waitlist-service:5000/waitlist/{WAITLIST_ID}/offer"): _FakeResponse(
+                200,
+                {"waitlistID": WAITLIST_ID, "status": "HOLD_OFFERED"},
+            ),
+            ("PUT", f"http://inventory-service:5000/inventory/hold/{HOLD_ID}/release"): _FakeResponse(
+                200,
+                {"released": True},
+            ),
+        }
+        session = _FakeSession(routes)
+        published = []
+
+        worker = waitlist_promotion.WaitlistPromotionWorker(
+            self._config(),
+            session=session,
+            publisher=lambda **kwargs: published.append(kwargs),
+        )
+
+        worker.process_payload(
+            {
+                "eventID": EVENT_ID,
+                "seatCategory": "CAT1",
+                "seatID": SEAT_ID,
+                "reason": "MANUAL_RELEASE",
+            }
+        )
+
+        self.assertEqual(len(published), 0)
+        self.assertTrue(any(call["url"].endswith(f"/inventory/hold/{HOLD_ID}/release") for call in session.calls))
+
+    def test_process_payload_rejects_non_uuid_payload_fields(self):
+        worker = waitlist_promotion.WaitlistPromotionWorker(self._config(), session=_FakeSession({}))
+
+        with self.assertRaises(waitlist_promotion.PermanentProcessingError):
+            worker.process_payload(
+                {
+                    "eventID": "not-a-uuid",
+                    "seatCategory": "CAT1",
+                    "seatID": SEAT_ID,
+                    "reason": "MANUAL_RELEASE",
+                }
+            )
 
     def test_handle_delivery_retries_transient_error(self):
         worker = waitlist_promotion.WaitlistPromotionWorker(self._config(), session=_FakeSession({}))
@@ -326,14 +401,45 @@ class WaitlistPromotionWorkerTests(unittest.TestCase):
         with patch.object(worker, "process_payload", side_effect=waitlist_promotion.TransientProcessingError("boom")):
             method = _MethodFrame(delivery_tag=7)
             properties = waitlist_promotion.pika.BasicProperties(headers={})
-            worker._handle_delivery(fake_channel, method, properties, b'{"eventID":"evt","seatCategory":"CAT1","seatID":"s","reason":"MANUAL_RELEASE"}')
+            worker._handle_delivery(
+                fake_channel,
+                method,
+                properties,
+                (
+                    f'{{"eventID":"{EVENT_ID}","seatCategory":"CAT1",'
+                    f'"seatID":"{SEAT_ID}","reason":"MANUAL_RELEASE"}}'
+                ).encode("utf-8"),
+            )
 
         self.assertEqual(fake_channel.acked, [7])
+        self.assertEqual(fake_channel.nacked, [])
         self.assertEqual(len(fake_channel.published), 1)
         self.assertEqual(
             fake_channel.published[0]["routing_key"],
             "waitlist-promotion-orchestrator.seat.released.retry",
         )
+
+    def test_handle_delivery_requeues_when_retry_enqueue_fails(self):
+        worker = waitlist_promotion.WaitlistPromotionWorker(self._config(), session=_FakeSession({}))
+        fake_channel = _FakeChannel()
+        fake_channel.publish_error = RuntimeError("publish failed")
+        worker._channel = fake_channel
+
+        with patch.object(worker, "process_payload", side_effect=waitlist_promotion.TransientProcessingError("boom")):
+            method = _MethodFrame(delivery_tag=11)
+            properties = waitlist_promotion.pika.BasicProperties(headers={})
+            worker._handle_delivery(
+                fake_channel,
+                method,
+                properties,
+                (
+                    f'{{"eventID":"{EVENT_ID}","seatCategory":"CAT1",'
+                    f'"seatID":"{SEAT_ID}","reason":"MANUAL_RELEASE"}}'
+                ).encode("utf-8"),
+            )
+
+        self.assertEqual(fake_channel.acked, [])
+        self.assertEqual(fake_channel.nacked, [{"delivery_tag": 11, "requeue": True}])
 
     def test_handle_delivery_drops_malformed_json(self):
         worker = waitlist_promotion.WaitlistPromotionWorker(self._config(), session=_FakeSession({}))

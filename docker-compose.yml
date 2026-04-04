@@ -64,7 +64,7 @@ services:
       PORT: "5000"
       SERVICE_NAME: user-service
       REQUIRE_INTERNAL_AUTH: ${REQUIRE_INTERNAL_AUTH:-1}
-      USER_SERVICE_AUTH_HEADER: ${USER_SERVICE_AUTH_HEADER:-X-Internal-Token}
+      USER_SERVICE_AUTH_HEADER: ${INTERNAL_AUTH_HEADER:-X-Internal-Token}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-ticketblitz-internal-token}
     ports:
       - "127.0.0.1:5002:5000"
@@ -139,7 +139,7 @@ services:
       PORT: "5000"
       SERVICE_NAME: waitlist-service
       REQUIRE_INTERNAL_AUTH: ${REQUIRE_INTERNAL_AUTH:-1}
-      WAITLIST_SERVICE_AUTH_HEADER: ${WAITLIST_SERVICE_AUTH_HEADER:-X-Internal-Token}
+      WAITLIST_SERVICE_AUTH_HEADER: ${INTERNAL_AUTH_HEADER:-X-Internal-Token}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-ticketblitz-internal-token}
     ports:
       - "5005:5000"

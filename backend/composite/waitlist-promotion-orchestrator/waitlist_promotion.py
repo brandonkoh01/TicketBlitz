@@ -5,9 +5,10 @@ import math
 import os
 import signal
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 import pika
 import requests
@@ -400,8 +401,8 @@ class WaitlistPromotionWorker:
                     channel.basic_ack(delivery_tag=delivery_tag)
                     return
 
-                logger.warning("Retry scheduling failed. Dropping to avoid hot loop: %s", error)
-                channel.basic_ack(delivery_tag=delivery_tag)
+                logger.warning("Retry scheduling failed. Requeueing original delivery: %s", error)
+                channel.basic_nack(delivery_tag=delivery_tag, requeue=True)
                 return
 
             logger.error("Retry limit reached. Dropping message: %s", error)
@@ -416,7 +417,9 @@ class WaitlistPromotionWorker:
         seat_category = self._require_non_empty_str(payload.get("seatCategory"), "seatCategory").upper()
         reason = self._require_non_empty_str(payload.get("reason"), "reason").upper()
         expired_hold_id_raw = payload.get("expiredHoldID")
-        expired_hold_id = str(expired_hold_id_raw).strip() if expired_hold_id_raw is not None else None
+        expired_hold_id = None
+        if expired_hold_id_raw is not None and str(expired_hold_id_raw).strip():
+            expired_hold_id = self._require_uuid_like(expired_hold_id_raw, "expiredHoldID")
         correlation_id = payload.get("correlationID")
 
         if reason == "PAYMENT_TIMEOUT" and expired_hold_id:
@@ -499,7 +502,11 @@ class WaitlistPromotionWorker:
     def _require_uuid_like(self, value: Any, field_name: str) -> str:
         if not isinstance(value, str) or not value.strip():
             raise PermanentProcessingError(f"Payload requires field '{field_name}'")
-        return value.strip()
+        normalized = value.strip()
+        try:
+            return str(uuid.UUID(normalized))
+        except ValueError as error:
+            raise PermanentProcessingError(f"Payload field '{field_name}' must be a valid UUID") from error
 
     def _internal_auth_headers(self) -> dict[str, str]:
         token = self.config.internal_service_token
@@ -550,10 +557,8 @@ class WaitlistPromotionWorker:
         return f"{base_url.rstrip('/')}/{path.lstrip('/')}"
 
     def _get_next_waitlist_entry(self, event_id: str, seat_category: str) -> dict[str, Any] | None:
-        url = self._join(
-            self.config.waitlist_service_url,
-            f"/waitlist/next?eventID={event_id}&seatCategory={seat_category}",
-        )
+        query = urlencode({"eventID": event_id, "seatCategory": seat_category})
+        url = self._join(self.config.waitlist_service_url, f"/waitlist/next?{query}")
         status_code, payload = self._request_json("GET", url, internal_auth=True)
 
         if status_code == 404:
@@ -636,9 +641,9 @@ class WaitlistPromotionWorker:
 
         if status_code == 200 and isinstance(payload, dict):
             offered_hold = payload.get("holdID")
-            if offered_hold and offered_hold != hold_id:
+            if not isinstance(offered_hold, str):
                 return False
-            return True
+            return offered_hold == hold_id
 
         if status_code == 409:
             latest = self._get_waitlist_entry(waitlist_id)
