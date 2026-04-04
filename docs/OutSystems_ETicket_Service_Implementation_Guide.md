@@ -1343,7 +1343,7 @@ Use your actual action output variable names if different.
 1. Call `HTTPRequestHandler.SetStatusCode(400)`.
 1. End with `OutBody`.
 
-23. On the **True** path of `TransferFieldsValid`, add an Assign node:
+1. On the **True** path of `TransferFieldsValid`, add an Assign node:
 
 - `EffectiveRequestedTransactionId = Trim(If(Request.newTransactionID = "", OldTicket.TransactionId, Request.newTransactionID))`
 
@@ -1385,7 +1385,7 @@ AND Trim(ExistingNewHoldTicket.TransactionId) = EffectiveRequestedTransactionId
 1. Call `HTTPRequestHandler.SetStatusCode(200)`.
 1. End with `OutBody`.
 
-30. On the **False** path of `ExistingTicketMatchesRequestContext` (true business conflict):
+1. On the **False** path of `ExistingTicketMatchesRequestContext` (true business conflict):
 1. Call `BuildApiError` and map:
    - `Code = "HOLD_ALREADY_ASSIGNED"`
    - `Message = "newHoldID already has a ticket that conflicts with request context"`
@@ -1400,7 +1400,7 @@ AND Trim(ExistingNewHoldTicket.TransactionId) = EffectiveRequestedTransactionId
 1. Do not raise exceptions on this branch.
 1. End with `OutBody`.
 
-31. On the **False** path of `NewHoldAlreadyHasTicket`, check transferability now using Decision node `OldTicketTransferable` with condition:
+1. On the **False** path of `NewHoldAlreadyHasTicket`, check transferability now using Decision node `OldTicketTransferable` with condition:
 
 ```
 OldTicket.Status = "VALID" OR OldTicket.Status = "CANCELLATION_IN_PROGRESS"
@@ -1421,7 +1421,7 @@ OldTicket.Status = "VALID" OR OldTicket.Status = "CANCELLATION_IN_PROGRESS"
 1. Do not raise exceptions on this branch.
 1. End with `OutBody`.
 
-33. On the **True** path of `OldTicketTransferable` (fresh transfer), execute update/create in this order:
+1. On the **True** path of `OldTicketTransferable` (fresh transfer), execute update/create in this order:
 1. Call `NowUtc`.
 1. Add an Assign node to prepare the old ticket update:
    - `UpdateOldSource = OldTicket`
