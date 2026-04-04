@@ -169,6 +169,18 @@ def _extract_postgrest_error_code(error: Exception) -> Optional[str]:
     return None
 
 
+def _is_duplicate_webhook_event_error(error: Exception) -> bool:
+    if _extract_postgrest_error_code(error) == "23505":
+        return True
+
+    message = str(error).lower()
+    return (
+        ("duplicate key" in message or "unique constraint" in message)
+        and "payment_webhook_events" in message
+        and "webhook_event_id" in message
+    )
+
+
 def _is_recent_timestamp(value: Any, threshold_seconds: int) -> bool:
     parsed = _parse_datetime(value)
     if not parsed:
@@ -444,7 +456,7 @@ def _record_webhook_event(
         rows = result.data or []
         return (rows[0] if rows else insert_payload), False
     except Exception as error:
-        if _extract_postgrest_error_code(error) != "23505":
+        if not _is_duplicate_webhook_event_error(error):
             raise
 
         existing = _safe_db_select_one(

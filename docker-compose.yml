@@ -174,7 +174,7 @@ services:
   booking-fulfillment-orchestrator:
     build:
       context: .
-      dockerfile: backend/composite/scenario-1/booking-fulfillment-orchestrator/Dockerfile
+      dockerfile: backend/composite/booking-fulfillment-orchestrator/Dockerfile
     container_name: ticketblitz-booking-fulfillment-orchestrator
     restart: on-failure
     env_file:
