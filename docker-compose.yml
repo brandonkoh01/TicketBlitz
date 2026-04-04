@@ -64,7 +64,7 @@ services:
       PORT: "5000"
       SERVICE_NAME: user-service
       REQUIRE_INTERNAL_AUTH: ${REQUIRE_INTERNAL_AUTH:-1}
-      USER_SERVICE_AUTH_HEADER: ${USER_SERVICE_AUTH_HEADER:-X-Internal-Token}
+      USER_SERVICE_AUTH_HEADER: ${INTERNAL_AUTH_HEADER:-X-Internal-Token}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-ticketblitz-internal-token}
     ports:
       - "127.0.0.1:5002:5000"
@@ -139,7 +139,7 @@ services:
       PORT: "5000"
       SERVICE_NAME: waitlist-service
       REQUIRE_INTERNAL_AUTH: ${REQUIRE_INTERNAL_AUTH:-1}
-      WAITLIST_SERVICE_AUTH_HEADER: ${WAITLIST_SERVICE_AUTH_HEADER:-X-Internal-Token}
+      WAITLIST_SERVICE_AUTH_HEADER: ${INTERNAL_AUTH_HEADER:-X-Internal-Token}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-ticketblitz-internal-token}
     ports:
       - "5005:5000"
@@ -195,6 +195,40 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    networks:
+      - ticketblitz-net
+
+  waitlist-promotion-orchestrator:
+    build:
+      context: .
+      dockerfile: backend/composite/waitlist-promotion-orchestrator/Dockerfile
+    container_name: ticketblitz-waitlist-promotion-orchestrator
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      SERVICE_NAME: waitlist-promotion-orchestrator
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-ticketblitz}
+      WAITLIST_PROMOTION_ROUTING_KEY: ${WAITLIST_PROMOTION_ROUTING_KEY:-seat.released}
+      WAITLIST_PROMOTION_RETRY_DELAY_MS: ${WAITLIST_PROMOTION_RETRY_DELAY_MS:-5000}
+      WAITLIST_PROMOTION_MAX_RETRIES: ${WAITLIST_PROMOTION_MAX_RETRIES:-3}
+      WAITLIST_PROMOTION_HTTP_RETRY_TOTAL: ${WAITLIST_PROMOTION_HTTP_RETRY_TOTAL:-2}
+      WAITLIST_PROMOTION_HTTP_RETRY_BACKOFF_FACTOR: ${WAITLIST_PROMOTION_HTTP_RETRY_BACKOFF_FACTOR:-0.5}
+      INVENTORY_SERVICE_URL: ${INVENTORY_SERVICE_URL:-http://inventory-service:5000}
+      WAITLIST_SERVICE_URL: ${WAITLIST_SERVICE_URL:-http://waitlist-service:5000}
+      USER_SERVICE_URL: ${USER_SERVICE_URL:-http://user-service:5000}
+      INTERNAL_AUTH_HEADER: ${INTERNAL_AUTH_HEADER:-X-Internal-Token}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-ticketblitz-internal-token}
+      WAITLIST_PAYMENT_URL_TEMPLATE: ${WAITLIST_PAYMENT_URL_TEMPLATE:-/waitlist/confirm/{holdID}}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      inventory-service:
+        condition: service_healthy
+      waitlist-service:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
     networks:
       - ticketblitz-net
 
