@@ -21,6 +21,7 @@ class FakeOrchestrator:
         self.reserve_response = {"status": "WAITLISTED", "waitlistID": "00000000-0000-0000-0000-000000000100"}
         self.reserve_confirm_response = {"status": "PAYMENT_PENDING", "holdID": "00000000-0000-0000-0000-000000000200"}
         self.waitlist_confirm_response = {"uiStatus": "WAITLIST_OFFERED"}
+        self.last_authenticated_user_id = None
         self.raise_error = None
 
     def reserve(self, payload, correlation_id):
@@ -33,9 +34,10 @@ class FakeOrchestrator:
             raise self.raise_error
         return self.reserve_confirm_response
 
-    def waitlist_confirm(self, hold_id, correlation_id):
+    def waitlist_confirm(self, hold_id, correlation_id, authenticated_user_id=None):
         if self.raise_error:
             raise self.raise_error
+        self.last_authenticated_user_id = authenticated_user_id
         return self.waitlist_confirm_response
 
 
@@ -101,9 +103,18 @@ class ReservationOrchestratorRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.get_json()["status"], "PAYMENT_PENDING")
 
     def test_waitlist_confirm_route(self):
-        response = self.client.get("/waitlist/confirm/40000000-0000-0000-0000-000000000003")
+        response = self.client.get(
+            "/waitlist/confirm/40000000-0000-0000-0000-000000000003",
+            headers=self.auth_headers,
+        )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["uiStatus"], "WAITLIST_OFFERED")
+        self.assertEqual(self.fake.last_authenticated_user_id, self.auth_headers["X-User-ID"])
+
+    def test_waitlist_confirm_requires_auth_header(self):
+        response = self.client.get("/waitlist/confirm/40000000-0000-0000-0000-000000000003")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "Authenticated user header is required")
 
     def test_validation_error_mapping(self):
         self.fake.raise_error = reservation_app.ValidationError("bad payload")

@@ -692,10 +692,19 @@ class ReservationOrchestrator:
             "correlationID": correlation_id,
         }
 
-    def waitlist_confirm(self, hold_id: str, correlation_id: str) -> dict[str, Any]:
+    def waitlist_confirm(
+        self,
+        hold_id: str,
+        correlation_id: str,
+        authenticated_user_id: Optional[str] = None,
+    ) -> dict[str, Any]:
         parsed_hold_id = _parse_uuid(hold_id, "holdID")
 
         hold = self.client.get_hold(parsed_hold_id, correlation_id)
+        hold_user_id = hold.get("userID")
+        if authenticated_user_id and hold_user_id and hold_user_id != authenticated_user_id:
+            raise ConflictError("holdID does not belong to authenticated user")
+
         waitlist = self.client.get_waitlist_by_hold(parsed_hold_id, correlation_id)
         payment = self.client.get_payment_hold(parsed_hold_id, correlation_id)
         eticket = self.client.get_eticket_by_hold(parsed_hold_id, correlation_id)
@@ -820,8 +829,14 @@ def reserve_confirm():
 def waitlist_confirm(hold_id: str):
     correlation_id = _resolve_correlation_id(None)
     try:
+        require_user_binding = _str_to_bool(current_app.config.get("REQUIRE_AUTHENTICATED_USER_HEADER"), default=True)
+        authenticated_user_id = _resolve_authenticated_user_id(required=require_user_binding)
         service: ReservationOrchestrator = current_app.config["ORCHESTRATOR"]
-        payload = service.waitlist_confirm(hold_id, correlation_id)
+        payload = service.waitlist_confirm(
+            hold_id,
+            correlation_id,
+            authenticated_user_id=authenticated_user_id,
+        )
         return _json_response(payload, 200, correlation_id)
     except ApiError as error:
         return _json_error(error, correlation_id)

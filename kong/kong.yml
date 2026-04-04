@@ -312,6 +312,11 @@ services:
         strip_path: false
 
 consumers:
+  - username: customer-frontend
+    custom_id: customer-frontend
+    keyauth_credentials:
+      - key: ticketblitz-customer-dev-key
+
   - username: organiser-dashboard
     custom_id: organiser-dashboard
     keyauth_credentials:

@@ -1,26 +1,117 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { useRoleNavigation } from '@/composables/useRoleNavigation'
+import { useApiClient } from '@/composables/useApiClient'
+import { useScenarioReservation } from '@/composables/useScenarioReservation'
 
-const navItems = computed(() => [
-  { label: 'Events', to: '/' },
-  { label: 'Venues', to: '#' },
-  { label: 'My Tickets', to: '/my-tickets' },
-])
+const router = useRouter()
+const { primaryNavItems: navItems } = useRoleNavigation()
+const api = useApiClient()
+const reservation = useScenarioReservation()
 
-const footerGroups = [
-  {
-    title: 'Navigation',
-    links: ['Press Kit', 'Privacy Policy', 'Terms of Service'],
-  },
-  {
-    title: 'Connect',
-    links: ['Share', 'Language', 'Mail'],
-  },
-]
+const events = ref([])
+const categories = ref([])
 
-function handleSubmit(event) {
-  event.preventDefault()
+const selectedEventID = ref('')
+const selectedSeatCategory = ref('')
+
+const loadingEvents = ref(false)
+const loadingCategories = ref(false)
+const submitting = ref(false)
+const localError = ref('')
+
+const selectedEvent = computed(() => events.value.find((event) => event.event_id === selectedEventID.value) || null)
+const selectedCategory = computed(
+  () => categories.value.find((category) => category.category_code === selectedSeatCategory.value) || null
+)
+
+async function loadEvents() {
+  loadingEvents.value = true
+  localError.value = ''
+
+  try {
+    const payload = await api.get('/events', { includeUserHeader: false })
+    events.value = payload?.events || []
+
+    if (!selectedEventID.value && events.value.length > 0) {
+      selectedEventID.value = events.value[0].event_id
+    }
+  } catch (error) {
+    localError.value = error?.message || 'Unable to load events.'
+  } finally {
+    loadingEvents.value = false
+  }
 }
+
+async function loadCategories(eventID) {
+  if (!eventID) return
+
+  loadingCategories.value = true
+  localError.value = ''
+
+  try {
+    const payload = await api.get(`/event/${eventID}/categories`, { includeUserHeader: false })
+    categories.value = payload?.categories || []
+
+    if (!categories.value.some((category) => category.category_code === selectedSeatCategory.value)) {
+      selectedSeatCategory.value = categories.value[0]?.category_code || ''
+    }
+  } catch (error) {
+    localError.value = error?.message || 'Unable to load categories.'
+    categories.value = []
+    selectedSeatCategory.value = ''
+  } finally {
+    loadingCategories.value = false
+  }
+}
+
+watch(selectedEventID, (eventID) => {
+  loadCategories(eventID)
+})
+
+async function handleReserve() {
+  localError.value = ''
+  submitting.value = true
+
+  try {
+    if (!selectedEventID.value || !selectedSeatCategory.value) {
+      throw new Error('Please select an event and seat category.')
+    }
+
+    const response = await reservation.reserve({
+      eventID: selectedEventID.value,
+      seatCategory: selectedSeatCategory.value,
+      qty: 1,
+    })
+
+    if (response?.status === 'PAYMENT_PENDING' && response?.holdID) {
+      await router.push({
+        name: 'booking-pending',
+        params: { holdID: response.holdID },
+      })
+      return
+    }
+
+    if (response?.status === 'WAITLISTED' && response?.waitlistID) {
+      await router.push({
+        name: 'waitlist-status',
+        params: { waitlistID: response.waitlistID },
+      })
+      return
+    }
+
+    throw new Error('Unexpected reservation response.')
+  } catch (error) {
+    localError.value = error?.message || reservation.errorMessage.value || 'Unable to submit reservation.'
+  } finally {
+    submitting.value = false
+  }
+}
+
+onMounted(() => {
+  loadEvents()
+})
 </script>
 
 <template>
@@ -29,7 +120,7 @@ function handleSubmit(event) {
       <div class="mx-auto flex max-w-[1800px] items-center justify-between gap-4 px-6 py-5 md:px-10">
         <RouterLink to="/" class="block focus-visible:outline-none">
           <p class="text-sm font-black uppercase tracking-[0.28em]">TicketBlitz</p>
-          <p class="text-[10px] font-medium uppercase tracking-[0.22em] text-black/65">Main Page 01</p>
+          <p class="text-[10px] font-medium uppercase tracking-[0.22em] text-black/65">Scenario 01</p>
         </RouterLink>
 
         <nav class="hidden items-center gap-6 lg:flex">
@@ -46,143 +137,79 @@ function handleSubmit(event) {
           </component>
         </nav>
 
-        <div class="flex items-center gap-3">
-          <button
-            type="button"
-            aria-label="Search"
-            class="inline-flex h-11 w-11 items-center justify-center border-2 border-black text-lg font-black transition duration-200 ease-out hover:bg-black hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--swiss-accent)] focus-visible:ring-offset-2"
-          >
-            ⌕
-          </button>
-          <UiButton to="/sign-up" variant="primary" class="min-w-[9rem]">Sign Up</UiButton>
-        </div>
+        <UiButton to="/my-tickets" variant="secondary" class="min-w-[10rem]">My Tickets</UiButton>
       </div>
     </header>
 
     <section class="border-b-4 border-black bg-white">
-      <div class="mx-auto max-w-[1800px] px-6 py-7 md:px-10 md:py-9">
-        <SectionLabel index="06." label="Concert Checkout" />
-        <h1 class="mt-8 text-[clamp(2.2rem,6vw,5.2rem)] font-black uppercase leading-[0.9] tracking-[-0.04em]">
-          Complete Your
+      <div class="mx-auto max-w-[1800px] px-6 py-8 md:px-10 md:py-10">
+        <SectionLabel index="06." label="Reserve Ticket" />
+        <h1 class="mt-8 text-[clamp(2.4rem,7vw,5.6rem)] font-black uppercase leading-[0.9] tracking-[-0.04em]">
+          Start Scenario
           <br>
-          Booking Details
+          1 Booking
         </h1>
-        <p class="mt-5 max-w-3xl text-sm uppercase leading-relaxed tracking-[0.04em] md:text-base">
-          You're signed in. Enter contact and payment details to continue with your concert ticket purchase.
-        </p>
       </div>
     </section>
 
     <section class="border-b-4 border-black">
       <div class="mx-auto grid max-w-[1800px] grid-cols-1 gap-0 lg:grid-cols-12">
         <div class="swiss-grid-pattern border-b-4 border-black p-6 md:p-10 lg:col-span-8 lg:border-b-0 lg:border-r-4 lg:p-14">
-          <SectionLabel index="07." label="Buyer Information" />
+          <SectionLabel index="07." label="Reservation Input" />
 
-          <form class="mt-8 space-y-6" @submit="handleSubmit">
-            <div class="grid gap-5 md:grid-cols-2">
-              <label class="block">
-                <span class="mb-2 block text-[11px] font-black uppercase tracking-[0.22em]">Full Name</span>
-                <input
-                  type="text"
-                  name="fullName"
-                  autocomplete="name"
-                  required
-                  class="w-full border-2 border-black bg-white px-4 py-3 text-sm font-medium outline-none transition duration-200 ease-out focus:border-[var(--swiss-accent)]"
-                  placeholder="Your full name"
-                >
-              </label>
-
-              <label class="block">
-                <span class="mb-2 block text-[11px] font-black uppercase tracking-[0.22em]">Contact Email</span>
-                <input
-                  type="email"
-                  name="email"
-                  autocomplete="email"
-                  required
-                  class="w-full border-2 border-black bg-white px-4 py-3 text-sm font-medium outline-none transition duration-200 ease-out focus:border-[var(--swiss-accent)]"
-                  placeholder="name@email.com"
-                >
-              </label>
-            </div>
+          <form class="mt-8 space-y-6" @submit.prevent="handleReserve">
+            <label class="block">
+              <span class="mb-2 block text-[11px] font-black uppercase tracking-[0.22em]">Event</span>
+              <select
+                v-model="selectedEventID"
+                class="w-full border-2 border-black bg-white px-4 py-3 text-sm font-medium outline-none transition duration-200 ease-out focus:border-[var(--swiss-accent)]"
+                :disabled="loadingEvents || events.length === 0"
+              >
+                <option value="" disabled>Select event</option>
+                <option v-for="event in events" :key="event.event_id" :value="event.event_id">
+                  {{ event.name }} ({{ event.event_code }})
+                </option>
+              </select>
+            </label>
 
             <label class="block">
-              <span class="mb-2 block text-[11px] font-black uppercase tracking-[0.22em]">Contact Number</span>
-              <input
-                type="tel"
-                name="phone"
-                autocomplete="tel"
-                required
+              <span class="mb-2 block text-[11px] font-black uppercase tracking-[0.22em]">Seat Category</span>
+              <select
+                v-model="selectedSeatCategory"
                 class="w-full border-2 border-black bg-white px-4 py-3 text-sm font-medium outline-none transition duration-200 ease-out focus:border-[var(--swiss-accent)]"
-                placeholder="+65 8123 4567"
+                :disabled="loadingCategories || categories.length === 0"
               >
+                <option value="" disabled>Select category</option>
+                <option v-for="category in categories" :key="category.category_id" :value="category.category_code">
+                  {{ category.category_code }} - {{ category.name }}
+                </option>
+              </select>
             </label>
 
             <div class="border-t-2 border-black pt-6">
-              <p class="text-sm font-black uppercase tracking-[0.18em]">Payment Details</p>
-
-              <div class="mt-5 space-y-5">
-                <label class="block">
-                  <span class="mb-2 block text-[11px] font-black uppercase tracking-[0.22em]">Cardholder Name</span>
-                  <input
-                    type="text"
-                    name="cardholderName"
-                    autocomplete="cc-name"
-                    required
-                    class="w-full border-2 border-black bg-white px-4 py-3 text-sm font-medium outline-none transition duration-200 ease-out focus:border-[var(--swiss-accent)]"
-                    placeholder="Name on card"
-                  >
-                </label>
-
-                <label class="block">
-                  <span class="mb-2 block text-[11px] font-black uppercase tracking-[0.22em]">Card Number</span>
-                  <input
-                    type="text"
-                    name="cardNumber"
-                    autocomplete="cc-number"
-                    inputmode="numeric"
-                    required
-                    class="w-full border-2 border-black bg-white px-4 py-3 text-sm font-medium outline-none transition duration-200 ease-out focus:border-[var(--swiss-accent)]"
-                    placeholder="1234 5678 9012 3456"
-                  >
-                </label>
-
-                <div class="grid gap-5 md:grid-cols-2">
-                  <label class="block">
-                    <span class="mb-2 block text-[11px] font-black uppercase tracking-[0.22em]">Expiry Date</span>
-                    <input
-                      type="text"
-                      name="expiryDate"
-                      autocomplete="cc-exp"
-                      inputmode="numeric"
-                      required
-                      class="w-full border-2 border-black bg-white px-4 py-3 text-sm font-medium outline-none transition duration-200 ease-out focus:border-[var(--swiss-accent)]"
-                      placeholder="MM / YY"
-                    >
-                  </label>
-
-                  <label class="block">
-                    <span class="mb-2 block text-[11px] font-black uppercase tracking-[0.22em]">CVV</span>
-                    <input
-                      type="password"
-                      name="cvv"
-                      autocomplete="cc-csc"
-                      inputmode="numeric"
-                      required
-                      class="w-full border-2 border-black bg-white px-4 py-3 text-sm font-medium outline-none transition duration-200 ease-out focus:border-[var(--swiss-accent)]"
-                      placeholder="***"
-                    >
-                  </label>
-                </div>
-              </div>
+              <p class="text-xs font-black uppercase tracking-[0.18em] text-black/70">
+                Reservation route: <span class="text-black">POST /reserve via Kong</span>
+              </p>
             </div>
 
+            <p
+              v-if="localError || reservation.errorMessage"
+              class="border-2 border-black bg-black px-4 py-3 text-xs font-black uppercase tracking-[0.14em] text-white"
+            >
+              {{ localError || reservation.errorMessage }}
+            </p>
+
             <div class="flex flex-col gap-4 border-t-2 border-black pt-6 sm:flex-row">
-              <UiButton type="submit" variant="primary" :full-width="true" class="sm:w-auto">
-                Continue
-              </UiButton>
+              <button
+                type="submit"
+                class="inline-flex h-14 w-full items-center justify-center border-2 border-black bg-black px-6 text-xs font-black uppercase tracking-[0.24em] text-white transition duration-200 ease-out hover:bg-[var(--swiss-accent)] hover:text-black disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:min-w-[12rem]"
+                :disabled="submitting || !selectedEventID || !selectedSeatCategory"
+              >
+                {{ submitting ? 'Submitting' : 'Reserve Ticket' }}
+              </button>
               <RouterLink
                 to="/"
-                class="inline-flex h-14 w-full items-center justify-center border-2 border-black bg-white px-6 text-xs font-black uppercase tracking-[0.24em] transition duration-200 ease-out hover:bg-black hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--swiss-accent)] focus-visible:ring-offset-2 sm:w-auto sm:min-w-[12rem]"
+                class="inline-flex h-14 w-full items-center justify-center border-2 border-black bg-white px-6 text-xs font-black uppercase tracking-[0.24em] transition duration-200 ease-out hover:bg-black hover:text-white sm:w-auto sm:min-w-[12rem]"
               >
                 Back
               </RouterLink>
@@ -191,69 +218,41 @@ function handleSubmit(event) {
         </div>
 
         <aside class="swiss-dots bg-[var(--swiss-muted)] p-6 md:p-10 lg:col-span-4 lg:p-14">
-          <SectionLabel index="08." label="Order Summary" />
+          <SectionLabel index="08." label="Live Summary" />
 
           <div class="mt-8 border-4 border-black bg-white p-6">
-            <p class="text-xs font-bold uppercase tracking-[0.2em] text-black/70">Selected Concert</p>
-            <h2 class="mt-4 text-3xl font-black uppercase leading-[0.92] tracking-tight">Rock Revival 2026</h2>
+            <p class="text-xs font-bold uppercase tracking-[0.2em] text-black/70">Selected Event</p>
+            <h2 class="mt-4 text-3xl font-black uppercase leading-[0.92] tracking-tight">
+              {{ selectedEvent?.name || 'No Event Selected' }}
+            </h2>
 
             <div class="mt-6 space-y-3 border-t-2 border-black pt-4 text-sm font-medium">
               <div class="flex items-center justify-between">
-                <span>Date</span>
-                <span class="font-black">Dec 02 2026</span>
+                <span>Event Code</span>
+                <span class="font-black">{{ selectedEvent?.event_code || 'N/A' }}</span>
               </div>
               <div class="flex items-center justify-between">
-                <span>Venue</span>
-                <span class="font-black">London Arena</span>
+                <span>Status</span>
+                <span class="font-black">{{ selectedEvent?.status || 'N/A' }}</span>
               </div>
               <div class="flex items-center justify-between">
                 <span>Seat Category</span>
-                <span class="font-black">General Admission</span>
+                <span class="font-black">{{ selectedCategory?.category_code || 'N/A' }}</span>
               </div>
               <div class="flex items-center justify-between">
-                <span>Quantity</span>
-                <span class="font-black">1 Ticket</span>
-              </div>
-            </div>
-
-            <div class="mt-6 border-t-2 border-black pt-4">
-              <div class="flex items-center justify-between text-base">
-                <span class="font-black uppercase tracking-[0.08em]">Total</span>
-                <span class="text-xl font-black">$125.00</span>
+                <span>Current Price</span>
+                <span class="font-black">
+                  {{ selectedCategory?.currency || 'SGD' }} {{ selectedCategory?.current_price || 'N/A' }}
+                </span>
               </div>
             </div>
           </div>
 
           <p class="mt-5 text-xs font-medium uppercase tracking-[0.14em] text-black/60">
-            UI-only page. No live inventory, pricing, or payment processing connected yet.
+            If sold out, this flow automatically moves to waitlist and starts position tracking.
           </p>
         </aside>
       </div>
     </section>
-
-    <footer class="bg-black px-6 py-14 text-white md:px-10 md:py-20">
-      <div class="mx-auto grid max-w-[1800px] gap-10 lg:grid-cols-12">
-        <div class="lg:col-span-7">
-          <p class="text-xs font-black uppercase tracking-[0.3em] text-[var(--swiss-accent)]">05. TicketBlitz International</p>
-          <h2 class="mt-5 text-5xl font-black uppercase leading-[0.88] tracking-[-0.04em] md:text-7xl">TicketBlitz</h2>
-          <p class="mt-6 max-w-xl text-sm leading-relaxed text-white/80 md:text-base">
-            The world's fastest ticketing platform for high-demand experiences.
-          </p>
-        </div>
-
-        <div class="grid gap-8 sm:grid-cols-2 lg:col-span-5">
-          <FooterLinkGroup
-            v-for="group in footerGroups"
-            :key="group.title"
-            :title="group.title"
-            :links="group.links"
-          />
-        </div>
-
-        <p class="border-t-2 border-white/20 pt-6 text-[11px] font-medium uppercase tracking-[0.2em] text-white/70 lg:col-span-12">
-          ©2026 TicketBlitz International
-        </p>
-      </div>
-    </footer>
   </main>
 </template>

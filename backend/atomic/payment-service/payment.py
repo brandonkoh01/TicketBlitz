@@ -120,6 +120,34 @@ def _to_minor_units(amount: Decimal) -> int:
     return int((amount * 100).to_integral_value(rounding=ROUND_HALF_UP))
 
 
+def _as_minor_units(value: Any, field_name: str) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as error:
+        raise ValidationError(f"{field_name} must be an integer") from error
+
+    if parsed < 0:
+        raise ValidationError(f"{field_name} must be greater than or equal to 0")
+
+    return parsed
+
+
+def _validate_payment_intent_amount_and_currency(
+    payment_intent: Dict[str, Any], transaction: Dict[str, Any]
+) -> None:
+    expected_amount = _to_minor_units(_as_decimal(transaction.get("amount"), "transaction amount"))
+    received_amount = _as_minor_units(
+        payment_intent.get("amount_received"), "payment_intent.amount_received"
+    )
+    if received_amount != expected_amount:
+        raise ConflictError("payment_intent amount does not match transaction amount")
+
+    expected_currency = _clean_currency(transaction.get("currency"))
+    received_currency = _clean_currency(payment_intent.get("currency"))
+    if received_currency != expected_currency:
+        raise ConflictError("payment_intent currency does not match transaction currency")
+
+
 def _decimal_to_str(value: Decimal) -> str:
     return str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
@@ -533,6 +561,8 @@ def _handle_payment_intent_succeeded(payment_intent: Dict[str, Any]) -> Dict[str
     transaction = _fetch_transaction_by_intent(payment_intent_id)
     if not transaction:
         raise NotFoundError("No transaction found for payment intent")
+
+    _validate_payment_intent_amount_and_currency(payment_intent, transaction)
 
     update_payload = {
         "status": "SUCCEEDED",

@@ -136,6 +136,58 @@ class PaymentRefactorTests(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
         process_mock.assert_not_called()
 
+    def test_handle_payment_intent_succeeded_rejects_amount_mismatch(self):
+        transaction = {
+            "transaction_id": str(uuid.uuid4()),
+            "hold_id": str(uuid.uuid4()),
+            "event_id": str(uuid.uuid4()),
+            "user_id": str(uuid.uuid4()),
+            "amount": "160.00",
+            "currency": "SGD",
+            "stripe_payment_intent_id": "pi_test_amount_mismatch",
+            "stripe_charge_id": None,
+        }
+        payment_intent = {
+            "id": "pi_test_amount_mismatch",
+            "status": "succeeded",
+            "amount_received": 0,
+            "currency": "sgd",
+            "latest_charge": "ch_test_amount_mismatch",
+        }
+
+        with patch("payment._fetch_transaction_by_intent", return_value=transaction):
+            with patch("payment._update_transaction") as update_mock:
+                with self.assertRaises(payment.ConflictError):
+                    payment._handle_payment_intent_succeeded(payment_intent)
+
+        update_mock.assert_not_called()
+
+    def test_handle_payment_intent_succeeded_rejects_currency_mismatch(self):
+        transaction = {
+            "transaction_id": str(uuid.uuid4()),
+            "hold_id": str(uuid.uuid4()),
+            "event_id": str(uuid.uuid4()),
+            "user_id": str(uuid.uuid4()),
+            "amount": "160.00",
+            "currency": "SGD",
+            "stripe_payment_intent_id": "pi_test_currency_mismatch",
+            "stripe_charge_id": None,
+        }
+        payment_intent = {
+            "id": "pi_test_currency_mismatch",
+            "status": "succeeded",
+            "amount_received": 16000,
+            "currency": "usd",
+            "latest_charge": "ch_test_currency_mismatch",
+        }
+
+        with patch("payment._fetch_transaction_by_intent", return_value=transaction):
+            with patch("payment._update_transaction") as update_mock:
+                with self.assertRaises(payment.ConflictError):
+                    payment._handle_payment_intent_succeeded(payment_intent)
+
+        update_mock.assert_not_called()
+
     def test_publish_booking_confirmed_includes_waitlist_id_when_present(self):
         transaction = {
             "hold_id": str(uuid.uuid4()),

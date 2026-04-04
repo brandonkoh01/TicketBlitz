@@ -55,6 +55,7 @@ class BaseConfig:
     INTERNAL_AUTH_HEADER = os.getenv("INTERNAL_AUTH_HEADER", "X-Internal-Token")
     INTERNAL_SERVICE_TOKEN = os.getenv("INTERNAL_SERVICE_TOKEN", "")
     REQUEST_TIMEOUT_SECONDS = 3.0
+    ALLOW_CONFIRMED_WITHOUT_TICKET = False
 
 
 def _env_float(name: str, default: float) -> float:
@@ -70,7 +71,15 @@ def _env_float(name: str, default: float) -> float:
     return parsed if parsed > 0 else default
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 BaseConfig.REQUEST_TIMEOUT_SECONDS = _env_float("BOOKING_STATUS_TIMEOUT_SECONDS", 3.0)
+BaseConfig.ALLOW_CONFIRMED_WITHOUT_TICKET = _env_bool("BOOKING_STATUS_ALLOW_CONFIRMED_WITHOUT_TICKET", False)
 
 
 def _parse_datetime(value: Any) -> datetime | None:
@@ -346,6 +355,10 @@ def _build_booking_status_payload(hold_id: str, inventory_hold: dict[str, Any]) 
             if eticket.get("ticketID"):
                 payload["uiStatus"] = UI_STATUS_CONFIRMED
                 return payload
+
+        if bool(current_app.config.get("ALLOW_CONFIRMED_WITHOUT_TICKET", False)):
+            payload["uiStatus"] = UI_STATUS_CONFIRMED
+            return payload
 
         payload["uiStatus"] = UI_STATUS_PROCESSING
         return payload
