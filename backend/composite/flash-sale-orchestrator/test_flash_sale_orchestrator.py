@@ -155,6 +155,93 @@ class FlashSaleOrchestratorTests(unittest.TestCase):
             pricing_end_index,
         )
 
+    def test_end_flash_sale_reverts_to_base_price_for_sold_out_categories(self):
+        event_id = "10000000-0000-0000-0000-000000000301"
+        flash_sale_id = "10000000-0000-0000-0000-000000000401"
+        cat1_id = "20000000-0000-0000-0000-000000000011"
+        cat2_id = "20000000-0000-0000-0000-000000000012"
+        cat3_id = "20000000-0000-0000-0000-000000000013"
+        category_update_payload = {}
+
+        def fake_request_json(method, service_name, base_url, path, **kwargs):
+            if method == "GET" and path == f"/pricing/{event_id}":
+                return {
+                    "categories": [
+                        {
+                            "categoryID": cat1_id,
+                            "category": "CAT1",
+                            "basePrice": "100.00",
+                            "currentPrice": "84.00",
+                            "status": "SOLD_OUT",
+                            "currency": "SGD",
+                        },
+                        {
+                            "categoryID": cat2_id,
+                            "category": "CAT2",
+                            "basePrice": "150.00",
+                            "currentPrice": "105.00",
+                            "status": "AVAILABLE",
+                            "currency": "SGD",
+                        },
+                        {
+                            "categoryID": cat3_id,
+                            "category": "CAT3",
+                            "basePrice": "200.00",
+                            "currentPrice": "200.00",
+                            "status": "AVAILABLE",
+                            "currency": "SGD",
+                        },
+                    ]
+                }
+            if method == "PUT" and path == f"/event/{event_id}/categories/prices":
+                category_update_payload.update(kwargs.get("json_body", {}))
+                return {"status": "ok"}
+            if method == "PUT" and path in {
+                f"/event/{event_id}/status",
+                f"/inventory/{event_id}/flash-sale",
+                f"/pricing/{flash_sale_id}/end",
+            }:
+                return {"status": "ok"}
+            raise AssertionError(f"Unexpected request: {method} {service_name} {path}")
+
+        with patch.object(orchestrator_module, "_request_json", side_effect=fake_request_json), patch.object(
+            orchestrator_module,
+            "_safe_waitlist_emails",
+            return_value=[],
+        ), patch.object(orchestrator_module, "_publish_price_broadcast", return_value=True):
+            response = self.client.post(
+                "/flash-sale/end",
+                json={
+                    "eventID": event_id,
+                    "flashSaleID": flash_sale_id,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body["status"], "success")
+
+        reverted_by_category = {
+            row["categoryID"]: row
+            for row in body["revertedPrices"]
+        }
+        self.assertIn(cat1_id, reverted_by_category)
+        self.assertEqual(reverted_by_category[cat1_id]["oldPrice"], "84.00")
+        self.assertEqual(reverted_by_category[cat1_id]["newPrice"], "100.00")
+        self.assertIn(cat2_id, reverted_by_category)
+        self.assertEqual(reverted_by_category[cat2_id]["oldPrice"], "105.00")
+        self.assertEqual(reverted_by_category[cat2_id]["newPrice"], "150.00")
+        self.assertNotIn(cat3_id, reverted_by_category)
+
+        self.assertEqual(category_update_payload["reason"], "REVERT")
+        updates_by_category = {
+            row["category_id"]: row["new_price"]
+            for row in category_update_payload["updates"]
+        }
+        self.assertEqual(updates_by_category[cat1_id], "100.00")
+        self.assertEqual(updates_by_category[cat2_id], "150.00")
+        self.assertNotIn(cat3_id, updates_by_category)
+
     def test_internal_reconcile_success_path_returns_success_payload(self):
         event_id = "10000000-0000-0000-0000-000000000301"
         flash_sale_id = "10000000-0000-0000-0000-000000000401"

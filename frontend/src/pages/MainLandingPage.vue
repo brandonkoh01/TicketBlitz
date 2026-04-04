@@ -112,7 +112,7 @@ const footerGroups = [
           </p>
 
           <div class="mt-10 flex flex-col gap-4 sm:flex-row">
-            <UiButton variant="primary" :full-width="true" class="sm:w-auto">Explore Events</UiButton>
+            <UiButton to="/events" variant="primary" :full-width="true" class="sm:w-auto">Explore Events</UiButton>
             <UiButton variant="secondary" :full-width="true" class="sm:w-auto">Live Map</UiButton>
           </div>
 

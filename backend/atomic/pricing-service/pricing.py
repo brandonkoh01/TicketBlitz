@@ -222,7 +222,7 @@ def _compute_discount_updates(categories: List[Dict[str, Any]], discount_percent
     updates: List[Dict[str, Any]] = []
 
     for category in categories:
-        old_price = _normalize_money(Decimal(str(category.get("current_price"))))
+        old_price = _normalize_money(Decimal(str(category.get("base_price"))))
         new_price = _normalize_money(old_price * multiplier)
         updates.append(
             {

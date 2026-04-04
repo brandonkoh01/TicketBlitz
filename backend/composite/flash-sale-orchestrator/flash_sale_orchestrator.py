@@ -215,22 +215,6 @@ def _event_price_updates(updated_prices: List[Dict[str, Any]]) -> List[Dict[str,
     ]
 
 
-def _derive_revert_prices(price_history_rows: List[Dict[str, Any]]) -> Dict[str, str]:
-    baseline: Dict[str, str] = {}
-    for row in price_history_rows:
-        if not isinstance(row, dict):
-            continue
-
-        reason = str(row.get("reason", "")).upper()
-        category_id = row.get("categoryID")
-        old_price = row.get("oldPrice")
-
-        if reason == "FLASH_SALE" and category_id and old_price is not None:
-            baseline.setdefault(category_id, str(old_price))
-
-    return baseline
-
-
 def _as_decimal(value: Any) -> Decimal:
     return Decimal(str(value))
 
@@ -277,18 +261,6 @@ def create_app() -> Flask:
         *,
         allow_non_active: bool,
     ) -> Dict[str, Any]:
-        history_response = _request_json(
-            "GET",
-            "pricing-service",
-            config.PRICING_SERVICE_URL,
-            f"/pricing/{event_id}/history",
-            expected_statuses=[200],
-            timeout_seconds=config.HTTP_TIMEOUT_SECONDS,
-            params={"flashSaleID": flash_sale_id, "limit": "500"},
-        )
-        history_rows = history_response.get("priceChanges", [])
-        baseline_prices = _derive_revert_prices(history_rows)
-
         pricing_snapshot = _request_json(
             "GET",
             "pricing-service",
@@ -307,27 +279,24 @@ def create_app() -> Flask:
 
             category_id = row.get("categoryID")
             current_price = row.get("currentPrice")
-            current_status = row.get("status")
-            old_price = baseline_prices.get(category_id)
+            base_price = row.get("basePrice")
 
-            if not category_id or old_price is None:
-                continue
-            if current_status == "SOLD_OUT":
+            if not category_id or base_price is None:
                 continue
 
             try:
-                if _as_decimal(current_price) == _as_decimal(old_price):
+                if _as_decimal(current_price) == _as_decimal(base_price):
                     continue
             except Exception:
                 continue
 
-            updates.append({"category_id": category_id, "new_price": old_price})
+            updates.append({"category_id": category_id, "new_price": str(base_price)})
             reverted_prices.append(
                 {
                     "categoryID": category_id,
                     "category": row.get("category"),
                     "oldPrice": str(current_price),
-                    "newPrice": str(old_price),
+                    "newPrice": str(base_price),
                     "currency": row.get("currency", "SGD"),
                 }
             )

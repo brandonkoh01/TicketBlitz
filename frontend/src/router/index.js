@@ -1,5 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import MainLandingPage from '@/pages/MainLandingPage.vue'
+import EventCatalogPage from '@/pages/EventCatalogPage.vue'
+import EventDetailPage from '@/pages/EventDetailPage.vue'
 import OrganiserDashboardPage from '@/pages/OrganiserDashboardPage.vue'
 import TicketPurchasePage from '@/pages/TicketPurchasePage.vue'
 import MyTicketsPage from '@/pages/MyTicketsPage.vue'
@@ -28,6 +30,16 @@ const router = createRouter({
       path: '/',
       name: 'home',
       component: MainLandingPage,
+    },
+    {
+      path: '/events',
+      name: 'events',
+      component: EventCatalogPage,
+    },
+    {
+      path: '/events/:eventID',
+      name: 'event-detail',
+      component: EventDetailPage,
     },
     {
       path: '/organiser-dashboard',

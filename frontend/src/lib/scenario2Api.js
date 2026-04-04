@@ -23,6 +23,11 @@ export async function getEvents() {
   return Array.isArray(data?.events) ? data.events : []
 }
 
+export async function getEventById(eventID) {
+  const parsedEventID = ensureUuid(eventID, 'eventID')
+  return requestJson(`/event/${parsedEventID}`)
+}
+
 export async function getPricingSnapshot(eventID) {
   const parsedEventID = ensureUuid(eventID, 'eventID')
   return requestJson(`/pricing/${parsedEventID}`)

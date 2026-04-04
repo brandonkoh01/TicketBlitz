@@ -37,7 +37,8 @@ function normalizeDashboardError(error) {
     }
 
     if (error.status === 0 || error.status === 408) {
-      return 'Unable to reach the API gateway. Verify Kong is running and CORS is configured for this frontend origin.'
+      const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'unknown API URL'
+      return `Unable to reach TicketBlitz services at ${apiBaseUrl}. Verify Kong is running and this frontend origin is allowed by CORS.`
     }
 
     if (error.status >= 500) {

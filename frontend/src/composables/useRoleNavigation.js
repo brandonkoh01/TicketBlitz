@@ -10,7 +10,7 @@ export function useRoleNavigation() {
   const isOrganiser = computed(() => authStore.isOrganiser.value)
   const dashboardLabel = computed(() => (isOrganiser.value ? 'Dashboard' : 'My Tickets'))
   const primaryNavItems = computed(() => [
-    { label: 'Events', to: '#' },
+    { label: 'Events', to: '/events' },
     { label: 'Venues', to: '#' },
     { label: dashboardLabel.value, to: dashboardPath.value },
   ])

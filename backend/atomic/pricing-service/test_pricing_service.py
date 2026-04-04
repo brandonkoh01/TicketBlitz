@@ -167,6 +167,7 @@ class PricingServiceTests(unittest.TestCase):
             {
                 "category_id": "00000000-0000-0000-0000-000000000010",
                 "category_code": "CAT1",
+                "base_price": "250.00",
                 "current_price": "200.00",
                 "currency": "SGD",
             }
@@ -194,7 +195,44 @@ class PricingServiceTests(unittest.TestCase):
         body = response.get_json()
         self.assertEqual(body["flashSaleID"], flash_sale_id)
         self.assertEqual(len(body["updatedPrices"]), 1)
-        self.assertEqual(body["updatedPrices"][0]["newPrice"], "100.00")
+        self.assertEqual(body["updatedPrices"][0]["oldPrice"], "250.00")
+        self.assertEqual(body["updatedPrices"][0]["newPrice"], "125.00")
+
+    def test_configure_flash_sale_uses_base_price_not_current_price(self):
+        event_id = "00000000-0000-0000-0000-000000000001"
+        flash_sale_id = "00000000-0000-0000-0000-000000000099"
+
+        categories = [
+            {
+                "category_id": "00000000-0000-0000-0000-000000000010",
+                "category_code": "CAT1",
+                "base_price": "288.00",
+                "current_price": "15.73",
+                "currency": "SGD",
+            }
+        ]
+
+        with patch.object(pricing_module, "db_configured", return_value=True), \
+            patch.object(pricing_module, "_fetch_event", return_value={"event_id": event_id, "status": "ACTIVE"}), \
+            patch.object(pricing_module, "_fetch_categories_for_event", return_value=categories), \
+            patch.object(
+                pricing_module,
+                "_insert_flash_sale",
+                return_value={"flash_sale_id": flash_sale_id, "ends_at": "2026-04-04T12:00:00+00:00"},
+            ):
+            response = self.client.post(
+                "/pricing/flash-sale/configure",
+                json={
+                    "eventID": event_id,
+                    "discountPercentage": 30,
+                    "durationMinutes": 120,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body["updatedPrices"][0]["oldPrice"], "288.00")
+        self.assertEqual(body["updatedPrices"][0]["newPrice"], "201.60")
 
     def test_configure_flash_sale_conflict_maps_to_409(self):
         event_id = "00000000-0000-0000-0000-000000000001"
@@ -208,6 +246,7 @@ class PricingServiceTests(unittest.TestCase):
                     {
                         "category_id": "00000000-0000-0000-0000-000000000010",
                         "category_code": "CAT1",
+                        "base_price": "200.00",
                         "current_price": "200.00",
                         "currency": "SGD",
                     }

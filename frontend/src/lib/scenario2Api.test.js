@@ -39,6 +39,23 @@ describe('scenario2Api', () => {
     expect(requestJson).toHaveBeenCalledWith('/events')
   })
 
+  it('fetches event detail from /event/{eventID}', async () => {
+    const requestJson = vi.fn().mockResolvedValue({ event_id: '10000000-0000-0000-0000-000000000301' })
+    const { scenario2Api } = await loadScenario2Api({ requestJsonImpl: requestJson })
+
+    await scenario2Api.getEventById('10000000-0000-0000-0000-000000000301')
+
+    expect(requestJson).toHaveBeenCalledWith('/event/10000000-0000-0000-0000-000000000301')
+  })
+
+  it('rejects event detail request when eventID is not UUID', async () => {
+    const { scenario2Api } = await loadScenario2Api({
+      isUuidImpl: vi.fn(() => false),
+    })
+
+    await expect(scenario2Api.getEventById('bad-id')).rejects.toThrow('eventID must be a valid UUID.')
+  })
+
   it('rejects launch payload when eventID is not UUID', async () => {
     const { scenario2Api } = await loadScenario2Api({
       isUuidImpl: vi.fn(() => false),
