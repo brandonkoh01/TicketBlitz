@@ -33,7 +33,10 @@ class _FakeResponse:
 
 class _FakeSession:
     def __init__(self, response=None, error=None):
-        self.response = response
+        if isinstance(response, list):
+            self.response = list(response)
+        else:
+            self.response = response
         self.error = error
         self.calls = []
         self.closed = False
@@ -42,6 +45,10 @@ class _FakeSession:
         self.calls.append((args, kwargs))
         if self.error:
             raise self.error
+        if isinstance(self.response, list):
+            if not self.response:
+                raise RuntimeError("No fake responses remaining")
+            return self.response.pop(0)
         return self.response
 
     def close(self):
@@ -61,6 +68,9 @@ class ExpirySchedulerTests(unittest.TestCase):
             service_name="expiry-scheduler-service",
             inventory_service_url="http://inventory-service:5000",
             maintenance_path="/inventory/maintenance/expire-holds",
+            flash_sale_orchestrator_url="http://flash-sale-orchestrator:5000",
+            flash_sale_reconcile_path="/internal/flash-sale/reconcile-expired",
+            flash_sale_reconcile_enabled=False,
             expiry_interval_seconds=60,
             error_retry_delay_seconds=2,
             error_retry_jitter_seconds=0.5,
@@ -134,6 +144,13 @@ class ExpirySchedulerTests(unittest.TestCase):
             "http://inventory-service:5000/inventory/maintenance/expire-holds",
         )
 
+    def test_flash_sale_reconcile_url_uses_config_values(self):
+        scheduler = expiry_scheduler.ExpiryScheduler(self._config(), session=_FakeSession())
+        self.assertEqual(
+            scheduler.flash_sale_reconcile_url,
+            "http://flash-sale-orchestrator:5000/internal/flash-sale/reconcile-expired",
+        )
+
     def test_run_once_success(self):
         session = _FakeSession(
             response=_FakeResponse(
@@ -154,6 +171,56 @@ class ExpirySchedulerTests(unittest.TestCase):
         self.assertTrue(success)
         self.assertIsNotNone(scheduler.last_success_at)
         self.assertEqual(len(session.calls), 1)
+
+    def test_run_once_calls_flash_sale_reconcile_when_enabled(self):
+        cfg = replace(self._config(), flash_sale_reconcile_enabled=True)
+        session = _FakeSession(
+            response=[
+                _FakeResponse(status_code=200, json_payload={"count": 0}),
+                _FakeResponse(
+                    status_code=200,
+                    json_payload={"status": "success", "endedCount": 1, "skippedCount": 0},
+                ),
+            ]
+        )
+        scheduler = expiry_scheduler.ExpiryScheduler(cfg, session=session)
+
+        success = scheduler.run_once()
+
+        self.assertTrue(success)
+        self.assertEqual(len(session.calls), 2)
+        self.assertEqual(session.calls[1][0][0], scheduler.flash_sale_reconcile_url)
+
+    def test_run_once_returns_false_when_flash_sale_reconcile_fails(self):
+        cfg = replace(self._config(), flash_sale_reconcile_enabled=True)
+        session = _FakeSession(
+            response=[
+                _FakeResponse(status_code=200, json_payload={"count": 0}),
+                _FakeResponse(status_code=500, text="boom"),
+            ]
+        )
+        scheduler = expiry_scheduler.ExpiryScheduler(cfg, session=session)
+
+        success = scheduler.run_once()
+
+        self.assertFalse(success)
+
+    def test_run_once_returns_false_when_flash_sale_reconcile_payload_status_is_not_success(self):
+        cfg = replace(self._config(), flash_sale_reconcile_enabled=True)
+        session = _FakeSession(
+            response=[
+                _FakeResponse(status_code=200, json_payload={"count": 0}),
+                _FakeResponse(
+                    status_code=200,
+                    json_payload={"status": "error", "endedCount": 0, "skippedCount": 0},
+                ),
+            ]
+        )
+        scheduler = expiry_scheduler.ExpiryScheduler(cfg, session=session)
+
+        success = scheduler.run_once()
+
+        self.assertFalse(success)
 
     def test_run_once_adds_internal_auth_header_when_token_present(self):
         cfg = replace(self._config(), internal_service_token="secret-token")

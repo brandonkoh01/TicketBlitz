@@ -568,6 +568,7 @@ def create_app() -> Flask:
 
         state = None
         active_flash_sale = None
+        now_iso = datetime.now(timezone.utc).isoformat()
 
         try:
             state_result = (
@@ -596,9 +597,9 @@ def create_app() -> Flask:
 
             active_flash_sale_id = state.get("active_flash_sale_id") if state else None
             if active_flash_sale_id:
-                sale_query = sale_query.eq("flash_sale_id", active_flash_sale_id)
+                sale_query = sale_query.eq("flash_sale_id", active_flash_sale_id).gt("ends_at", now_iso)
             else:
-                sale_query = sale_query.eq("status", "ACTIVE")
+                sale_query = sale_query.eq("status", "ACTIVE").gt("ends_at", now_iso)
 
             sale_result = sale_query.order("starts_at", desc=True).limit(1).execute()
             sales = sale_result.data or []
@@ -612,7 +613,7 @@ def create_app() -> Flask:
                 {
                     "event_id": parsed_event_id,
                     "event_status": event.get("status"),
-                    "flash_sale_active": bool(state and state.get("flash_sale_active")),
+                    "flash_sale_active": bool(active_flash_sale),
                     "inventory_state": state,
                     "active_flash_sale": active_flash_sale,
                 }

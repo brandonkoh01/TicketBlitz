@@ -151,6 +151,64 @@ def _find_active_flash_sale(event_id: str, flash_sale_id: Optional[str] = None) 
     return rows[0] if rows else None
 
 
+def _find_expired_active_flash_sales(
+    event_id: Optional[str] = None,
+    limit: int = 100,
+    include_ended: bool = False,
+    ended_since_minutes: int = 60,
+) -> List[Dict[str, Any]]:
+    now_iso = _iso_now()
+    active_query = (
+        get_db()
+        .table("flash_sales")
+        .select(
+            "flash_sale_id,event_id,discount_percentage,escalation_percentage,starts_at,"
+            "ends_at,status,launched_by_user_id,config,ended_at,created_at,updated_at"
+        )
+        .eq("status", "ACTIVE")
+        .lte("ends_at", now_iso)
+    )
+
+    if event_id:
+        active_query = active_query.eq("event_id", event_id)
+
+    active_result = active_query.order("ends_at").limit(limit).execute()
+    active_rows = active_result.data or []
+
+    if not include_ended:
+        return active_rows
+
+    ended_window_floor = (_utc_now() - timedelta(minutes=ended_since_minutes)).isoformat()
+    ended_query = (
+        get_db()
+        .table("flash_sales")
+        .select(
+            "flash_sale_id,event_id,discount_percentage,escalation_percentage,starts_at,"
+            "ends_at,status,launched_by_user_id,config,ended_at,created_at,updated_at"
+        )
+        .eq("status", "ENDED")
+        .lte("ends_at", now_iso)
+        .gte("ended_at", ended_window_floor)
+    )
+
+    if event_id:
+        ended_query = ended_query.eq("event_id", event_id)
+
+    ended_result = ended_query.order("ended_at", desc=True).limit(limit).execute()
+    ended_rows = ended_result.data or []
+
+    merged_rows: Dict[str, Dict[str, Any]] = {}
+    for row in active_rows + ended_rows:
+        flash_sale_id = row.get("flash_sale_id")
+        if not flash_sale_id or flash_sale_id in merged_rows:
+            continue
+        merged_rows[flash_sale_id] = row
+
+    rows = list(merged_rows.values())
+    rows.sort(key=lambda row: str(row.get("ends_at") or ""))
+    return rows[:limit]
+
+
 def _insert_flash_sale(row: Dict[str, Any]) -> Dict[str, Any]:
     result = get_db().table("flash_sales").insert(row).execute()
     rows = result.data or []
@@ -359,6 +417,69 @@ def create_app() -> Flask:
                     "startsAt": active_sale.get("starts_at"),
                     "expiresAt": active_sale.get("ends_at"),
                     "status": active_sale.get("status"),
+                }
+            ),
+            200,
+        )
+
+    @app.get("/pricing/flash-sales/expired")
+    def get_expired_active_flash_sales():
+        if not db_configured():
+            return _json_error("Supabase is not configured", 503)
+
+        event_id_raw = request.args.get("eventID")
+        limit_raw = request.args.get("limit", "100")
+        include_ended_raw = str(request.args.get("includeEnded", "0")).strip().lower()
+        include_ended = include_ended_raw in {"1", "true", "yes", "on"}
+        ended_window_raw = request.args.get("endedWindowMinutes", "60")
+
+        try:
+            limit = _parse_positive_int(limit_raw, "limit", MAX_LIMIT)
+        except ValueError as error:
+            return _json_error(str(error), 400)
+
+        try:
+            ended_window_minutes = _parse_positive_int(
+                ended_window_raw,
+                "endedWindowMinutes",
+                24 * 60,
+            )
+        except ValueError as error:
+            return _json_error(str(error), 400)
+
+        event_id = None
+        if event_id_raw:
+            try:
+                event_id = _parse_uuid(event_id_raw, "eventID")
+            except ValueError as error:
+                return _json_error(str(error), 400)
+
+        try:
+            rows = _find_expired_active_flash_sales(
+                event_id=event_id,
+                limit=limit,
+                include_ended=include_ended,
+                ended_since_minutes=ended_window_minutes,
+            )
+        except Exception as error:
+            logger.exception("Failed to load expired active flash sales: %s", error)
+            return _json_error("Failed to load expired active flash sales", 500)
+
+        return (
+            jsonify(
+                {
+                    "flashSales": [
+                        {
+                            "flashSaleID": row.get("flash_sale_id"),
+                            "eventID": row.get("event_id"),
+                            "status": row.get("status"),
+                            "startsAt": row.get("starts_at"),
+                            "expiresAt": row.get("ends_at"),
+                            "endedAt": row.get("ended_at"),
+                        }
+                        for row in rows
+                    ],
+                    "count": len(rows),
                 }
             ),
             200,

@@ -32,6 +32,62 @@ class PricingServiceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("eventID", response.get_json()["error"])
 
+    def test_get_expired_active_flash_sales_invalid_event_uuid(self):
+        with patch.object(pricing_module, "db_configured", return_value=True):
+            response = self.client.get("/pricing/flash-sales/expired?eventID=bad-uuid")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("eventID", response.get_json()["error"])
+
+    def test_get_expired_active_flash_sales_success(self):
+        with patch.object(pricing_module, "db_configured", return_value=True), patch.object(
+            pricing_module,
+            "_find_expired_active_flash_sales",
+            return_value=[
+                {
+                    "flash_sale_id": "00000000-0000-0000-0000-000000000099",
+                    "event_id": "00000000-0000-0000-0000-000000000001",
+                    "status": "ACTIVE",
+                    "starts_at": "2026-04-04T12:00:00+00:00",
+                    "ends_at": "2026-04-04T12:01:00+00:00",
+                    "ended_at": None,
+                }
+            ],
+        ):
+            response = self.client.get("/pricing/flash-sales/expired?limit=5")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body["count"], 1)
+        self.assertEqual(body["flashSales"][0]["flashSaleID"], "00000000-0000-0000-0000-000000000099")
+
+    def test_get_expired_active_flash_sales_include_ended_forwards_window(self):
+        with patch.object(pricing_module, "db_configured", return_value=True), patch.object(
+            pricing_module,
+            "_find_expired_active_flash_sales",
+            return_value=[],
+        ) as selector:
+            response = self.client.get(
+                "/pricing/flash-sales/expired?includeEnded=1&endedWindowMinutes=45&limit=7"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        selector.assert_called_once_with(
+            event_id=None,
+            limit=7,
+            include_ended=True,
+            ended_since_minutes=45,
+        )
+
+    def test_get_expired_active_flash_sales_rejects_invalid_ended_window_minutes(self):
+        with patch.object(pricing_module, "db_configured", return_value=True):
+            response = self.client.get(
+                "/pricing/flash-sales/expired?includeEnded=1&endedWindowMinutes=bad"
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("endedWindowMinutes", response.get_json()["error"])
+
     def test_escalate_requires_sold_out_category(self):
         with patch.object(pricing_module, "db_configured", return_value=True):
             response = self.client.post(

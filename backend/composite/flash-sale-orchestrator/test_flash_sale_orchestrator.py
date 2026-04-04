@@ -1,7 +1,9 @@
 import importlib.util
+import os
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 SERVICE_PATH = Path(__file__).resolve().parent / "flash_sale_orchestrator.py"
 BACKEND_PATH = SERVICE_PATH.parents[2]
@@ -36,6 +38,241 @@ class FlashSaleOrchestratorTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("eventID", response.get_json()["error"])
+
+    def test_status_returns_null_pricing_when_no_active_sale(self):
+        event_id = "10000000-0000-0000-0000-000000000301"
+
+        def fake_request_json(method, service_name, base_url, path, **kwargs):
+            if method == "GET" and path == f"/event/{event_id}/flash-sale/status":
+                return {"event_id": event_id, "flash_sale_active": False}
+            if method == "GET" and path == f"/pricing/{event_id}/flash-sale/active":
+                raise orchestrator_module.DownstreamError("pricing-service", 404, "No active flash sale")
+            raise AssertionError(f"Unexpected request: {method} {service_name} {path}")
+
+        with patch.object(orchestrator_module, "_request_json", side_effect=fake_request_json):
+            response = self.client.get(f"/flash-sale/{event_id}/status")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertIn("event", body)
+        self.assertIsNone(body.get("pricing"))
+
+    def test_internal_reconcile_requires_internal_token_when_configured(self):
+        with patch.dict(
+            os.environ,
+            {
+                "INTERNAL_SERVICE_TOKEN": "secret-token",
+                "INTERNAL_AUTH_HEADER": "X-Internal-Token",
+            },
+        ):
+            app = orchestrator_module.create_app()
+            app.testing = True
+            client = app.test_client()
+
+            response = client.post("/internal/flash-sale/reconcile-expired", json={})
+
+        self.assertEqual(response.status_code, 401)
+        self.assertIn("error", response.get_json())
+
+    def test_internal_reconcile_fails_when_internal_token_missing(self):
+        with patch.dict(
+            os.environ,
+            {
+                "INTERNAL_SERVICE_TOKEN": "",
+                "INTERNAL_AUTH_HEADER": "X-Internal-Token",
+            },
+            clear=False,
+        ):
+            app = orchestrator_module.create_app()
+            app.testing = True
+            client = app.test_client()
+
+            response = client.post("/internal/flash-sale/reconcile-expired", json={})
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("error", response.get_json())
+
+    def test_end_flash_sale_updates_event_and_inventory_before_pricing_end(self):
+        event_id = "10000000-0000-0000-0000-000000000301"
+        flash_sale_id = "10000000-0000-0000-0000-000000000401"
+        category_id = "20000000-0000-0000-0000-000000000011"
+        call_order = []
+
+        def fake_request_json(method, service_name, base_url, path, **kwargs):
+            call_order.append(f"{method} {service_name} {path}")
+            if method == "GET" and path == f"/pricing/{event_id}/history":
+                return {
+                    "priceChanges": [
+                        {
+                            "reason": "FLASH_SALE",
+                            "categoryID": category_id,
+                            "oldPrice": "100.00",
+                        }
+                    ]
+                }
+            if method == "GET" and path == f"/pricing/{event_id}":
+                return {
+                    "categories": [
+                        {
+                            "categoryID": category_id,
+                            "category": "CAT1",
+                            "currentPrice": "80.00",
+                            "status": "AVAILABLE",
+                            "currency": "SGD",
+                        }
+                    ]
+                }
+            if method == "PUT" and path in {
+                f"/event/{event_id}/categories/prices",
+                f"/event/{event_id}/status",
+                f"/inventory/{event_id}/flash-sale",
+                f"/pricing/{flash_sale_id}/end",
+            }:
+                return {"status": "ok"}
+            raise AssertionError(f"Unexpected request: {method} {service_name} {path}")
+
+        with patch.object(orchestrator_module, "_request_json", side_effect=fake_request_json), patch.object(
+            orchestrator_module,
+            "_safe_waitlist_emails",
+            return_value=[],
+        ), patch.object(orchestrator_module, "_publish_price_broadcast", return_value=True):
+            response = self.client.post(
+                "/flash-sale/end",
+                json={
+                    "eventID": event_id,
+                    "flashSaleID": flash_sale_id,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        pricing_end_index = call_order.index(f"PUT pricing-service /pricing/{flash_sale_id}/end")
+        self.assertLess(
+            call_order.index(f"PUT event-service /event/{event_id}/status"),
+            pricing_end_index,
+        )
+        self.assertLess(
+            call_order.index(f"PUT inventory-service /inventory/{event_id}/flash-sale"),
+            pricing_end_index,
+        )
+
+    def test_internal_reconcile_success_path_returns_success_payload(self):
+        event_id = "10000000-0000-0000-0000-000000000301"
+        flash_sale_id = "10000000-0000-0000-0000-000000000401"
+
+        def fake_request_json(method, service_name, base_url, path, **kwargs):
+            if method == "GET" and path == "/pricing/flash-sales/expired":
+                params = kwargs.get("params", {})
+                self.assertEqual(params.get("includeEnded"), "1")
+                self.assertEqual(params.get("endedWindowMinutes"), "60")
+                return {
+                    "flashSales": [
+                        {
+                            "eventID": event_id,
+                            "flashSaleID": flash_sale_id,
+                        }
+                    ]
+                }
+            if method == "GET" and path == f"/pricing/{event_id}/history":
+                return {"priceChanges": []}
+            if method == "GET" and path == f"/pricing/{event_id}":
+                return {"categories": []}
+            if method == "PUT" and path in {
+                f"/event/{event_id}/status",
+                f"/inventory/{event_id}/flash-sale",
+                f"/pricing/{flash_sale_id}/end",
+            }:
+                return {"status": "ok"}
+            if method == "PUT" and path == f"/event/{event_id}/categories/prices":
+                return {"status": "ok"}
+            raise AssertionError(f"Unexpected request: {method} {service_name} {path}")
+
+        with patch.dict(
+            os.environ,
+            {
+                "INTERNAL_SERVICE_TOKEN": "secret-token",
+                "INTERNAL_AUTH_HEADER": "X-Internal-Token",
+            },
+            clear=False,
+        ), patch.object(orchestrator_module, "_request_json", side_effect=fake_request_json), patch.object(
+            orchestrator_module,
+            "_safe_waitlist_emails",
+            return_value=[],
+        ), patch.object(orchestrator_module, "_publish_price_broadcast", return_value=True):
+            app = orchestrator_module.create_app()
+            app.testing = True
+            client = app.test_client()
+            response = client.post(
+                "/internal/flash-sale/reconcile-expired",
+                json={"eventID": event_id},
+                headers={"X-Internal-Token": "secret-token"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body["status"], "success")
+        self.assertEqual(body["endedCount"], 1)
+        self.assertEqual(body["failedCount"] if "failedCount" in body else 0, 0)
+
+    def test_internal_reconcile_returns_502_when_downstream_step_fails(self):
+        event_id = "10000000-0000-0000-0000-000000000301"
+        flash_sale_id = "10000000-0000-0000-0000-000000000401"
+
+        def fake_request_json(method, service_name, base_url, path, **kwargs):
+            if method == "GET" and path == "/pricing/flash-sales/expired":
+                params = kwargs.get("params", {})
+                self.assertEqual(params.get("includeEnded"), "1")
+                self.assertEqual(params.get("endedWindowMinutes"), "60")
+                return {
+                    "flashSales": [
+                        {
+                            "eventID": event_id,
+                            "flashSaleID": flash_sale_id,
+                        }
+                    ]
+                }
+            if method == "GET" and path == f"/pricing/{event_id}/history":
+                return {"priceChanges": []}
+            if method == "GET" and path == f"/pricing/{event_id}":
+                return {"categories": []}
+            if method == "PUT" and path == f"/event/{event_id}/status":
+                raise orchestrator_module.DownstreamError(
+                    "event-service",
+                    500,
+                    "Event update failed",
+                )
+            if method == "PUT" and path in {
+                f"/inventory/{event_id}/flash-sale",
+                f"/pricing/{flash_sale_id}/end",
+                f"/event/{event_id}/categories/prices",
+            }:
+                return {"status": "ok"}
+            raise AssertionError(f"Unexpected request: {method} {service_name} {path}")
+
+        with patch.dict(
+            os.environ,
+            {
+                "INTERNAL_SERVICE_TOKEN": "secret-token",
+                "INTERNAL_AUTH_HEADER": "X-Internal-Token",
+            },
+            clear=False,
+        ), patch.object(orchestrator_module, "_request_json", side_effect=fake_request_json), patch.object(
+            orchestrator_module,
+            "_safe_waitlist_emails",
+            return_value=[],
+        ), patch.object(orchestrator_module, "_publish_price_broadcast", return_value=True):
+            app = orchestrator_module.create_app()
+            app.testing = True
+            client = app.test_client()
+            response = client.post(
+                "/internal/flash-sale/reconcile-expired",
+                json={"eventID": event_id},
+                headers={"X-Internal-Token": "secret-token"},
+            )
+
+        self.assertEqual(response.status_code, 502)
+        body = response.get_json()
+        self.assertEqual(body["details"]["failedCount"], 1)
+        self.assertEqual(body["details"]["endedCount"], 0)
 
 
 if __name__ == "__main__":
