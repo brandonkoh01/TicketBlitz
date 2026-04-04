@@ -1342,7 +1342,7 @@ Use your actual action output variable names if different.
 1. Call `HTTPRequestHandler.SetStatusCode(400)`.
 1. End with `OutBody`.
 
-23. On the **True** path of `TransferFieldsValid`, add a Decision node named `OldTicketTransferable` with condition:
+1. On the **True** path of `TransferFieldsValid`, add a Decision node named `OldTicketTransferable` with condition:
 
 ```
 OldTicket.Status = "VALID" OR OldTicket.Status = "CANCELLATION_IN_PROGRESS"
@@ -1361,9 +1361,9 @@ OldTicket.Status = "VALID" OR OldTicket.Status = "CANCELLATION_IN_PROGRESS"
 1. Call `HTTPRequestHandler.SetStatusCode(409)`.
 1. End with `OutBody`.
 
-25. On the **True** path of `OldTicketTransferable`, add Aggregate `GetTicketByNewHold`.
+1. On the **True** path of `OldTicketTransferable`, add Aggregate `GetTicketByNewHold`.
 
-26. Set filter and max records:
+1. Set filter and max records:
 
 ```
 ETicket.HoldId = Request.newHoldID
@@ -1398,7 +1398,7 @@ AND ExistingNewHoldTicket.TransactionId = If(Request.newTransactionID = "", OldT
 1. Call `HTTPRequestHandler.SetStatusCode(200)`.
 1. End with `OutBody`.
 
-31. On the **False** path of `ExistingTicketMatchesRequestContext` (true business conflict):
+1. On the **False** path of `ExistingTicketMatchesRequestContext` (true business conflict):
 1. Call `BuildApiError` and map:
    - `Code = "TRANSFER_CONFLICT"`
    - `Message = "newHoldID already has a ticket that conflicts with request context"`
@@ -1411,7 +1411,7 @@ AND ExistingNewHoldTicket.TransactionId = If(Request.newTransactionID = "", OldT
 1. Call `HTTPRequestHandler.SetStatusCode(409)`.
 1. End with `OutBody`.
 
-32. On the **False** path of `NewHoldAlreadyHasTicket` (fresh transfer), execute update/create in this order:
+1. On the **False** path of `NewHoldAlreadyHasTicket` (fresh transfer), execute update/create in this order:
 1. Call `NowUtc`.
 1. Add an Assign node to prepare the old ticket update:
    - `UpdateOldSource = OldTicket`
@@ -1436,7 +1436,7 @@ AND ExistingNewHoldTicket.TransactionId = If(Request.newTransactionID = "", OldT
    - `UsedAt = NullDate()`
    - `CancelledAt = NullDate()`
 
-33. Add an Assign node for success response:
+1. Add an Assign node for success response:
 
 - `OutBody.operation = "TRANSFER_AND_REISSUE"`
 - `OutBody.oldTicketStatus = "CANCELLED"`
