@@ -1208,6 +1208,7 @@ This method supports cancellation and transfer/reissue.
    - `CorrelationId` (Text)
    - `OldTicket` (ETicket record)
    - `ExistingNewHoldTicket` (ETicket record)
+   - `EffectiveRequestedTransactionId` (Text)
    - `UpdateOldSource` (ETicket record)
    - `NewTicketId` (Text)
 6. Do NOT create or return an `OutError` variable in this method. This endpoint returns only `OutBody` for both success and error paths.
@@ -1342,13 +1343,70 @@ Use your actual action output variable names if different.
 1. Call `HTTPRequestHandler.SetStatusCode(400)`.
 1. End with `OutBody`.
 
-1. On the **True** path of `TransferFieldsValid`, add a Decision node named `OldTicketTransferable` with condition:
+23. On the **True** path of `TransferFieldsValid`, add an Assign node:
+
+- `EffectiveRequestedTransactionId = Trim(If(Request.newTransactionID = "", OldTicket.TransactionId, Request.newTransactionID))`
+
+24. Add Aggregate `GetTicketByNewHold`.
+
+25. Set filter and max records:
+
+```
+ETicket.HoldId = Request.newHoldID
+Max Records = 1
+```
+
+26. Add a Decision node named `NewHoldAlreadyHasTicket` with condition:
+
+```
+GetTicketByNewHold.List.Length > 0
+```
+
+27. On the **True** path of `NewHoldAlreadyHasTicket`, add an Assign node:
+
+- `ExistingNewHoldTicket = GetTicketByNewHold.List.Current`
+
+28. Add a Decision node named `ExistingTicketMatchesRequestContext` with condition:
+
+```
+Trim(ExistingNewHoldTicket.UserId) = Trim(Request.newOwnerUserID)
+AND Trim(ExistingNewHoldTicket.EventId) = Trim(OldTicket.EventId)
+AND Trim(ExistingNewHoldTicket.SeatId) = Trim(Request.newSeatID)
+AND Trim(ExistingNewHoldTicket.SeatNumber) = Trim(Request.newSeatNumber)
+AND Trim(ExistingNewHoldTicket.TransactionId) = EffectiveRequestedTransactionId
+```
+
+29. On the **True** path of `ExistingTicketMatchesRequestContext` (idempotent replay):
+1. Add an Assign node:
+   - `OutBody.operation = "TRANSFER_AND_REISSUE"`
+   - `OutBody.oldTicketStatus = OldTicket.Status`
+   - `OutBody.newTicketID = ExistingNewHoldTicket.TicketId`
+1. Call `LogApiEvent` with outcome `200|IDEMPOTENT_REPLAY`.
+1. Call `HTTPRequestHandler.SetStatusCode(200)`.
+1. End with `OutBody`.
+
+30. On the **False** path of `ExistingTicketMatchesRequestContext` (true business conflict):
+1. Call `BuildApiError` and map:
+   - `Code = "HOLD_ALREADY_ASSIGNED"`
+   - `Message = "newHoldID already has a ticket that conflicts with request context"`
+   - `Details = "Mismatch details: existingUserID=" + ExistingNewHoldTicket.UserId + ", requestUserID=" + Request.newOwnerUserID + "; existingEventID=" + ExistingNewHoldTicket.EventId + ", expectedEventID=" + OldTicket.EventId + "; existingSeatID=" + ExistingNewHoldTicket.SeatId + ", requestSeatID=" + Request.newSeatID + "; existingSeatNumber=" + ExistingNewHoldTicket.SeatNumber + ", requestSeatNumber=" + Request.newSeatNumber + "; existingTransactionID=" + ExistingNewHoldTicket.TransactionId + ", expectedTransactionID=" + EffectiveRequestedTransactionId`
+   - `CorrelationID = CorrelationId`
+1. Add an Assign node:
+   - `OutBody.operation = Request.operation`
+   - `OutBody.oldTicketStatus = OldTicket.Status`
+   - `OutBody.newTicketID = ""`
+1. Call `LogApiEvent` with outcome `409|HOLD_ALREADY_ASSIGNED`.
+1. Call `HTTPRequestHandler.SetStatusCode(409)`.
+1. Do not raise exceptions on this branch.
+1. End with `OutBody`.
+
+31. On the **False** path of `NewHoldAlreadyHasTicket`, check transferability now using Decision node `OldTicketTransferable` with condition:
 
 ```
 OldTicket.Status = "VALID" OR OldTicket.Status = "CANCELLATION_IN_PROGRESS"
 ```
 
-24. On the **False** path of `OldTicketTransferable`:
+32. On the **False** path of `OldTicketTransferable`:
 1. Call `BuildApiError` and map:
    - `Code = "INVALID_TICKET_STATE"`
    - `Message = "Old ticket status does not allow transfer/cancel transition"`
@@ -1358,60 +1416,12 @@ OldTicket.Status = "VALID" OR OldTicket.Status = "CANCELLATION_IN_PROGRESS"
    - `OutBody.operation = Request.operation`
    - `OutBody.oldTicketStatus = OldTicket.Status`
    - `OutBody.newTicketID = ""`
+1. Call `LogApiEvent` with outcome `409|INVALID_TICKET_STATE`.
 1. Call `HTTPRequestHandler.SetStatusCode(409)`.
+1. Do not raise exceptions on this branch.
 1. End with `OutBody`.
 
-1. On the **True** path of `OldTicketTransferable`, add Aggregate `GetTicketByNewHold`.
-
-1. Set filter and max records:
-
-```
-ETicket.HoldId = Request.newHoldID
-Max Records = 1
-```
-
-27. Add a Decision node named `NewHoldAlreadyHasTicket` with condition:
-
-```
-GetTicketByNewHold.List.Length > 0
-```
-
-28. On the **True** path of `NewHoldAlreadyHasTicket`, add an Assign node:
-
-- `ExistingNewHoldTicket = GetTicketByNewHold.List.Current`
-
-29. Add a Decision node named `ExistingTicketMatchesRequestContext` with condition:
-
-```
-ExistingNewHoldTicket.UserId = Request.newOwnerUserID
-AND ExistingNewHoldTicket.EventId = OldTicket.EventId
-AND ExistingNewHoldTicket.SeatId = Request.newSeatID
-AND ExistingNewHoldTicket.SeatNumber = Request.newSeatNumber
-AND ExistingNewHoldTicket.TransactionId = If(Request.newTransactionID = "", OldTicket.TransactionId, Request.newTransactionID)
-```
-
-30. On the **True** path of `ExistingTicketMatchesRequestContext` (idempotent replay):
-1. Add an Assign node:
-   - `OutBody.operation = "TRANSFER_AND_REISSUE"`
-   - `OutBody.oldTicketStatus = OldTicket.Status`
-   - `OutBody.newTicketID = ExistingNewHoldTicket.TicketId`
-1. Call `HTTPRequestHandler.SetStatusCode(200)`.
-1. End with `OutBody`.
-
-1. On the **False** path of `ExistingTicketMatchesRequestContext` (true business conflict):
-1. Call `BuildApiError` and map:
-   - `Code = "TRANSFER_CONFLICT"`
-   - `Message = "newHoldID already has a ticket that conflicts with request context"`
-   - `Details = "owner/seat/event/transaction mismatch on newHoldID"`
-   - `CorrelationID = CorrelationId`
-1. Add an Assign node:
-   - `OutBody.operation = Request.operation`
-   - `OutBody.oldTicketStatus = OldTicket.Status`
-   - `OutBody.newTicketID = ""`
-1. Call `HTTPRequestHandler.SetStatusCode(409)`.
-1. End with `OutBody`.
-
-1. On the **False** path of `NewHoldAlreadyHasTicket` (fresh transfer), execute update/create in this order:
+33. On the **True** path of `OldTicketTransferable` (fresh transfer), execute update/create in this order:
 1. Call `NowUtc`.
 1. Add an Assign node to prepare the old ticket update:
    - `UpdateOldSource = OldTicket`
@@ -1428,7 +1438,7 @@ AND ExistingNewHoldTicket.TransactionId = If(Request.newTransactionID = "", OldT
    - `EventId = OldTicket.EventId`
    - `SeatId = Request.newSeatID`
    - `SeatNumber = Request.newSeatNumber`
-   - `TransactionId = If(Request.newTransactionID = "", OldTicket.TransactionId, Request.newTransactionID)`
+   - `TransactionId = EffectiveRequestedTransactionId`
    - `Status = "VALID"`
    - `IssuedAt = NowUtc.UtcNow`
    - `CreatedAt = NowUtc.UtcNow`
@@ -1442,8 +1452,9 @@ AND ExistingNewHoldTicket.TransactionId = If(Request.newTransactionID = "", OldT
 - `OutBody.oldTicketStatus = "CANCELLED"`
 - `OutBody.newTicketID = NewTicketId`
 
-34. Call `HTTPRequestHandler.SetStatusCode(200)`.
-35. End with `OutBody`.
+34. Call `LogApiEvent` with outcome `200|TRANSFER_AND_REISSUE`.
+35. Call `HTTPRequestHandler.SetStatusCode(200)`.
+36. End with `OutBody`.
 
 ### 11.2.3 Expected outcomes
 
@@ -1453,7 +1464,8 @@ AND ExistingNewHoldTicket.TransactionId = If(Request.newTransactionID = "", OldT
 4. Missing transfer fields returns HTTP 400.
 5. Unknown old ticket returns HTTP 404.
 6. Unsupported operation returns HTTP 400.
-7. Transfer conflict (`newHoldID` existing ticket mismatch, or old ticket non-transferable state) returns HTTP 409.
+7. Transfer conflict due `newHoldID` assignment mismatch returns HTTP 409 with `Code = "HOLD_ALREADY_ASSIGNED"` and non-empty details.
+8. Old ticket non-transferable state returns HTTP 409 with `Code = "INVALID_TICKET_STATE"`.
 
 Publish after completion.
 
@@ -1727,6 +1739,26 @@ For transfer fields missing (`400`) in Step 11.2.2:
 6. `ResponseBody = BuildApiError.ErrorOut.code + "|" + BuildApiError.ErrorOut.message + "|" + BuildApiError.ErrorOut.details`
 7. `Outcome = "400|INVALID_REQUEST"`
 
+For new hold already assigned mismatch (`409`) in Step 11.2.2:
+
+1. `EventName = "UpdateETickets"`
+2. `TicketId = Request.oldTicketID`
+3. `HoldId = Request.newHoldID`
+4. `CorrelationId = CorrelationId`
+5. `RequestBody = Request.oldTicketID + "|" + Request.operation + "|" + Request.newOwnerUserID + "|" + Request.newHoldID + "|" + Request.newSeatID + "|" + Request.newSeatNumber + "|" + EffectiveRequestedTransactionId`
+6. `ResponseBody = BuildApiError.ErrorOut.code + "|" + BuildApiError.ErrorOut.message + "|" + BuildApiError.ErrorOut.details`
+7. `Outcome = "409|HOLD_ALREADY_ASSIGNED"`
+
+For old ticket non-transferable state (`409`) in Step 11.2.2:
+
+1. `EventName = "UpdateETickets"`
+2. `TicketId = Request.oldTicketID`
+3. `HoldId = OldTicket.HoldId`
+4. `CorrelationId = CorrelationId`
+5. `RequestBody = Request.oldTicketID + "|" + Request.operation + "|oldStatus=" + OldTicket.Status`
+6. `ResponseBody = BuildApiError.ErrorOut.code + "|" + BuildApiError.ErrorOut.message + "|" + BuildApiError.ErrorOut.details`
+7. `Outcome = "409|INVALID_TICKET_STATE"`
+
 For exception path (`500`):
 
 1. `EventName = "UpdateETickets"`
@@ -1825,9 +1857,19 @@ For `TRANSFER_AND_REISSUE` success (`200`) in Step 11.2.2:
 2. `TicketId = OutBody.newTicketID`
 3. `HoldId = Request.newHoldID`
 4. `CorrelationId = CorrelationId`
-5. `RequestBody = Request.oldTicketID + "|" + Request.operation + "|" + Request.newOwnerUserID + "|" + Request.newHoldID + "|" + Request.newSeatID + "|" + Request.newSeatNumber + "|" + Request.newTransactionID`
+5. `RequestBody = Request.oldTicketID + "|" + Request.operation + "|" + Request.newOwnerUserID + "|" + Request.newHoldID + "|" + Request.newSeatID + "|" + Request.newSeatNumber + "|" + EffectiveRequestedTransactionId`
 6. `ResponseBody = OutBody.operation + "|" + OutBody.oldTicketStatus + "|" + OutBody.newTicketID`
 7. `Outcome = "200|TRANSFER_AND_REISSUE"`
+
+For `TRANSFER_AND_REISSUE` idempotent replay success (`200`) in Step 11.2.2:
+
+1. `EventName = "UpdateETickets"`
+2. `TicketId = ExistingNewHoldTicket.TicketId`
+3. `HoldId = Request.newHoldID`
+4. `CorrelationId = CorrelationId`
+5. `RequestBody = Request.oldTicketID + "|" + Request.operation + "|" + Request.newOwnerUserID + "|" + Request.newHoldID + "|" + Request.newSeatID + "|" + Request.newSeatNumber + "|" + EffectiveRequestedTransactionId`
+6. `ResponseBody = OutBody.operation + "|" + OutBody.oldTicketStatus + "|" + OutBody.newTicketID`
+7. `Outcome = "200|IDEMPOTENT_REPLAY"`
 
 Implementation order reminder for every success path:
 
@@ -2214,6 +2256,7 @@ Success responses:
 
 1. `200` cancel-only completed
 2. `200` transfer-and-reissue completed
+3. `200` idempotent replay when `newHoldID` already has a matching ticket context
 
 Output body (`UpdateETicketsResponse`):
 
@@ -2225,7 +2268,8 @@ Common error status codes:
 
 1. `400` invalid request, missing transfer fields, invalid operation
 2. `404` old ticket not found
-3. `500` internal error
+3. `409` business conflict (`HOLD_ALREADY_ASSIGNED`, `INVALID_TICKET_STATE`)
+4. `500` internal error
 
 ### 19.4 Orchestrator Call Sequencing Recommendations
 
