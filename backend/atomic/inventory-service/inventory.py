@@ -102,6 +102,11 @@ SWAGGER_TEMPLATE = {
             "type": "object",
             "properties": {
                 "count": {"type": "integer", "example": 0},
+                "publishFailures": {"type": "integer", "example": 0},
+                "publishFailureHoldIDs": {
+                    "type": "array",
+                    "items": {"type": "string", "format": "uuid"},
+                },
                 "expiredHolds": {
                     "type": "array",
                     "items": {
@@ -649,17 +654,19 @@ def _hold_from_rpc_row(row: dict) -> dict:
     }
 
 
-def _publish_event(routing_key: str, payload: dict) -> None:
+def _publish_event(routing_key: str, payload: dict) -> bool:
     if not rabbitmq_configured():
         logger.warning(
             "RabbitMQ not configured, skipped publishing %s event", routing_key
         )
-        return
+        return False
 
     try:
         publish_json(routing_key=routing_key, payload=payload, exchange="ticketblitz")
+        return True
     except Exception as error:
         logger.exception("Failed to publish %s event: %s", routing_key, error)
+        return False
 
 
 def _build_hold_response(hold: dict) -> dict:
@@ -1225,7 +1232,7 @@ def create_app() -> Flask:
             return _error("Failed to expire holds", 500)
 
         if not rows:
-            return jsonify({"expiredHolds": [], "count": 0}), 200
+            return jsonify({"expiredHolds": [], "count": 0, "publishFailures": 0}), 200
 
         category_cache: dict[str, Optional[str]] = {}
 
@@ -1238,6 +1245,8 @@ def create_app() -> Flask:
             return code
 
         expired: list[dict] = []
+        publish_failures = 0
+        publish_failure_hold_ids: list[str] = []
 
         for row in rows:
             if row.get("outcome") != "EXPIRED":
@@ -1246,7 +1255,7 @@ def create_app() -> Flask:
             hold = _hold_from_rpc_row(row)
 
             seat_category = category_code_for(hold["category_id"])
-            _publish_event(
+            published = _publish_event(
                 "seat.released",
                 {
                     "eventID": hold["event_id"],
@@ -1258,6 +1267,10 @@ def create_app() -> Flask:
                 },
             )
 
+            if not published:
+                publish_failures += 1
+                publish_failure_hold_ids.append(str(hold["hold_id"]))
+
             expired.append(
                 {
                     "holdID": hold["hold_id"],
@@ -1268,7 +1281,16 @@ def create_app() -> Flask:
                 }
             )
 
-        return jsonify({"expiredHolds": expired, "count": len(expired)}), 200
+        response_payload: dict[str, Any] = {
+            "expiredHolds": expired,
+            "count": len(expired),
+            "publishFailures": publish_failures,
+        }
+
+        if publish_failure_hold_ids:
+            response_payload["publishFailureHoldIDs"] = publish_failure_hold_ids
+
+        return jsonify(response_payload), 200
 
     @app.errorhandler(404)
     def not_found(_error):
