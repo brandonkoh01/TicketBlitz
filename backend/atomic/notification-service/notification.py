@@ -20,6 +20,7 @@ TOPIC_NOTIFICATION_TYPES = {
     "WAITLIST_JOINED",
     "SEAT_AVAILABLE",
     "HOLD_EXPIRED",
+    "BOOKING_FULFILLMENT_INCIDENT",
 }
 
 FANOUT_NOTIFICATION_TYPES = {
@@ -35,6 +36,14 @@ REQUIRED_FIELDS_BY_TYPE = {
     "WAITLIST_JOINED": ["email", "eventName", "position", "waitlistID"],
     "SEAT_AVAILABLE": ["email", "holdID", "holdExpiry", "paymentURL"],
     "HOLD_EXPIRED": ["email", "holdID"],
+    "BOOKING_FULFILLMENT_INCIDENT": [
+        "email",
+        "holdID",
+        "correlationID",
+        "errorCode",
+        "errorMessage",
+        "stage",
+    ],
     "FLASH_SALE_LAUNCHED": ["eventID", "flashSaleID", "updatedPrices", "waitlistEmails"],
     "PRICE_ESCALATED": [
         "eventID",
@@ -51,6 +60,7 @@ TEMPLATE_ENV_BY_TYPE = {
     "WAITLIST_JOINED": "SENDGRID_TEMPLATE_WAITLIST_JOINED",
     "SEAT_AVAILABLE": "SENDGRID_TEMPLATE_SEAT_AVAILABLE",
     "HOLD_EXPIRED": "SENDGRID_TEMPLATE_HOLD_EXPIRED",
+    "BOOKING_FULFILLMENT_INCIDENT": "SENDGRID_TEMPLATE_BOOKING_FULFILLMENT_INCIDENT",
     "FLASH_SALE_LAUNCHED": "SENDGRID_TEMPLATE_FLASH_SALE_LAUNCHED",
     "PRICE_ESCALATED": "SENDGRID_TEMPLATE_PRICE_ESCALATED",
     "FLASH_SALE_ENDED": "SENDGRID_TEMPLATE_FLASH_SALE_ENDED",
@@ -77,7 +87,8 @@ def parse_int_env(name: str, default: int) -> int:
     try:
         return int(value)
     except ValueError:
-        logger.warning("Invalid integer for %s=%s. Using default=%s", name, value, default)
+        logger.warning(
+            "Invalid integer for %s=%s. Using default=%s", name, value, default)
         return default
 
 
@@ -114,7 +125,8 @@ class WorkerConfig:
         return WorkerConfig(
             service_name=service_name,
             topic_exchange=os.getenv("RABBITMQ_EXCHANGE", "ticketblitz"),
-            topic_routing_key=os.getenv("NOTIFICATION_TOPIC_ROUTING_KEY", "notification.send"),
+            topic_routing_key=os.getenv(
+                "NOTIFICATION_TOPIC_ROUTING_KEY", "notification.send"),
             topic_queue=os.getenv(
                 "NOTIFICATION_TOPIC_QUEUE", f"{service_name}.notification.send"
             ),
@@ -122,7 +134,8 @@ class WorkerConfig:
                 "NOTIFICATION_TOPIC_RETRY_QUEUE",
                 f"{service_name}.notification.send.retry",
             ),
-            fanout_exchange=os.getenv("RABBITMQ_PRICE_EXCHANGE", "ticketblitz.price"),
+            fanout_exchange=os.getenv(
+                "RABBITMQ_PRICE_EXCHANGE", "ticketblitz.price"),
             fanout_queue=os.getenv(
                 "NOTIFICATION_FANOUT_QUEUE", f"{service_name}.price.broadcast"
             ),
@@ -130,10 +143,14 @@ class WorkerConfig:
                 "NOTIFICATION_FANOUT_RETRY_QUEUE",
                 f"{service_name}.price.broadcast.retry",
             ),
-            retry_header_name=os.getenv("NOTIFICATION_RETRY_HEADER", "x-notification-retry"),
-            retry_delay_ms=max(100, parse_int_env("NOTIFICATION_RETRY_DELAY_MS", 5000)),
-            max_retry_attempts=max(0, parse_int_env("NOTIFICATION_MAX_RETRIES", 3)),
-            reconnect_delay_seconds=max(1, parse_int_env("RABBITMQ_RECONNECT_DELAY", 5)),
+            retry_header_name=os.getenv(
+                "NOTIFICATION_RETRY_HEADER", "x-notification-retry"),
+            retry_delay_ms=max(100, parse_int_env(
+                "NOTIFICATION_RETRY_DELAY_MS", 5000)),
+            max_retry_attempts=max(0, parse_int_env(
+                "NOTIFICATION_MAX_RETRIES", 3)),
+            reconnect_delay_seconds=max(
+                1, parse_int_env("RABBITMQ_RECONNECT_DELAY", 5)),
             sendgrid_api_key=os.getenv("SENDGRID_API_KEY", ""),
             sendgrid_from_email=os.getenv("SENDGRID_FROM_EMAIL", ""),
             sendgrid_from_name=os.getenv("SENDGRID_FROM_NAME", "TicketBlitz"),
@@ -169,7 +186,8 @@ class NotificationWorker:
 
     def run_forever(self) -> None:
         if not rabbitmq_configured():
-            raise RuntimeError("RABBITMQ_URL must be set before starting notification worker")
+            raise RuntimeError(
+                "RABBITMQ_URL must be set before starting notification worker")
 
         while not self._shutdown_requested:
             try:
@@ -212,8 +230,10 @@ class NotificationWorker:
             durable=True,
         )
 
-        self._channel.queue_declare(queue=self.config.topic_queue, durable=True)
-        self._channel.queue_declare(queue=self.config.fanout_queue, durable=True)
+        self._channel.queue_declare(
+            queue=self.config.topic_queue, durable=True)
+        self._channel.queue_declare(
+            queue=self.config.fanout_queue, durable=True)
         self._channel.queue_declare(
             queue=self.config.topic_retry_queue,
             durable=True,
@@ -300,7 +320,8 @@ class NotificationWorker:
             return
 
         event_type = str(payload.get("type", "UNKNOWN"))
-        correlation_id = payload.get("correlationID") or getattr(properties, "correlation_id", None)
+        correlation_id = payload.get("correlationID") or getattr(
+            properties, "correlation_id", None)
 
         try:
             self.process_payload(payload)
@@ -438,10 +459,12 @@ class NotificationWorker:
     def process_payload(self, payload: Dict[str, Any]) -> None:
         event_type = payload.get("type")
         if not isinstance(event_type, str):
-            raise PermanentNotificationError("Payload must include string field 'type'")
+            raise PermanentNotificationError(
+                "Payload must include string field 'type'")
 
         if event_type not in ALL_NOTIFICATION_TYPES:
-            raise PermanentNotificationError(f"Unsupported notification type: {event_type}")
+            raise PermanentNotificationError(
+                f"Unsupported notification type: {event_type}")
 
         self.validate_payload(event_type, payload)
 
@@ -493,12 +516,14 @@ class NotificationWorker:
 
     def send_email(self, event_type: str, recipients: List[str], template_data: Dict[str, Any]) -> None:
         if not recipients:
-            logger.info("No recipients for type=%s. Skipping email dispatch.", event_type)
+            logger.info(
+                "No recipients for type=%s. Skipping email dispatch.", event_type)
             return
 
         template_env = TEMPLATE_ENV_BY_TYPE.get(event_type)
         if not template_env:
-            raise PermanentNotificationError(f"No template mapping found for type {event_type}")
+            raise PermanentNotificationError(
+                f"No template mapping found for type {event_type}")
 
         template_id = os.getenv(template_env, "")
         if not template_id:
@@ -516,7 +541,8 @@ class NotificationWorker:
             return
 
         message = Mail(
-            from_email=(self.config.sendgrid_from_email, self.config.sendgrid_from_name),
+            from_email=(self.config.sendgrid_from_email,
+                        self.config.sendgrid_from_name),
             to_emails=recipients,
             is_multiple=len(recipients) > 1,
         )
@@ -526,7 +552,8 @@ class NotificationWorker:
         try:
             response = self._sendgrid_client.send(message)
         except Exception as error:
-            raise TransientNotificationError(f"SendGrid transport error: {error}") from error
+            raise TransientNotificationError(
+                f"SendGrid transport error: {error}") from error
 
         status_code = int(response.status_code)
         if status_code == 202:

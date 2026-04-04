@@ -300,6 +300,41 @@ services:
     networks:
       - ticketblitz-net
 
+  booking-fulfillment-orchestrator:
+    build:
+      context: .
+      dockerfile: backend/composite/booking-fulfillment-orchestrator/Dockerfile
+    container_name: ticketblitz-booking-fulfillment-orchestrator
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      SERVICE_NAME: booking-fulfillment-orchestrator
+      BFO_INPUT_ROUTING_KEY: booking.confirmed
+      BFO_NOTIFICATION_ROUTING_KEY: notification.send
+      BFO_RETRY_DELAY_MS: "5000"
+      BFO_MAX_RETRIES: "3"
+      ETICKET_GENERATE_URL: http://kong:8000/eticket/generate
+      EVENT_SERVICE_URL: http://event-service:5000
+      INVENTORY_SERVICE_URL: http://inventory-service:5000
+      WAITLIST_SERVICE_URL: http://waitlist-service:5000
+      WAITLIST_SERVICE_AUTH_HEADER: ${WAITLIST_SERVICE_AUTH_HEADER:-X-Internal-Token}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-ticketblitz-internal-token}
+      BOOKING_INCIDENT_EMAIL: ${BOOKING_INCIDENT_EMAIL:-}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      inventory-service:
+        condition: service_healthy
+      waitlist-service:
+        condition: service_healthy
+      event-service:
+        condition: service_healthy
+      kong:
+        condition: service_healthy
+    networks:
+      - ticketblitz-net
+
   kong:
     image: kong/kong-gateway:3.9
     container_name: ticketblitz-kong
