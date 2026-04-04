@@ -8,8 +8,8 @@ services:
     env_file:
       - .env.local
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-ticketblitz}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-change_me_before_demo}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?Set RABBITMQ_USER using --env-file .env.local}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD using --env-file .env.local}
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -219,6 +219,87 @@ services:
     networks:
       - ticketblitz-net
 
+  pricing-service:
+    build:
+      context: .
+      dockerfile: backend/atomic/pricing-service/Dockerfile
+    container_name: ticketblitz-pricing-service
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      PORT: "5000"
+      SERVICE_NAME: pricing-service
+    ports:
+      - "5006:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - ticketblitz-net
+
+  flash-sale-orchestrator:
+    build:
+      context: .
+      dockerfile: backend/composite/flash-sale-orchestrator/Dockerfile
+    container_name: ticketblitz-flash-sale-orchestrator
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      PORT: "5000"
+      SERVICE_NAME: flash-sale-orchestrator
+      PRICING_SERVICE_URL: ${PRICING_SERVICE_URL:-http://pricing-service:5000}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      event-service:
+        condition: service_healthy
+      inventory-service:
+        condition: service_healthy
+      waitlist-service:
+        condition: service_healthy
+      pricing-service:
+        condition: service_healthy
+    ports:
+      - "6003:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - ticketblitz-net
+
+  pricing-orchestrator:
+    build:
+      context: .
+      dockerfile: backend/composite/pricing-orchestrator/Dockerfile
+    container_name: ticketblitz-pricing-orchestrator
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      SERVICE_NAME: pricing-orchestrator
+      PRICING_SERVICE_URL: ${PRICING_SERVICE_URL:-http://pricing-service:5000}
+      PRICING_ORCHESTRATOR_MAX_RETRIES: "3"
+      PRICING_ORCHESTRATOR_RETRY_DELAY_MS: "5000"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      event-service:
+        condition: service_healthy
+      waitlist-service:
+        condition: service_healthy
+      pricing-service:
+        condition: service_healthy
+    networks:
+      - ticketblitz-net
+
   kong:
     image: kong/kong-gateway:3.9
     container_name: ticketblitz-kong
@@ -243,6 +324,10 @@ services:
       payment-service:
         condition: service_healthy
       booking-status-service:
+        condition: service_healthy
+      pricing-service:
+        condition: service_healthy
+      flash-sale-orchestrator:
         condition: service_healthy
     volumes:
       - ./kong:/kong/declarative:ro
