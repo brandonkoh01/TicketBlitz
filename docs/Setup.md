@@ -795,7 +795,7 @@ services:
 
   booking-fulfillment-orchestrator:
     build:
-      context: ./composite/scenario-1/booking-fulfillment-orchestrator
+      context: ./composite/booking-fulfillment-orchestrator
       dockerfile: ../../../docker/Dockerfile.worker
     image: ticketblitz/booking-fulfillment-orchestrator:latest
     container_name: ticketblitz-booking-fulfillment-orchestrator

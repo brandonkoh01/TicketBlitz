@@ -27,14 +27,31 @@ def publish_json(
     routing_key: str,
     payload: Any,
     exchange: Optional[str] = None,
+    exchange_type: Optional[str] = None,
+    exchange_durable: Optional[bool] = None,
     mandatory: bool = False,
 ) -> None:
     exchange_name = exchange or os.getenv("RABBITMQ_EXCHANGE", "ticketblitz")
+    resolved_exchange_type = exchange_type or os.getenv("RABBITMQ_EXCHANGE_TYPE", "topic")
+    if exchange_durable is None:
+        resolved_exchange_durable = os.getenv("RABBITMQ_EXCHANGE_DURABLE", "true").strip().lower() not in {
+            "0",
+            "false",
+            "no",
+        }
+    else:
+        resolved_exchange_durable = exchange_durable
     body = json.dumps(payload, default=str)
 
     connection = get_connection()
     try:
         channel = connection.channel()
+        if exchange_name:
+            channel.exchange_declare(
+                exchange=exchange_name,
+                exchange_type=resolved_exchange_type,
+                durable=resolved_exchange_durable,
+            )
         channel.basic_publish(
             exchange=exchange_name,
             routing_key=routing_key,

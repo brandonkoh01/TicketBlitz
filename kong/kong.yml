@@ -54,3 +54,118 @@ services:
         methods:
           - POST
         strip_path: false
+
+  - name: pricing-service
+    url: http://pricing-service:5000
+    connect_timeout: 5000
+    read_timeout: 10000
+    write_timeout: 5000
+    routes:
+      - name: get-pricing-snapshot
+        paths:
+          - ~/pricing/[^/]+$
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
+      - name: get-pricing-history
+        paths:
+          - ~/pricing/[^/]+/history$
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
+      - name: get-pricing-active-flash-sale
+        paths:
+          - ~/pricing/[^/]+/flash-sale/active$
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 120
+          policy: local
+          fault_tolerant: true
+
+  - name: flash-sale-orchestrator
+    url: http://flash-sale-orchestrator:5000
+    connect_timeout: 5000
+    read_timeout: 30000
+    write_timeout: 10000
+    routes:
+      - name: flash-sale-launch
+        paths:
+          - /flash-sale/launch
+        methods:
+          - POST
+          - OPTIONS
+        strip_path: false
+        plugins:
+          - name: key-auth
+            config:
+              key_names:
+                - x-organiser-api-key
+              hide_credentials: true
+              run_on_preflight: false
+          - name: acl
+            config:
+              allow:
+                - organisers
+              hide_groups_header: true
+      - name: flash-sale-end
+        paths:
+          - /flash-sale/end
+        methods:
+          - POST
+          - OPTIONS
+        strip_path: false
+        plugins:
+          - name: key-auth
+            config:
+              key_names:
+                - x-organiser-api-key
+              hide_credentials: true
+              run_on_preflight: false
+          - name: acl
+            config:
+              allow:
+                - organisers
+              hide_groups_header: true
+      - name: flash-sale-status
+        paths:
+          - ~/flash-sale/[^/]+/status$
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 30
+          policy: local
+          fault_tolerant: true
+
+  - name: eticket-service
+    # Update this URL to your team's OutSystems environment base path when needed.
+    url: https://personal-kgqqcaoh.outsystemscloud.com/ETicket_API/rest/v1
+    connect_timeout: 5000
+    read_timeout: 30000
+    write_timeout: 10000
+    routes:
+      - name: eticket-generate
+        paths:
+          - /eticket/generate
+        methods:
+          - POST
+          - OPTIONS
+        strip_path: false
+
+consumers:
+  - username: organiser-dashboard
+    custom_id: organiser-dashboard
+    keyauth_credentials:
+      - key: ticketblitz-organiser-dev-key
+    acls:
+      - group: organisers

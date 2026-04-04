@@ -1,8 +1,11 @@
 import { computed, ref } from 'vue'
+import { useRoleNavigation } from '@/composables/useRoleNavigation'
 
 export function useOrganiserDashboardData() {
-  const navLinks = ref([
-    { icon: 'dashboard', label: 'Dashboard', to: '/organiser-dashboard' },
+  const { dashboardPath } = useRoleNavigation()
+
+  const navLinks = computed(() => [
+    { icon: 'dashboard', label: 'Dashboard', to: dashboardPath.value },
     { icon: 'event', label: 'Events', to: '#' },
     { icon: 'trending_up', label: 'Sales Analytics', to: '#' },
     { icon: 'campaign', label: 'Marketing', to: '#' },

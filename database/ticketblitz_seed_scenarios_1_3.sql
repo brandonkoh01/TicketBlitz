@@ -21,6 +21,25 @@ set
   metadata = excluded.metadata,
   deleted_at = null;
 
+insert into public.user_roles (user_id, role)
+select
+  user_id,
+  case
+    when lower(coalesce(metadata->>'role', 'fan')) = 'organiser' then 'organiser'::public.app_role_t
+    else 'fan'::public.app_role_t
+  end
+from public.users
+where user_id in (
+  '00000000-0000-0000-0000-000000000001',
+  '00000000-0000-0000-0000-000000000002',
+  '00000000-0000-0000-0000-000000000003',
+  '00000000-0000-0000-0000-000000000004',
+  '00000000-0000-0000-0000-000000000005'
+)
+on conflict (user_id) do update
+set role = excluded.role,
+    assigned_at = now();
+
 -- 2) Event
 insert into public.events (
   event_id,
