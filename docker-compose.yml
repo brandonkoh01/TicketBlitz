@@ -9,7 +9,7 @@ services:
       - .env.local
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-ticketblitz}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-change_me_before_demo}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-123}
     ports:
       - "5672:5672"
       - "15672:15672"
