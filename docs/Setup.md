@@ -238,10 +238,10 @@ ticketblitz/
 │   ├── waitlist-service/
 │   └── notification-service/
 ├── composite/
+│   ├── booking-status-service/
 │   └── scenario-1/
 │       ├── reservation-orchestrator/
 │       ├── booking-fulfillment-orchestrator/
-│       ├── booking-status-service/
 │       ├── waitlist-promotion-orchestrator/
 │       └── expiry-scheduler-service/
 └── ui/
@@ -777,7 +777,7 @@ services:
 
   booking-status-service:
     build:
-      context: ./composite/scenario-1/booking-status-service
+      context: ./composite/booking-status-service
       dockerfile: ../../../docker/Dockerfile.flask
     image: ticketblitz/booking-status-service:latest
     container_name: ticketblitz-booking-status-service

@@ -131,6 +131,26 @@ services:
           policy: local
           fault_tolerant: true
 
+  - name: booking-status-service
+    url: http://booking-status-service:5000
+    connect_timeout: 5000
+    read_timeout: 10000
+    write_timeout: 5000
+    routes:
+      - name: booking-status
+        paths:
+          - ~/booking-status/[^/]+$
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 240
+          policy: local
+          fault_tolerant: true
+
   - name: payment-webhook
     url: http://payment-service:5000
     connect_timeout: 5000
