@@ -2,6 +2,46 @@ _format_version: "3.0"
 _transform: true
 
 services:
+  - name: reservation-orchestrator
+    url: http://reservation-orchestrator:5000
+    connect_timeout: 5000
+    read_timeout: 15000
+    write_timeout: 10000
+    routes:
+      - name: reserve
+        paths:
+          - /reserve
+        methods:
+          - POST
+          - OPTIONS
+        strip_path: false
+      - name: reserve-confirm
+        paths:
+          - /reserve/confirm
+        methods:
+          - POST
+          - OPTIONS
+        strip_path: false
+      - name: waitlist-confirm
+        paths:
+          - /waitlist/confirm
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - x-customer-api-key
+          hide_credentials: true
+          run_on_preflight: false
+      - name: rate-limiting
+        config:
+          minute: 120
+          policy: local
+          fault_tolerant: true
+
   - name: event-service
     url: http://event-service:5000
     connect_timeout: 5000
@@ -11,6 +51,72 @@ services:
       - name: get-events
         paths:
           - /events
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
+      - name: get-event-by-id
+        paths:
+          - ~/event/[^/]+$
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
+      - name: get-event-categories
+        paths:
+          - ~/event/[^/]+/categories$
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
+      - name: update-event-status
+        paths:
+          - ~/event/[^/]+/status$
+        methods:
+          - PUT
+          - OPTIONS
+        strip_path: false
+        plugins:
+          - name: key-auth
+            config:
+              key_names:
+                - x-organiser-api-key
+              hide_credentials: true
+              run_on_preflight: false
+          - name: acl
+            config:
+              allow:
+                - organisers
+              hide_groups_header: true
+      - name: update-event-category-prices
+        paths:
+          - ~/event/[^/]+/categories/prices$
+        methods:
+          - PUT
+          - OPTIONS
+        strip_path: false
+        plugins:
+          - name: key-auth
+            config:
+              key_names:
+                - x-organiser-api-key
+              hide_credentials: true
+              run_on_preflight: false
+          - name: acl
+            config:
+              allow:
+                - organisers
+              hide_groups_header: true
+      - name: get-event-flash-sale-status
+        paths:
+          - ~/event/[^/]+/flash-sale/status$
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
+      - name: get-event-price-history
+        paths:
+          - ~/event/[^/]+/price-history$
         methods:
           - GET
           - OPTIONS
@@ -33,12 +139,55 @@ services:
           - /waitlist
         methods:
           - GET
+          - POST
+          - PUT
+          - DELETE
           - OPTIONS
         strip_path: false
     plugins:
       - name: rate-limiting
         config:
           minute: 120
+          policy: local
+          fault_tolerant: true
+
+  - name: inventory-service-public
+    url: http://inventory-service:5000
+    connect_timeout: 5000
+    read_timeout: 15000
+    write_timeout: 10000
+    routes:
+      - name: inventory-api
+        paths:
+          - /inventory
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 180
+          policy: local
+          fault_tolerant: true
+
+  - name: booking-status-service
+    url: http://booking-status-service:5000
+    connect_timeout: 5000
+    read_timeout: 10000
+    write_timeout: 5000
+    routes:
+      - name: booking-status
+        paths:
+          - ~/booking-status/[^/]+$
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 240
           policy: local
           fault_tolerant: true
 

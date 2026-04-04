@@ -10,6 +10,8 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?Set RABBITMQ_USER using --env-file .env.local}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD using --env-file .env.local}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?Set RABBITMQ_USER using --env-file .env.local}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD using --env-file .env.local}
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -35,6 +37,12 @@ services:
     environment:
       PORT: "5000"
       SERVICE_NAME: event-service
+      RABBITMQ_CONNECTION_ATTEMPTS: "1"
+      RABBITMQ_RETRY_DELAY: "0.5"
+      RABBITMQ_BLOCKED_TIMEOUT: "5"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
     ports:
       - "5001:5000"
     healthcheck:
@@ -57,8 +65,11 @@ services:
     environment:
       PORT: "5000"
       SERVICE_NAME: user-service
+      REQUIRE_INTERNAL_AUTH: ${REQUIRE_INTERNAL_AUTH:-1}
+      USER_SERVICE_AUTH_HEADER: ${INTERNAL_AUTH_HEADER:-X-Internal-Token}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-ticketblitz-internal-token}
     ports:
-      - "5002:5000"
+      - "127.0.0.1:5002:5000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 10s
@@ -79,6 +90,9 @@ services:
     environment:
       PORT: "5000"
       SERVICE_NAME: inventory-service
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
     ports:
       - "5003:5000"
     healthcheck:
@@ -126,6 +140,9 @@ services:
     environment:
       PORT: "5000"
       SERVICE_NAME: waitlist-service
+      REQUIRE_INTERNAL_AUTH: ${REQUIRE_INTERNAL_AUTH:-1}
+      WAITLIST_SERVICE_AUTH_HEADER: ${INTERNAL_AUTH_HEADER:-X-Internal-Token}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-ticketblitz-internal-token}
     ports:
       - "5005:5000"
     healthcheck:
@@ -146,11 +163,109 @@ services:
     env_file:
       - .env.local
     environment:
-      PORT: "5000"
       SERVICE_NAME: notification-service
+      NOTIFICATION_TOPIC_ROUTING_KEY: notification.send
+      NOTIFICATION_RETRY_DELAY_MS: "5000"
+      NOTIFICATION_MAX_RETRIES: "3"
     depends_on:
       rabbitmq:
         condition: service_healthy
+    networks:
+      - ticketblitz-net
+
+  booking-status-service:
+    build:
+      context: .
+      dockerfile: backend/composite/booking-status-service/Dockerfile
+    container_name: ticketblitz-booking-status-service
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      PORT: "5000"
+      SERVICE_NAME: booking-status-service
+    depends_on:
+      inventory-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+    ports:
+      - "6002:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - ticketblitz-net
+
+  waitlist-promotion-orchestrator:
+    build:
+      context: .
+      dockerfile: backend/composite/waitlist-promotion-orchestrator/Dockerfile
+    container_name: ticketblitz-waitlist-promotion-orchestrator
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      SERVICE_NAME: waitlist-promotion-orchestrator
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-ticketblitz}
+      WAITLIST_PROMOTION_ROUTING_KEY: ${WAITLIST_PROMOTION_ROUTING_KEY:-seat.released}
+      WAITLIST_PROMOTION_RETRY_DELAY_MS: ${WAITLIST_PROMOTION_RETRY_DELAY_MS:-5000}
+      WAITLIST_PROMOTION_MAX_RETRIES: ${WAITLIST_PROMOTION_MAX_RETRIES:-3}
+      WAITLIST_PROMOTION_HTTP_RETRY_TOTAL: ${WAITLIST_PROMOTION_HTTP_RETRY_TOTAL:-2}
+      WAITLIST_PROMOTION_HTTP_RETRY_BACKOFF_FACTOR: ${WAITLIST_PROMOTION_HTTP_RETRY_BACKOFF_FACTOR:-0.5}
+      INVENTORY_SERVICE_URL: ${INVENTORY_SERVICE_URL:-http://inventory-service:5000}
+      WAITLIST_SERVICE_URL: ${WAITLIST_SERVICE_URL:-http://waitlist-service:5000}
+      USER_SERVICE_URL: ${USER_SERVICE_URL:-http://user-service:5000}
+      INTERNAL_AUTH_HEADER: ${INTERNAL_AUTH_HEADER:-X-Internal-Token}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-ticketblitz-internal-token}
+      WAITLIST_PAYMENT_URL_TEMPLATE: ${WAITLIST_PAYMENT_URL_TEMPLATE:-/waitlist/confirm/{holdID}}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      inventory-service:
+        condition: service_healthy
+      waitlist-service:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+    networks:
+      - ticketblitz-net
+
+  expiry-scheduler-service:
+    build:
+      context: .
+      dockerfile: backend/atomic/expiry-scheduler-service/Dockerfile
+    container_name: ticketblitz-expiry-scheduler-service
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      SERVICE_NAME: expiry-scheduler-service
+      INVENTORY_SERVICE_URL: ${INVENTORY_SERVICE_URL:-http://inventory-service:5000}
+      INTERNAL_AUTH_HEADER: ${INTERNAL_AUTH_HEADER:-X-Internal-Token}
+      EXPIRY_INTERVAL_SECONDS: ${EXPIRY_INTERVAL_SECONDS:-60}
+      EXPIRY_ERROR_RETRY_DELAY_SECONDS: ${EXPIRY_ERROR_RETRY_DELAY_SECONDS:-5}
+      EXPIRY_ERROR_RETRY_JITTER_SECONDS: ${EXPIRY_ERROR_RETRY_JITTER_SECONDS:-0.5}
+    depends_on:
+      inventory-service:
+        condition: service_healthy
+    networks:
+      - ticketblitz-net
+
+  pricing-service:
+    build:
+      context: .
+      dockerfile: backend/atomic/pricing-service/Dockerfile
+    container_name: ticketblitz-pricing-service
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      PORT: "5000"
+      SERVICE_NAME: pricing-service
     ports:
       - "5006:5000"
     healthcheck:
@@ -278,6 +393,141 @@ services:
     networks:
       - ticketblitz-net
 
+  flash-sale-orchestrator:
+    build:
+      context: .
+      dockerfile: backend/composite/flash-sale-orchestrator/Dockerfile
+    container_name: ticketblitz-flash-sale-orchestrator
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      PORT: "5000"
+      SERVICE_NAME: flash-sale-orchestrator
+      PRICING_SERVICE_URL: ${PRICING_SERVICE_URL:-http://pricing-service:5000}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      event-service:
+        condition: service_healthy
+      inventory-service:
+        condition: service_healthy
+      waitlist-service:
+        condition: service_healthy
+      pricing-service:
+        condition: service_healthy
+    ports:
+      - "6003:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - ticketblitz-net
+
+  pricing-orchestrator:
+    build:
+      context: .
+      dockerfile: backend/composite/pricing-orchestrator/Dockerfile
+    container_name: ticketblitz-pricing-orchestrator
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      SERVICE_NAME: pricing-orchestrator
+      PRICING_SERVICE_URL: ${PRICING_SERVICE_URL:-http://pricing-service:5000}
+      PRICING_ORCHESTRATOR_MAX_RETRIES: "3"
+      PRICING_ORCHESTRATOR_RETRY_DELAY_MS: "5000"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      event-service:
+        condition: service_healthy
+      waitlist-service:
+        condition: service_healthy
+      pricing-service:
+        condition: service_healthy
+    networks:
+      - ticketblitz-net
+
+  booking-fulfillment-orchestrator:
+    build:
+      context: .
+      dockerfile: backend/composite/booking-fulfillment-orchestrator/Dockerfile
+    container_name: ticketblitz-booking-fulfillment-orchestrator
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      SERVICE_NAME: booking-fulfillment-orchestrator
+      BFO_INPUT_ROUTING_KEY: booking.confirmed
+      BFO_NOTIFICATION_ROUTING_KEY: notification.send
+      BFO_RETRY_DELAY_MS: "5000"
+      BFO_MAX_RETRIES: "3"
+      ETICKET_GENERATE_URL: http://kong:8000/eticket/generate
+      EVENT_SERVICE_URL: http://event-service:5000
+      INVENTORY_SERVICE_URL: http://inventory-service:5000
+      WAITLIST_SERVICE_URL: http://waitlist-service:5000
+      WAITLIST_SERVICE_AUTH_HEADER: ${WAITLIST_SERVICE_AUTH_HEADER:-X-Internal-Token}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-ticketblitz-internal-token}
+      BOOKING_INCIDENT_EMAIL: ${BOOKING_INCIDENT_EMAIL:-}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      inventory-service:
+        condition: service_healthy
+      waitlist-service:
+        condition: service_healthy
+      event-service:
+        condition: service_healthy
+      kong:
+        condition: service_healthy
+    networks:
+      - ticketblitz-net
+
+  reservation-orchestrator:
+    build:
+      context: .
+      dockerfile: backend/composite/scenario-1/reservation-orchestrator/Dockerfile
+    container_name: ticketblitz-reservation-orchestrator
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      PORT: "5000"
+      SERVICE_NAME: reservation-orchestrator
+      HTTP_TIMEOUT_SECONDS: ${HTTP_TIMEOUT_SECONDS:-10}
+      HTTP_MAX_RETRIES: ${HTTP_MAX_RETRIES:-2}
+      REQUIRE_AUTHENTICATED_USER_HEADER: ${REQUIRE_AUTHENTICATED_USER_HEADER:-true}
+      AUTHENTICATED_USER_HEADER: ${AUTHENTICATED_USER_HEADER:-X-User-ID}
+      FALLBACK_AUTHENTICATED_USER_HEADERS: ${FALLBACK_AUTHENTICATED_USER_HEADERS:-X-Authenticated-User-ID,X-Consumer-Custom-ID}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:4173}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      event-service:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      inventory-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+      waitlist-service:
+        condition: service_healthy
+    ports:
+      - "6001:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - ticketblitz-net
+
   kong:
     image: kong/kong-gateway:3.9
     container_name: ticketblitz-kong
@@ -295,6 +545,8 @@ services:
     depends_on:
       event-service:
         condition: service_healthy
+      inventory-service:
+        condition: service_healthy
       waitlist-service:
         condition: service_healthy
       payment-service:
@@ -302,6 +554,14 @@ services:
       pricing-service:
         condition: service_healthy
       flash-sale-orchestrator:
+        condition: service_healthy
+      booking-status-service:
+        condition: service_healthy
+      pricing-service:
+        condition: service_healthy
+      flash-sale-orchestrator:
+        condition: service_healthy
+      reservation-orchestrator:
         condition: service_healthy
     volumes:
       - ./kong:/kong/declarative:ro

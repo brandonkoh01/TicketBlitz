@@ -1,10 +1,16 @@
+import json
 import logging
 import os
+import signal
+import time
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
-from flask import Flask, jsonify
-from flask_cors import CORS
+import pika
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
 
-from shared.mq import rabbitmq_configured
+from shared.mq import get_connection, rabbitmq_configured
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -611,5 +617,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "5000"))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    main()
