@@ -1,3 +1,4 @@
+import payment
 import os
 import sys
 import unittest
@@ -13,8 +14,6 @@ if str(SERVICE_DIR) not in sys.path:
     sys.path.insert(0, str(SERVICE_DIR))
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
-
-import payment
 
 
 class PaymentRefactorTests(unittest.TestCase):
@@ -111,7 +110,8 @@ class PaymentRefactorTests(unittest.TestCase):
                                     response = client.post(
                                         "/payment/webhook",
                                         data=b"{}",
-                                        headers={"Stripe-Signature": "t=1,v1=fakesig"},
+                                        headers={
+                                            "Stripe-Signature": "t=1,v1=fakesig"},
                                         content_type="application/json",
                                     )
 
@@ -129,11 +129,53 @@ class PaymentRefactorTests(unittest.TestCase):
                 with app.test_client() as client:
                     response = client.post(
                         "/payments/create",
-                        json={"holdID": hold_id, "userID": user_id, "amount": 10},
+                        json={"holdID": hold_id,
+                              "userID": user_id, "amount": 10},
                     )
 
         self.assertEqual(response.status_code, 401)
         process_mock.assert_not_called()
+
+    def test_publish_booking_confirmed_includes_waitlist_id_when_present(self):
+        transaction = {
+            "hold_id": str(uuid.uuid4()),
+            "user_id": str(uuid.uuid4()),
+            "event_id": str(uuid.uuid4()),
+            "amount": "160.00",
+            "currency": "SGD",
+            "correlation_id": str(uuid.uuid4()),
+        }
+
+        with patch("payment._fetch_user_email", return_value="fan@example.com"):
+            with patch("payment._resolve_waitlist_id_for_hold", return_value=str(uuid.uuid4())) as resolve_waitlist:
+                with patch("payment.publish_json") as publish_json:
+                    payment._publish_booking_confirmed(transaction, "pi_test")
+
+        resolve_waitlist.assert_called_once_with(transaction["hold_id"])
+        publish_json.assert_called_once()
+        payload = publish_json.call_args.args[1]
+        self.assertIn("waitlistID", payload)
+        self.assertIsInstance(payload["waitlistID"], str)
+
+    def test_publish_booking_confirmed_sets_waitlist_id_null_when_not_found(self):
+        transaction = {
+            "hold_id": str(uuid.uuid4()),
+            "user_id": str(uuid.uuid4()),
+            "event_id": str(uuid.uuid4()),
+            "amount": "160.00",
+            "currency": "SGD",
+            "correlation_id": str(uuid.uuid4()),
+        }
+
+        with patch("payment._fetch_user_email", return_value="fan@example.com"):
+            with patch("payment._resolve_waitlist_id_for_hold", return_value=None):
+                with patch("payment.publish_json") as publish_json:
+                    payment._publish_booking_confirmed(transaction, "pi_test")
+
+        publish_json.assert_called_once()
+        payload = publish_json.call_args.args[1]
+        self.assertIn("waitlistID", payload)
+        self.assertIsNone(payload["waitlistID"])
 
 
 if __name__ == "__main__":

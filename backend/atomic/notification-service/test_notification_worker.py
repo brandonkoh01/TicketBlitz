@@ -1,14 +1,17 @@
+import notification
 import os
 import pathlib
 import sys
 import unittest
 
 # Ensure shared/ can be imported by notification.py during test execution.
+SERVICE_DIR = pathlib.Path(__file__).resolve().parent
 BACKEND_ROOT = pathlib.Path(__file__).resolve().parents[2]
+if str(SERVICE_DIR) not in sys.path:
+    sys.path.insert(0, str(SERVICE_DIR))
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-import notification
 
 SENDGRID_LIVE_TEST_FLAG = "RUN_SENDGRID_INTEGRATION_TESTS"
 SENDGRID_LIVE_REQUIRED_ENV = (
@@ -79,13 +82,16 @@ class NotificationWorkerTests(unittest.TestCase):
             )
 
     def _require_sendgrid_live_env(self):
-        missing = [name for name in SENDGRID_LIVE_REQUIRED_ENV if not os.getenv(name)]
+        missing = [
+            name for name in SENDGRID_LIVE_REQUIRED_ENV if not os.getenv(name)]
         if missing:
             self.skipTest(
-                "Live SendGrid test skipped. Missing env vars: " + ", ".join(sorted(missing))
+                "Live SendGrid test skipped. Missing env vars: " +
+                ", ".join(sorted(missing))
             )
 
-        template_id = os.getenv("SENDGRID_TEMPLATE_BOOKING_CONFIRMED", "").strip()
+        template_id = os.getenv(
+            "SENDGRID_TEMPLATE_BOOKING_CONFIRMED", "").strip()
         if template_id in {"", "d-..."}:
             self.skipTest(
                 "Live SendGrid test skipped. SENDGRID_TEMPLATE_BOOKING_CONFIRMED must be a real template id."
@@ -124,7 +130,8 @@ class NotificationWorkerTests(unittest.TestCase):
         )()
         properties = notification.pika.BasicProperties(headers={})
 
-        enqueued = worker._enqueue_retry(method, properties, b"{}", retry_count=2)
+        enqueued = worker._enqueue_retry(
+            method, properties, b"{}", retry_count=2)
 
         self.assertTrue(enqueued)
         self.assertEqual(len(fake_channel.published), 1)
@@ -151,7 +158,8 @@ class NotificationWorkerTests(unittest.TestCase):
         )()
         properties = notification.pika.BasicProperties(headers={})
 
-        enqueued = worker._enqueue_retry(method, properties, b"{}", retry_count=1)
+        enqueued = worker._enqueue_retry(
+            method, properties, b"{}", retry_count=1)
 
         self.assertTrue(enqueued)
         self.assertEqual(len(fake_channel.published), 1)
@@ -177,7 +185,8 @@ class NotificationWorkerTests(unittest.TestCase):
             )
 
     def test_process_payload_non_production_missing_sendgrid_config_falls_back(self):
-        worker = notification.NotificationWorker(self._config(is_production=False, api_key=""))
+        worker = notification.NotificationWorker(
+            self._config(is_production=False, api_key=""))
 
         # Should not raise; logs warning and drops to non-production fallback behavior.
         worker.process_payload(
@@ -193,16 +202,19 @@ class NotificationWorkerTests(unittest.TestCase):
     def test_send_email_sendgrid_status_classification(self):
         os.environ["SENDGRID_TEMPLATE_BOOKING_CONFIRMED"] = "d-template-id"
 
-        worker = notification.NotificationWorker(self._config(is_production=False, api_key="test-key"))
+        worker = notification.NotificationWorker(
+            self._config(is_production=False, api_key="test-key"))
 
-        worker._sendgrid_client = _FakeSendGridClient(_FakeResponse(403, "forbidden"))
+        worker._sendgrid_client = _FakeSendGridClient(
+            _FakeResponse(403, "forbidden"))
         worker.send_email(
             "BOOKING_CONFIRMED",
             ["fan@example.com"],
             {"eventName": "Coldplay Live"},
         )
 
-        worker._sendgrid_client = _FakeSendGridClient(_FakeResponse(500, "server error"))
+        worker._sendgrid_client = _FakeSendGridClient(
+            _FakeResponse(500, "server error"))
         with self.assertRaises(notification.TransientNotificationError):
             worker.send_email(
                 "BOOKING_CONFIRMED",
@@ -210,7 +222,8 @@ class NotificationWorkerTests(unittest.TestCase):
                 {"eventName": "Coldplay Live"},
             )
 
-        worker._sendgrid_client = _FakeSendGridClient(_FakeResponse(400, "bad request"))
+        worker._sendgrid_client = _FakeSendGridClient(
+            _FakeResponse(400, "bad request"))
         with self.assertRaises(notification.PermanentNotificationError):
             worker.send_email(
                 "BOOKING_CONFIRMED",
@@ -219,7 +232,8 @@ class NotificationWorkerTests(unittest.TestCase):
             )
 
     def test_process_payload_allows_empty_waitlist_email_list(self):
-        worker = notification.NotificationWorker(self._config(is_production=False, api_key=""))
+        worker = notification.NotificationWorker(
+            self._config(is_production=False, api_key=""))
 
         # Fanout notifications can legitimately have no recipients.
         worker.process_payload(
@@ -231,6 +245,23 @@ class NotificationWorkerTests(unittest.TestCase):
                 "waitlistEmails": [],
             }
         )
+
+    def test_validate_payload_requires_incident_fields(self):
+        worker = notification.NotificationWorker(
+            self._config(is_production=False, api_key=""))
+
+        with self.assertRaises(notification.PermanentNotificationError):
+            worker.validate_payload(
+                "BOOKING_FULFILLMENT_INCIDENT",
+                {
+                    "type": "BOOKING_FULFILLMENT_INCIDENT",
+                    "email": "ops@example.com",
+                    "holdID": "hold-1",
+                    "correlationID": "corr-1",
+                    "errorCode": "HTTP_500",
+                    # missing errorMessage and stage
+                },
+            )
 
     def test_sendgrid_live_booking_confirmed_email_delivery(self):
         self._require_sendgrid_live_test_enabled()

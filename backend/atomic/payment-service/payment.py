@@ -19,8 +19,10 @@ logger = logging.getLogger(__name__)
 POLICY_WINDOW_HOURS = 48
 MAX_REFUND_ATTEMPTS = 3
 REFUND_SUCCESS_RATIO = Decimal("0.90")
-REFUND_PENDING_STALE_SECONDS = int(os.getenv("REFUND_PENDING_STALE_SECONDS", "300"))
-WEBHOOK_RECEIVED_STALE_SECONDS = int(os.getenv("WEBHOOK_RECEIVED_STALE_SECONDS", "120"))
+REFUND_PENDING_STALE_SECONDS = int(
+    os.getenv("REFUND_PENDING_STALE_SECONDS", "300"))
+WEBHOOK_RECEIVED_STALE_SECONDS = int(
+    os.getenv("WEBHOOK_RECEIVED_STALE_SECONDS", "120"))
 INTERNAL_AUTH_HEADER = "X-Internal-Token"
 PAYMENT_IDEMPOTENCY_PREFIX = "payment-initiate"
 
@@ -106,7 +108,8 @@ def _as_decimal(value: Any, field_name: str) -> Decimal:
             Decimal("0.01"), rounding=ROUND_HALF_UP
         )
     except (InvalidOperation, TypeError) as error:
-        raise ValidationError(f"{field_name} must be a numeric value") from error
+        raise ValidationError(
+            f"{field_name} must be a numeric value") from error
 
     if decimal_value <= 0:
         raise ValidationError(f"{field_name} must be greater than 0")
@@ -226,6 +229,27 @@ def _fetch_user_email(user_id: str) -> str:
     return email
 
 
+def _resolve_waitlist_id_for_hold(hold_id: str) -> Optional[str]:
+    rows = _safe_db_select_many(
+        "waitlist_entries",
+        {"hold_id": hold_id},
+        "waitlist_id,status,hold_id,updated_at",
+        order_by="updated_at",
+        desc=True,
+        limit=1,
+    )
+    if not rows:
+        return None
+
+    row = rows[0]
+
+    waitlist_id = row.get("waitlist_id")
+    if not waitlist_id:
+        return None
+
+    return str(waitlist_id)
+
+
 def _fetch_transaction_by_intent(payment_intent_id: str) -> Optional[Dict[str, Any]]:
     return _safe_db_select_one(
         "transactions",
@@ -280,7 +304,8 @@ def _resolve_booking_transaction(booking_id: str) -> Tuple[Dict[str, Any], str]:
 
 
 def _fetch_event(event_id: str) -> Dict[str, Any]:
-    event = _safe_db_select_one("events", {"event_id": event_id}, "event_id,event_date")
+    event = _safe_db_select_one(
+        "events", {"event_id": event_id}, "event_id,event_date")
     if not event:
         raise NotFoundError("Event not found")
     return event
@@ -333,7 +358,8 @@ def _create_cancellation_or_update(
         limit=1,
     )
     now_iso = _iso_now()
-    refund_amount = _decimal_to_str(_as_decimal(policy_context["eligibleRefundAmount"], "refund amount"))
+    refund_amount = _decimal_to_str(_as_decimal(
+        policy_context["eligibleRefundAmount"], "refund amount"))
     payload = {
         "status": status,
         "policy_cutoff_at": policy_context["policyCutoffAt"],
@@ -351,7 +377,8 @@ def _create_cancellation_or_update(
 
     if existing_rows:
         existing = existing_rows[0]
-        next_attempt_count = int(existing.get("attempt_count") or 0) + max(attempt_increment, 0)
+        next_attempt_count = int(existing.get(
+            "attempt_count") or 0) + max(attempt_increment, 0)
         if attempt_increment > 0:
             payload["attempt_count"] = next_attempt_count
         result = (
@@ -458,6 +485,16 @@ def _extract_hold_id_from_metadata(payment_intent: Dict[str, Any]) -> Optional[s
 
 def _publish_booking_confirmed(transaction: Dict[str, Any], payment_intent_id: str) -> None:
     email = _fetch_user_email(transaction["user_id"])
+    waitlist_id = None
+    try:
+        waitlist_id = _resolve_waitlist_id_for_hold(transaction["hold_id"])
+    except Exception as error:
+        logger.warning(
+            "Unable to resolve waitlist_id for hold_id=%s while publishing booking.confirmed: %s",
+            transaction["hold_id"],
+            error,
+        )
+
     payload = {
         "holdID": transaction["hold_id"],
         "userID": transaction["user_id"],
@@ -467,6 +504,7 @@ def _publish_booking_confirmed(transaction: Dict[str, Any], payment_intent_id: s
         "paymentIntentID": payment_intent_id,
         "amount": str(transaction.get("amount")),
         "currency": _clean_currency(transaction.get("currency")),
+        "waitlistID": waitlist_id,
     }
     publish_json("booking.confirmed", payload)
 
@@ -500,9 +538,11 @@ def _handle_payment_intent_succeeded(payment_intent: Dict[str, Any]) -> Dict[str
     }
     _update_transaction(transaction["transaction_id"], update_payload)
 
-    transaction = _fetch_transaction_by_transaction_id(transaction["transaction_id"])
+    transaction = _fetch_transaction_by_transaction_id(
+        transaction["transaction_id"])
     if not transaction:
-        raise NotFoundError("Transaction disappeared during webhook processing")
+        raise NotFoundError(
+            "Transaction disappeared during webhook processing")
 
     _publish_booking_confirmed(transaction, payment_intent_id)
     return transaction
@@ -511,7 +551,8 @@ def _handle_payment_intent_succeeded(payment_intent: Dict[str, Any]) -> Dict[str
 def _handle_payment_intent_failed(payment_intent: Dict[str, Any]) -> Dict[str, Any]:
     payment_intent_id = payment_intent.get("id")
     if not payment_intent_id:
-        raise ValidationError("payment_intent.payment_failed missing intent ID")
+        raise ValidationError(
+            "payment_intent.payment_failed missing intent ID")
 
     transaction = _fetch_transaction_by_intent(payment_intent_id)
     if not transaction:
@@ -534,9 +575,11 @@ def _handle_payment_intent_failed(payment_intent: Dict[str, Any]) -> Dict[str, A
     }
     _update_transaction(transaction["transaction_id"], update_payload)
 
-    updated = _fetch_transaction_by_transaction_id(transaction["transaction_id"])
+    updated = _fetch_transaction_by_transaction_id(
+        transaction["transaction_id"])
     if not updated:
-        raise NotFoundError("Transaction disappeared during failed webhook processing")
+        raise NotFoundError(
+            "Transaction disappeared during failed webhook processing")
     return updated
 
 
@@ -619,7 +662,8 @@ def _apply_status_update(
     if transaction_update:
         _update_transaction(transaction["transaction_id"], transaction_update)
 
-    latest = _fetch_transaction_by_transaction_id(transaction["transaction_id"])
+    latest = _fetch_transaction_by_transaction_id(
+        transaction["transaction_id"])
     if not latest:
         raise NotFoundError("Transaction not found after status update")
 
@@ -753,7 +797,8 @@ def _execute_refund(
         )
         raise ConflictError("Booking is not eligible for refund under policy")
 
-    eligible_amount = _as_decimal(policy["eligibleRefundAmount"], "eligible refund amount")
+    eligible_amount = _as_decimal(
+        policy["eligibleRefundAmount"], "eligible refund amount")
     refund_amount = requested_refund_amount or eligible_amount
     if refund_amount > _as_decimal(transaction["amount"], "transaction amount"):
         raise ValidationError("refundAmount cannot exceed transaction amount")
@@ -766,8 +811,10 @@ def _execute_refund(
             "attempts": 0,
         }
 
-    _apply_status_update(transaction, "PROCESSING_REFUND", refund_amount, reason)
-    latest_transaction = _fetch_transaction_by_transaction_id(transaction["transaction_id"])
+    _apply_status_update(transaction, "PROCESSING_REFUND",
+                         refund_amount, reason)
+    latest_transaction = _fetch_transaction_by_transaction_id(
+        transaction["transaction_id"])
     if not latest_transaction:
         raise NotFoundError("Transaction not found before refund execution")
 
@@ -781,7 +828,8 @@ def _execute_refund(
     attempt_start = _get_latest_refund_attempt_no(cancellation_request_id) + 1
 
     if not latest_transaction.get("stripe_payment_intent_id"):
-        raise ValidationError("Transaction does not contain a Stripe payment intent ID")
+        raise ValidationError(
+            "Transaction does not contain a Stripe payment intent ID")
 
     last_error_message = "Unknown refund failure"
     last_attempt_no = attempt_start - 1
@@ -1621,8 +1669,10 @@ def _process_payment_initiation(
             idempotency_key=str(resolved_idempotency_key),
         )
     except stripe.error.StripeError as error:
-        logger.exception("Stripe PaymentIntent creation failed for hold %s: %s", hold_id, error)
-        raise ExternalServiceError("Payment provider request failed") from error
+        logger.exception(
+            "Stripe PaymentIntent creation failed for hold %s: %s", hold_id, error)
+        raise ExternalServiceError(
+            "Payment provider request failed") from error
 
     payment_intent_data = _stripe_object_to_dict(payment_intent)
 
@@ -1655,7 +1705,8 @@ def _process_payment_initiation(
         transaction_id = inserted_rows[0]["transaction_id"] if inserted_rows else None
     except Exception as error:
         logger.exception("Failed to insert transaction record: %s", error)
-        raise ExternalServiceError("Failed to persist transaction record") from error
+        raise ExternalServiceError(
+            "Failed to persist transaction record") from error
 
     return (
         {
@@ -1742,8 +1793,10 @@ def create_app() -> Flask:
             _require_internal_auth()
 
             payload = _get_json_payload()
-            hold_id = _as_uuid(payload.get("holdID") or payload.get("hold_id"), "holdID")
-            user_id = _as_uuid(payload.get("userID") or payload.get("user_id"), "userID")
+            hold_id = _as_uuid(payload.get("holdID")
+                               or payload.get("hold_id"), "holdID")
+            user_id = _as_uuid(payload.get("userID")
+                               or payload.get("user_id"), "userID")
             requested_amount = _as_decimal(payload.get("amount"), "amount")
             idempotency_key = (
                 payload.get("idempotencyKey")
@@ -1762,7 +1815,8 @@ def create_app() -> Flask:
         except ApiError as error:
             return _handle_api_error(error)
         except Exception as error:
-            logger.exception("Unexpected error while initiating payment: %s", error)
+            logger.exception(
+                "Unexpected error while initiating payment: %s", error)
             return _api_response({"error": "Failed to initiate payment"}, 500)
 
     @app.get("/payment/hold/<hold_id>")
@@ -1790,7 +1844,8 @@ def create_app() -> Flask:
         except ApiError as error:
             return _handle_api_error(error)
         except Exception as error:
-            logger.exception("Unexpected error while loading payment hold status: %s", error)
+            logger.exception(
+                "Unexpected error while loading payment hold status: %s", error)
             return _api_response({"error": "Failed to load payment hold status"}, 500)
 
     @app.post("/payment/webhook")
@@ -1803,12 +1858,14 @@ def create_app() -> Flask:
             signature = request.headers.get("Stripe-Signature")
             webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET", "")
             if not webhook_secret:
-                raise DependencyError("STRIPE_WEBHOOK_SECRET is not configured")
+                raise DependencyError(
+                    "STRIPE_WEBHOOK_SECRET is not configured")
             if not signature:
                 raise ValidationError("Missing Stripe-Signature header")
 
             try:
-                event = stripe.Webhook.construct_event(payload, signature, webhook_secret)
+                event = stripe.Webhook.construct_event(
+                    payload, signature, webhook_secret)
             except ValueError as error:
                 raise ValidationError("Invalid payload") from error
             except stripe.error.SignatureVerificationError as error:
@@ -1872,7 +1929,8 @@ def create_app() -> Flask:
                 else:
                     _update_webhook_status(event_id, "IGNORED")
             except Exception as error:
-                logger.exception("Webhook processing failed for %s: %s", event_id, error)
+                logger.exception(
+                    "Webhook processing failed for %s: %s", event_id, error)
                 _update_webhook_status(event_id, "FAILED", str(error))
                 raise
 
@@ -1916,7 +1974,8 @@ def create_app() -> Flask:
         except ApiError as error:
             return _handle_api_error(error)
         except Exception as error:
-            logger.exception("Unexpected error verifying booking payment: %s", error)
+            logger.exception(
+                "Unexpected error verifying booking payment: %s", error)
             return _api_response({"error": "Failed to verify booking payment"}, 500)
 
     @app.get("/payments/verify-policy/<booking_id>")
@@ -1946,7 +2005,8 @@ def create_app() -> Flask:
         except ApiError as error:
             return _handle_api_error(error)
         except Exception as error:
-            logger.exception("Unexpected error verifying cancellation policy: %s", error)
+            logger.exception(
+                "Unexpected error verifying cancellation policy: %s", error)
             return _api_response({"error": "Failed to verify cancellation policy"}, 500)
 
     @app.put("/payments/status/<booking_id>")
@@ -1974,7 +2034,8 @@ def create_app() -> Flask:
                 refund_amount,
                 reason,
                 cancellation_override=(
-                    _normalize_status(cancellation_status) if cancellation_status else None
+                    _normalize_status(
+                        cancellation_status) if cancellation_status else None
                 ),
             )
 
@@ -1991,7 +2052,8 @@ def create_app() -> Flask:
         except ApiError as error:
             return _handle_api_error(error)
         except Exception as error:
-            logger.exception("Unexpected error updating payment status: %s", error)
+            logger.exception(
+                "Unexpected error updating payment status: %s", error)
             return _api_response({"error": "Failed to update payment status"}, 500)
 
     @app.put("/payments/update/<booking_id>")
@@ -2021,7 +2083,8 @@ def create_app() -> Flask:
         except ApiError as error:
             return _handle_api_error(error)
         except Exception as error:
-            logger.exception("Unexpected error setting processing state: %s", error)
+            logger.exception(
+                "Unexpected error setting processing state: %s", error)
             return _api_response({"error": "Failed to update processing state"}, 500)
 
     @app.put("/payments/success/<booking_id>")
@@ -2053,7 +2116,8 @@ def create_app() -> Flask:
         except ApiError as error:
             return _handle_api_error(error)
         except Exception as error:
-            logger.exception("Unexpected error setting success state: %s", error)
+            logger.exception(
+                "Unexpected error setting success state: %s", error)
             return _api_response({"error": "Failed to update success state"}, 500)
 
     @app.put("/payments/status/fail")
@@ -2101,14 +2165,18 @@ def create_app() -> Flask:
         try:
             _require_internal_auth()
             payload = _get_json_payload()
-            hold_id = payload.get("holdID") or payload.get("hold_id") or payload.get("ticketID")
+            hold_id = payload.get("holdID") or payload.get(
+                "hold_id") or payload.get("ticketID")
             if not hold_id:
-                raise ValidationError("holdID (or ticketID) is required for payment creation")
+                raise ValidationError(
+                    "holdID (or ticketID) is required for payment creation")
 
             hold_uuid = _as_uuid(hold_id, "holdID")
-            user_uuid = _as_uuid(payload.get("userID") or payload.get("user_id"), "userID")
+            user_uuid = _as_uuid(payload.get("userID")
+                                 or payload.get("user_id"), "userID")
             amount = _as_decimal(payload.get("amount"), "amount")
-            idempotency_key = payload.get("idempotencyKey") or payload.get("idempotency_key")
+            idempotency_key = payload.get(
+                "idempotencyKey") or payload.get("idempotency_key")
 
             response_payload, status_code = _process_payment_initiation(
                 hold_uuid,
@@ -2120,7 +2188,8 @@ def create_app() -> Flask:
         except ApiError as error:
             return _handle_api_error(error)
         except Exception as error:
-            logger.exception("Unexpected error while creating payment: %s", error)
+            logger.exception(
+                "Unexpected error while creating payment: %s", error)
             return _api_response({"error": "Failed to create payment"}, 500)
 
     @app.post("/payments/refund/<booking_id>")
@@ -2138,12 +2207,14 @@ def create_app() -> Flask:
             )
             reason = payload.get("reason")
 
-            result = _execute_refund(transaction, requested_refund_amount, reason)
+            result = _execute_refund(
+                transaction, requested_refund_amount, reason)
             return _api_response(result, 200)
         except ApiError as error:
             return _handle_api_error(error)
         except Exception as error:
-            logger.exception("Unexpected error while processing refund: %s", error)
+            logger.exception(
+                "Unexpected error while processing refund: %s", error)
             return _api_response({"error": "Failed to process refund"}, 500)
 
     @app.post("/payments/refund")
@@ -2164,7 +2235,8 @@ def create_app() -> Flask:
         except ApiError as error:
             return _handle_api_error(error)
         except Exception as error:
-            logger.exception("Unexpected error while processing refund alias: %s", error)
+            logger.exception(
+                "Unexpected error while processing refund alias: %s", error)
             return _api_response({"error": "Failed to process refund"}, 500)
 
     @app.errorhandler(404)

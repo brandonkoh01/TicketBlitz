@@ -144,6 +144,21 @@ services:
           - POST
         strip_path: false
 
+  - name: eticket-service
+    # Update this URL to your team's OutSystems environment base path when needed.
+    url: https://personal-kgqqcaoh.outsystemscloud.com/ETicket_API/rest/v1
+    connect_timeout: 5000
+    read_timeout: 30000
+    write_timeout: 10000
+    routes:
+      - name: eticket-generate
+        paths:
+          - /eticket/generate
+        methods:
+          - POST
+          - OPTIONS
+        strip_path: false
+
 consumers:
   - username: organiser-dashboard
     custom_id: organiser-dashboard
