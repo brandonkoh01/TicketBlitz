@@ -1,6 +1,8 @@
--- TicketBlitz organiser auth/profile seed
--- Ensures organiser profiles are login-capable in auth.users + auth.identities + public.users.
--- Credentials for test/demo use only:
+-- TicketBlitz data reconciliation: provision auth identities for organiser profiles
+-- Date: 2026-04-04
+-- Purpose: ensure organiser profiles in public.users are login-capable in Supabase Auth.
+--
+-- Demo credentials set by this script:
 --   organiser@ticketblitz.com -> organiser123
 --   brandon@ticketblitz.com -> brandon123
 --   mik@ticketblitz.com -> mik123

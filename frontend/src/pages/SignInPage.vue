@@ -3,6 +3,7 @@ import { reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AuthPageFrame from '@/components/auth/AuthPageFrame.vue'
 import AuthFormField from '@/components/auth/AuthFormField.vue'
+import AuthPasswordField from '@/components/auth/AuthPasswordField.vue'
 import { useAuth } from '@/composables/useAuth'
 
 const router = useRouter()
@@ -101,8 +102,7 @@ async function handleSignIn() {
           />
 
           <div class="space-y-2">
-            <div class="flex items-end justify-between gap-3">
-              <label for="sign-in-password" class="block text-[11px] font-black uppercase tracking-[0.18em]">Security Key</label>
+            <div class="flex items-end justify-end gap-3">
               <RouterLink
                 to="/sign-up"
                 class="text-[10px] font-black uppercase tracking-[0.14em] underline decoration-2 transition duration-150 ease-linear hover:text-[var(--swiss-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--swiss-accent)] focus-visible:ring-offset-2"
@@ -111,16 +111,15 @@ async function handleSignIn() {
               </RouterLink>
             </div>
 
-            <input
+            <AuthPasswordField
               id="sign-in-password"
               v-model="form.password"
-              type="password"
+              label="Security Key"
               placeholder="••••••••••••"
               autocomplete="current-password"
               required
-              class="h-14 w-full border-4 border-black bg-transparent px-4 text-sm font-bold uppercase outline-none transition duration-150 ease-linear placeholder:font-medium placeholder:text-black/30 focus:bg-[var(--swiss-muted)]"
               @input="resetMessages"
-            >
+            />
           </div>
 
           <p

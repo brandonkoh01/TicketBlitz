@@ -15,6 +15,7 @@ import UiToggleSwitch from './components/ui/UiToggleSwitch.vue'
 import AuthPageFrame from './components/auth/AuthPageFrame.vue'
 import AuthFooter from './components/auth/AuthFooter.vue'
 import AuthFormField from './components/auth/AuthFormField.vue'
+import AuthPasswordField from './components/auth/AuthPasswordField.vue'
 import { useAuthStore } from './stores/authStore'
 import './style.css'
 
@@ -34,6 +35,7 @@ app.component('UiToggleSwitch', UiToggleSwitch)
 app.component('AuthPageFrame', AuthPageFrame)
 app.component('AuthFooter', AuthFooter)
 app.component('AuthFormField', AuthFormField)
+app.component('AuthPasswordField', AuthPasswordField)
 
 app.use(router)
 

@@ -54,7 +54,7 @@ defineProps({
         :inputmode="inputmode"
         :required="required"
         :disabled="disabled"
-        class="h-14 w-full border-4 border-black bg-transparent px-4 text-sm font-bold uppercase outline-none transition duration-150 ease-linear placeholder:font-medium placeholder:uppercase placeholder:tracking-[0.08em] placeholder:text-black/30 focus:bg-[var(--swiss-muted)] disabled:cursor-not-allowed disabled:opacity-60"
+        class="h-14 w-full border-4 border-black bg-transparent px-4 text-sm font-bold outline-none transition duration-150 ease-linear placeholder:font-medium placeholder:text-black/30 focus:bg-[var(--swiss-muted)] disabled:cursor-not-allowed disabled:opacity-60"
       >
 
       <div v-if="$slots.trailing" class="pointer-events-none absolute inset-y-0 right-4 flex items-center">

@@ -3,11 +3,11 @@ import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AuthPageFrame from '@/components/auth/AuthPageFrame.vue'
 import AuthFormField from '@/components/auth/AuthFormField.vue'
+import AuthPasswordField from '@/components/auth/AuthPasswordField.vue'
 import { useAuth } from '@/composables/useAuth'
 
 const router = useRouter()
 const route = useRoute()
-const showPassword = ref(false)
 const termsAccepted = ref(false)
 
 function resolveRedirectPath() {
@@ -140,27 +140,15 @@ async function handleSignUp() {
           @input="resetMessages"
         />
 
-        <AuthFormField
+        <AuthPasswordField
           id="sign-up-password"
           v-model="form.password"
-          :type="showPassword ? 'text' : 'password'"
           label="Secure Password"
           placeholder="••••••••"
           autocomplete="new-password"
           required
           @input="resetMessages"
-        >
-          <template #trailing>
-            <button
-              type="button"
-              class="inline-flex h-9 w-9 items-center justify-center border-2 border-black bg-white text-[11px] font-black uppercase transition duration-150 ease-linear hover:bg-black hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--swiss-accent)]"
-              :aria-label="showPassword ? 'Hide password' : 'Show password'"
-              @click="showPassword = !showPassword"
-            >
-              {{ showPassword ? 'Hide' : 'View' }}
-            </button>
-          </template>
-        </AuthFormField>
+        />
 
         <label class="flex items-start gap-3">
           <input

@@ -52,10 +52,12 @@ SQL and metadata inspection used to generate realistic test inputs:
 3. Current mismatch: `auth.users` count != `public.users` count.
 4. Trigger exists on `auth.users`:
    - `trg_auth_users_autoconfirm_fan` -> `autoconfirm_fan_auth_signup()`.
+  - `trg_auth_users_sync_public_profile` -> `sync_public_user_from_auth()`.
 5. Trigger function logic intends to auto-confirm fan email signups.
 6. Observed latest auth row still has `email_confirmed_at = null` and `confirmed_at = null`.
-7. There is no detected function syncing new `auth.users` entries into `public.users`.
-8. `public.users` has constraints:
+7. `public.users` now has `auth_user_id` mapping to `auth.users(id)` for identity linking.
+8. Roles are normalized in `public.user_roles` (single role per user), while `public.users.metadata.role` is retained for backward compatibility.
+9. `public.users` has constraints:
    - `full_name` length 1..100
    - email must include `@`
 
@@ -121,8 +123,12 @@ Use these values consistently in manual tests.
 - `CURRENT_AUTH_EMAIL`: `user@ticketblitz.com` (present in `auth.users`)
 - `ORGANISER_AUTH_EMAIL`: `organiser@ticketblitz.com` (role: organiser)
 - `ORGANISER_AUTH_PASSWORD`: `organiser123`
+- `BRANDON_AUTH_EMAIL`: `brandon@ticketblitz.com` (role: organiser)
+- `BRANDON_AUTH_PASSWORD`: `brandon123`
+- `MIK_AUTH_EMAIL`: `mik@ticketblitz.com` (role: organiser)
+- `MIK_AUTH_PASSWORD`: `mik123`
 
-Note: Seeded public profile emails do not imply valid auth credentials.
+Note: Public profile rows imply login only when linked to `auth.users` (`public.users.auth_user_id` is not null).
 
 ---
 
@@ -323,17 +329,17 @@ Each case includes explicit input and expected output.
   1. Error message shown: `Email or password is wrong.`
   2. Stay on sign-in page.
 
-### TC-AUTH-016 - Seeded public profile email cannot login by default
+### TC-AUTH-016 - Public-only profile email cannot login
 - Priority: High
 - Preconditions: On `/sign-in`
 - Test input:
-  - email: `SEEDED_PUBLIC_EMAIL` (for example `brandon@ticketblitz.com`)
+  - email: any email that exists only in `public.users` and has no `auth_user_id` link
   - password: any guessed value, for example `VALID_PASSWORD`
 - Steps:
   1. Submit sign-in.
 - Expected output:
   1. Login fails with auth error.
-  2. Confirms `public.users` seed rows are not equivalent to auth accounts.
+  2. Confirms `public.users` rows without auth identity are not equivalent to auth accounts.
 
 ### TC-AUTH-017 - Email normalization on sign-in
 - Priority: Medium
@@ -428,7 +434,7 @@ Each case includes explicit input and expected output.
 
 ### TC-AUTH-025 - Organiser account dashboard access
 - Priority: High
-- Preconditions: Organiser account exists in auth + public user profile
+- Preconditions: Organiser account exists in auth + linked public user profile
 - Test input:
   - URL: `/sign-in`
   - email: `ORGANISER_AUTH_EMAIL`
@@ -440,6 +446,25 @@ Each case includes explicit input and expected output.
   1. Sign-in succeeds.
   2. Organiser dashboard is accessible.
   3. Session role indicator displays organiser role.
+
+### TC-AUTH-026 - Additional organiser demo accounts can login
+- Priority: High
+- Preconditions: Organiser reconciliation seed has run successfully
+- Test input:
+  - Account A:
+    - email: `BRANDON_AUTH_EMAIL`
+    - password: `BRANDON_AUTH_PASSWORD`
+  - Account B:
+    - email: `MIK_AUTH_EMAIL`
+    - password: `MIK_AUTH_PASSWORD`
+- Steps:
+  1. Sign in with Account A and verify redirect target.
+  2. Sign out.
+  3. Sign in with Account B and verify redirect target.
+- Expected output:
+  1. Both logins succeed.
+  2. Both accounts are routed to `/organiser-dashboard`.
+  3. Access to `/my-tickets` is denied for both accounts.
 
 ---
 

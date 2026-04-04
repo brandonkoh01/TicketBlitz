@@ -5,14 +5,22 @@ const FAN_ROLE = 'fan'
 const ORGANISER_ROLE = 'organiser'
 const SUPPORTED_ROLES = new Set([FAN_ROLE, ORGANISER_ROLE])
 
-function normalizeRole(role) {
-  if (typeof role !== 'string') return FAN_ROLE
+function parseRole(role) {
+  if (typeof role !== 'string') return null
 
   const normalized = role.trim().toLowerCase()
-  return SUPPORTED_ROLES.has(normalized) ? normalized : FAN_ROLE
+  return SUPPORTED_ROLES.has(normalized) ? normalized : null
+}
+
+function normalizeRole(role) {
+  return parseRole(role) ?? FAN_ROLE
 }
 
 function getUserRole(user) {
+  const appMetadataRole = parseRole(user?.app_metadata?.role)
+  if (appMetadataRole) return appMetadataRole
+
+  // Backward compatibility while older accounts still rely on raw_user_meta_data role.
   return normalizeRole(user?.user_metadata?.role)
 }
 

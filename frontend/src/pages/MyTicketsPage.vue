@@ -1,15 +1,11 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useAuthStore } from '@/stores/authStore'
+import { useRoleNavigation } from '@/composables/useRoleNavigation'
 
 const authStore = useAuthStore()
 const isAuthenticated = computed(() => authStore.isAuthenticated.value)
-
-const navItems = computed(() => [
-  { label: 'Events', to: '#' },
-  { label: 'Venues', to: '#' },
-  { label: 'My Tickets', to: '/my-tickets' },
-])
+const { primaryNavItems: navItems } = useRoleNavigation()
 
 const footerGroups = [
   {
