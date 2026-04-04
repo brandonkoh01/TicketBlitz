@@ -5,16 +5,24 @@ import vue from '@vitejs/plugin-vue'
 import vueDevTools from 'vite-plugin-vue-devtools'
 import tailwindcss from '@tailwindcss/vite'
 
+const isVitest = process.env.VITEST === 'true'
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
     tailwindcss(),
     vue(),
-    vueDevTools(),
+    !isVitest && vueDevTools(),
   ],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))
     },
+  },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    clearMocks: true,
+    setupFiles: ['./src/test/setup.js'],
   },
 })

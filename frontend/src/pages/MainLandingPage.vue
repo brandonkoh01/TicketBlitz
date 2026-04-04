@@ -1,10 +1,11 @@
 <script setup>
-const navItems = [
-  { label: 'Events', to: '#' },
-  { label: 'Venues', to: '#' },
-  { label: 'My Tickets', to: '/my-tickets' },
-  { label: 'Dashboard', to: '/organiser-dashboard' },
-]
+import { computed } from 'vue'
+import { useAuthStore } from '@/stores/authStore'
+import { useRoleNavigation } from '@/composables/useRoleNavigation'
+
+const authStore = useAuthStore()
+const isAuthenticated = computed(() => authStore.isAuthenticated.value)
+const { primaryNavItems: navItems } = useRoleNavigation()
 
 const heroMetrics = [
   { label: 'Global Tickets Sold', value: '2.5M+' },
@@ -87,7 +88,9 @@ const footerGroups = [
           >
             ⌕
           </button>
-          <UiButton variant="primary" class="min-w-[9rem]">Sign Up</UiButton>
+
+          <AuthSessionControls v-if="isAuthenticated" />
+          <UiButton v-else to="/sign-in" variant="primary" class="min-w-[9rem]">Login</UiButton>
         </div>
       </div>
     </header>

@@ -1,12 +1,11 @@
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useAuthStore } from '@/stores/authStore'
+import { useRoleNavigation } from '@/composables/useRoleNavigation'
 
-const navItems = [
-  { label: 'Events', to: '#' },
-  { label: 'Venues', to: '#' },
-  { label: 'My Tickets', to: '#' },
-  { label: 'Dashboard', to: '/organiser-dashboard' },
-]
+const authStore = useAuthStore()
+const isAuthenticated = computed(() => authStore.isAuthenticated.value)
+const { primaryNavItems: navItems } = useRoleNavigation()
 
 const footerGroups = [
   {
@@ -76,7 +75,9 @@ function closePass() {
           >
             ⌕
           </button>
-          <UiButton variant="primary" class="min-w-[9rem]">Sign Up</UiButton>
+
+          <AuthSessionControls v-if="isAuthenticated" />
+          <UiButton v-else to="/sign-in" variant="primary" class="min-w-[9rem]">Login</UiButton>
         </div>
       </div>
     </header>

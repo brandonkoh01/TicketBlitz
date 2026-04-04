@@ -1,10 +1,11 @@
 <script setup>
-const navItems = [
+import { computed } from 'vue'
+
+const navItems = computed(() => [
   { label: 'Events', to: '/' },
   { label: 'Venues', to: '#' },
   { label: 'My Tickets', to: '/my-tickets' },
-  { label: 'Dashboard', to: '/organiser-dashboard' },
-]
+])
 
 const footerGroups = [
   {
@@ -53,7 +54,7 @@ function handleSubmit(event) {
           >
             ⌕
           </button>
-          <UiButton variant="primary" class="min-w-[9rem]">Sign Up</UiButton>
+          <UiButton to="/sign-up" variant="primary" class="min-w-[9rem]">Sign Up</UiButton>
         </div>
       </div>
     </header>
