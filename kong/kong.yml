@@ -151,6 +151,40 @@ services:
           policy: local
           fault_tolerant: true
 
+  - name: cancellation-orchestrator
+    url: http://cancellation-orchestrator:5000
+    connect_timeout: 10000
+    read_timeout: 60000
+    write_timeout: 10000
+    routes:
+      - name: cancel-booking
+        paths:
+          - ~/bookings/cancel/[^/]+$
+        methods:
+          - POST
+          - OPTIONS
+        strip_path: false
+      - name: cancellation-reallocation-confirm
+        paths:
+          - /orchestrator/cancellation/reallocation/confirm
+        methods:
+          - POST
+          - OPTIONS
+        strip_path: false
+      - name: cancellation-orchestrator-direct
+        paths:
+          - /orchestrator/cancellation
+        methods:
+          - POST
+          - OPTIONS
+        strip_path: false
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 120
+          policy: local
+          fault_tolerant: true
+
   - name: payment-webhook
     url: http://payment-service:5000
     connect_timeout: 5000

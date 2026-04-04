@@ -11,7 +11,7 @@ This guide restores the canonical flow that supports these endpoints:
 1. `POST /eticket/generate`
 2. `GET /eticket/hold/{holdID}`
 3. `GET /eticket/validate`
-4. `PUT /tickets/status/{ticketID}`
+4. `PUT /etickets/status/{ticketID}`
 5. `POST /etickets/update`
 
 ---
@@ -909,7 +909,7 @@ Publish after completion.
 
 ---
 
-## 10. Implement Step 12: PUT /tickets/status/{ticketID}
+## 10. Implement Step 12: PUT /etickets/status/{ticketID}
 
 ### 10.1 Allowed transitions
 
@@ -1578,7 +1578,7 @@ For exception path (`500`):
 6. `ResponseBody = "500|Internal server error"`
 7. `Outcome = "500|INTERNAL_ERROR"`
 
-#### D) UpdateTicketStatus (`PUT /tickets/status/{ticketID}`)
+#### D) UpdateTicketStatus (`PUT /etickets/status/{ticketID}`)
 
 For invalid input/status (`400`) in Step 10.4:
 
@@ -1720,7 +1720,7 @@ For valid owner (`200`) in Step 9.2 final else branch:
 6. `ResponseBody = ToText(OutBody.valid) + "|" + OutBody.reason + "|" + OutBody.status`
 7. `Outcome = "200|OK"`
 
-#### D) UpdateTicketStatus (`PUT /tickets/status/{ticketID}`)
+#### D) UpdateTicketStatus (`PUT /etickets/status/{ticketID}`)
 
 For successful transition (`200`) in Step 10.4.4:
 
@@ -1792,7 +1792,7 @@ Keep these URLs exactly:
 1. `/eticket/generate`
 2. `/eticket/hold/{holdID}`
 3. `/eticket/validate`
-4. `/tickets/status/{ticketID}`
+4. `/etickets/status/{ticketID}`
 5. `/etickets/update`
 
 Do not rename path segments after publishing unless you also update all consumers.
@@ -1878,7 +1878,7 @@ Test this order:
 3. `GET /eticket/hold/{holdID}`.
 4. `GET /eticket/validate` with the correct user.
 5. `GET /eticket/validate` with the wrong user.
-6. `PUT /tickets/status/{ticketID}` to update status.
+6. `PUT /etickets/status/{ticketID}` to update status.
 7. `POST /etickets/update` for transfer flow if needed.
 
 ---
@@ -1909,7 +1909,7 @@ For the UI/status poll:
 Use:
 
 1. `GET /eticket/validate`
-2. `PUT /tickets/status/{ticketID}`
+2. `PUT /etickets/status/{ticketID}`
 3. `POST /etickets/update`
 
 ---
@@ -1925,7 +1925,7 @@ The canonical E-Ticket API list is:
 1. `POST /eticket/generate`
 2. `GET /eticket/hold/{holdID}`
 3. `GET /eticket/validate`
-4. `PUT /tickets/status/{ticketID}`
+4. `PUT /etickets/status/{ticketID}`
 5. `POST /etickets/update`
 
 ---
@@ -1940,7 +1940,7 @@ The implementation is complete only when all of these are true:
 4. `POST /eticket/generate` is idempotent by `holdID`.
 5. `GET /eticket/hold/{holdID}` works.
 6. `GET /eticket/validate` works.
-7. `PUT /tickets/status/{ticketID}` works.
+7. `PUT /etickets/status/{ticketID}` works.
 8. `POST /etickets/update` works.
 
 ---
@@ -1968,7 +1968,7 @@ Required request headers for all endpoints:
    - Purpose: Retrieve ticket by hold for booking-status/read flows.
 3. `GET /eticket/validate`
    - Purpose: Validate ticket ownership and status for cancellation/transfer checks.
-4. `PUT /tickets/status/{ticketID}`
+4. `PUT /etickets/status/{ticketID}`
    - Purpose: Transition ticket status with explicit transition rules.
 5. `POST /etickets/update`
    - Purpose: Perform cancel-only or transfer-and-reissue in one operation.
@@ -2072,7 +2072,7 @@ Common error status codes:
 3. `400` invalid inputs
 4. `500` internal error
 
-#### D) PUT /tickets/status/{ticketID}
+#### D) PUT /etickets/status/{ticketID}
 
 Purpose:
 
@@ -2157,7 +2157,7 @@ Common error status codes:
 For cancellation flow:
 
 1. Call `GET /eticket/validate`.
-2. If valid, call `PUT /tickets/status/{ticketID}` to `CANCELLATION_IN_PROGRESS` when needed.
+2. If valid, call `PUT /etickets/status/{ticketID}` to `CANCELLATION_IN_PROGRESS` when needed.
 3. After payment/refund outcome, call `POST /etickets/update` with the chosen operation.
 
 For transfer/reissue flow:
@@ -2201,7 +2201,7 @@ Owner mismatch (`403`):
 Request:
 
 ```json
-PUT /tickets/status/TKT-9988
+PUT /etickets/status/TKT-9988
 {
    "status": "CANCELLATION_IN_PROGRESS",
    "correlationID": "corr-123"

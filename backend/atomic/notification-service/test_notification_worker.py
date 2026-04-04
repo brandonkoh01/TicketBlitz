@@ -232,6 +232,32 @@ class NotificationWorkerTests(unittest.TestCase):
             }
         )
 
+    def test_process_payload_accepts_scenario3_type(self):
+        worker = notification.NotificationWorker(self._config(is_production=False, api_key=""))
+
+        worker.process_payload(
+            {
+                "type": "CANCELLATION_CONFIRMED",
+                "email": "fan@example.com",
+                "bookingID": "BK-500",
+                "eventName": "Coldplay Live",
+            }
+        )
+
+    def test_process_payload_rejects_scenario3_without_event_name(self):
+        worker = notification.NotificationWorker(self._config(is_production=False, api_key=""))
+
+        with self.assertRaises(notification.PermanentNotificationError):
+            worker.process_payload(
+                {
+                    "type": "TICKET_CONFIRMATION",
+                    "email": "fan@example.com",
+                    "bookingID": "BK-501",
+                    "ticketID": "TKT-501",
+                    "seatNumber": "A1",
+                }
+            )
+
     def test_sendgrid_live_booking_confirmed_email_delivery(self):
         self._require_sendgrid_live_test_enabled()
         self._require_sendgrid_live_env()

@@ -3,3 +3,7 @@
 .env.*
 *.env
 *.env.*
+
+# Python cache artifacts
+__pycache__/
+*.py[cod]
