@@ -1670,6 +1670,97 @@ Implementation order reminder for every error path:
 4. `LogApiEvent(...)` using mappings above
 5. End with `OutBody`
 
+### 11.7 Exact LogApiEvent Field Mapping for Success Paths
+
+Use this mapping immediately before each success-path End node.
+
+#### A) GenerateETicket (`POST /eticket/generate`)
+
+For idempotent replay (`200`) in Step 7.4 true branch:
+
+1. `EventName = "GenerateETicket"`
+2. `TicketId = OutBody.ticketID`
+3. `HoldId = OutBody.holdID`
+4. `CorrelationId = CorrelationId`
+5. `RequestBody = Request.holdID + "|" + Request.userID + "|" + Request.eventID + "|" + Request.seatID + "|" + Request.seatNumber`
+6. `ResponseBody = OutBody.ticketID + "|" + OutBody.holdID + "|" + OutBody.status + "|" + ToText(OutBody.issuedAt) + "|" + OutBody.seatNumber`
+7. `Outcome = "200|IDEMPOTENT_REPLAY"`
+
+For created (`201`) in Step 7.4 false branch:
+
+1. `EventName = "GenerateETicket"`
+2. `TicketId = OutBody.ticketID`
+3. `HoldId = OutBody.holdID`
+4. `CorrelationId = CorrelationId`
+5. `RequestBody = Request.holdID + "|" + Request.userID + "|" + Request.eventID + "|" + Request.seatID + "|" + Request.seatNumber`
+6. `ResponseBody = OutBody.ticketID + "|" + OutBody.holdID + "|" + OutBody.status + "|" + ToText(OutBody.issuedAt) + "|" + OutBody.seatNumber`
+7. `Outcome = "201|CREATED"`
+
+#### B) GetETicketByHold (`GET /eticket/hold/{holdID}`)
+
+For found ticket (`200`) in Step 8.2 true branch:
+
+1. `EventName = "GetETicketByHold"`
+2. `TicketId = OutBody.ticketID`
+3. `HoldId = OutBody.holdID`
+4. `CorrelationId = CorrelationId`
+5. `RequestBody = "holdID=" + holdID`
+6. `ResponseBody = OutBody.ticketID + "|" + OutBody.holdID + "|" + OutBody.userID + "|" + OutBody.eventID + "|" + OutBody.seatID + "|" + OutBody.seatNumber + "|" + OutBody.status + "|" + ToText(OutBody.issuedAt)`
+7. `Outcome = "200|OK"`
+
+#### C) ValidateTicketOwnership (`GET /eticket/validate`)
+
+For valid owner (`200`) in Step 9.2 final else branch:
+
+1. `EventName = "ValidateTicketOwnership"`
+2. `TicketId = ticketID`
+3. `HoldId = FoundTicket.HoldId`
+4. `CorrelationId = CorrelationId`
+5. `RequestBody = "ticketID=" + ticketID + "|userID=" + userID`
+6. `ResponseBody = ToText(OutBody.valid) + "|" + OutBody.reason + "|" + OutBody.status`
+7. `Outcome = "200|OK"`
+
+#### D) UpdateTicketStatus (`PUT /tickets/status/{ticketID}`)
+
+For successful transition (`200`) in Step 10.4.4:
+
+1. `EventName = "UpdateTicketStatus"`
+2. `TicketId = OutBody.ticketID`
+3. `HoldId = FoundTicket.HoldId`
+4. `CorrelationId = CorrelationId`
+5. `RequestBody = "ticketID=" + ticketID + "|status=" + Request.status`
+6. `ResponseBody = OutBody.ticketID + "|" + OutBody.oldStatus + "|" + OutBody.newStatus + "|" + ToText(OutBody.updatedAt)`
+7. `Outcome = "200|UPDATED"`
+
+#### E) UpdateETickets (`POST /etickets/update`)
+
+For `CANCEL_ONLY` success (`200`) in Step 11.2.1:
+
+1. `EventName = "UpdateETickets"`
+2. `TicketId = Request.oldTicketID`
+3. `HoldId = OldTicket.HoldId`
+4. `CorrelationId = CorrelationId`
+5. `RequestBody = Request.oldTicketID + "|" + Request.operation`
+6. `ResponseBody = OutBody.operation + "|" + OutBody.oldTicketStatus + "|" + OutBody.newTicketID`
+7. `Outcome = "200|CANCEL_ONLY"`
+
+For `TRANSFER_AND_REISSUE` success (`200`) in Step 11.2.2:
+
+1. `EventName = "UpdateETickets"`
+2. `TicketId = OutBody.newTicketID`
+3. `HoldId = Request.newHoldID`
+4. `CorrelationId = CorrelationId`
+5. `RequestBody = Request.oldTicketID + "|" + Request.operation + "|" + Request.newOwnerUserID + "|" + Request.newHoldID + "|" + Request.newSeatID + "|" + Request.newSeatNumber + "|" + Request.newTransactionID`
+6. `ResponseBody = OutBody.operation + "|" + OutBody.oldTicketStatus + "|" + OutBody.newTicketID`
+7. `Outcome = "200|TRANSFER_AND_REISSUE"`
+
+Implementation order reminder for every success path:
+
+1. Assign `OutBody` success values
+2. `HTTPRequestHandler.SetStatusCode(200 or 201)`
+3. `LogApiEvent(...)` using mappings above
+4. End with `OutBody`
+
 ---
 
 **Key Distinction: `OutBody.status` (business field) vs HTTP Status Code**
