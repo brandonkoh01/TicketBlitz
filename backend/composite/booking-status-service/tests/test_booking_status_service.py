@@ -162,6 +162,28 @@ class BookingStatusServiceTestCase(unittest.TestCase):
         self.assertEqual(payload["uiStatus"], "PROCESSING")
 
     @patch.object(booking_status.requests, "get")
+    def test_reconcile_payment_query_is_forwarded_to_payment_service(self, mock_get):
+        called_urls = []
+
+        def side_effect(url, *_args, **_kwargs):
+            called_urls.append(url)
+
+            if url.endswith(f"/inventory/hold/{VALID_HOLD_ID}"):
+                return MockResponse(200, {"holdID": VALID_HOLD_ID, "holdStatus": "HELD", "seatNumber": "A-10"})
+
+            if f"/payment/hold/{VALID_HOLD_ID}" in url:
+                return MockResponse(404, {"error": "No transaction found for hold"})
+
+            return MockResponse(404, {"error": "not found"})
+
+        mock_get.side_effect = side_effect
+        client = self._build_client()
+
+        response = client.get(f"/booking-status/{VALID_HOLD_ID}?reconcilePayment=true")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(any(f"/payment/hold/{VALID_HOLD_ID}?reconcile=true" in url for url in called_urls))
+
+    @patch.object(booking_status.requests, "get")
     def test_released_timeout_hold_returns_expired(self, mock_get):
         def side_effect(url, *_args, **_kwargs):
             if url.endswith(f"/inventory/hold/{VALID_HOLD_ID}"):

@@ -129,7 +129,7 @@ async function handleConfirmPayment() {
 
     if (paymentIntent?.status === 'succeeded') {
       localInfo.value = 'Payment submitted successfully. Waiting for booking confirmation...'
-      await polling.pollOnce()
+      await polling.pollOnce({ reconcilePayment: true })
     }
   } catch (error) {
     localError.value = error?.message || paymentErrorMessage.value || 'Payment confirmation failed.'

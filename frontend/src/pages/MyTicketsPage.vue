@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import QRCode from 'qrcode'
 import { useAuthStore } from '@/stores/authStore'
 import { useRoleNavigation } from '@/composables/useRoleNavigation'
 import { useApiClient } from '@/composables/useApiClient'
@@ -27,6 +28,8 @@ const isLoading = ref(false)
 const loadError = ref('')
 
 const selectedTicket = ref(null)
+const passQrDataUrl = ref('')
+const passQrError = ref('')
 
 function sortByUpdatedAtDescending(entries) {
   return [...entries].sort((a, b) => {
@@ -77,10 +80,38 @@ async function refreshTickets() {
 
 function openPass(ticket) {
   selectedTicket.value = ticket
+  generatePassQr(ticket)
 }
 
 function closePass() {
   selectedTicket.value = null
+  passQrDataUrl.value = ''
+  passQrError.value = ''
+}
+
+async function generatePassQr(ticket) {
+  passQrDataUrl.value = ''
+  passQrError.value = ''
+
+  const qrValue = ticket?.ticketID
+  if (!qrValue) {
+    passQrError.value = 'QR unavailable'
+    return
+  }
+
+  try {
+    passQrDataUrl.value = await QRCode.toDataURL(qrValue, {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 256,
+      color: {
+        dark: '#000000',
+        light: '#FFFFFF',
+      },
+    })
+  } catch (error) {
+    passQrError.value = 'Unable to render QR'
+  }
 }
 
 onMounted(() => {
@@ -275,8 +306,21 @@ onMounted(() => {
 
         <div class="mt-4 border-2 border-black bg-[var(--swiss-accent)] p-3">
           <div class="border-2 border-black bg-white p-3">
-            <div class="swiss-grid-pattern mx-auto h-24 w-24 border-2 border-black bg-[var(--swiss-muted)] md:h-28 md:w-28" />
-            <p class="mt-3 text-center text-[10px] font-black uppercase tracking-[0.2em] text-black/65">QR placeholder</p>
+            <div class="flex flex-col items-center">
+              <img
+                v-if="passQrDataUrl"
+                :src="passQrDataUrl"
+                alt="Ticket QR code"
+                class="h-24 w-24 border-2 border-black bg-white object-contain md:h-28 md:w-28"
+              >
+              <div
+                v-else
+                class="swiss-grid-pattern h-24 w-24 border-2 border-black bg-[var(--swiss-muted)] md:h-28 md:w-28"
+              />
+              <p class="mt-3 text-center text-[10px] font-black uppercase tracking-[0.2em] text-black/65">
+                {{ passQrDataUrl ? 'Scan at entry' : passQrError || 'QR unavailable' }}
+              </p>
+            </div>
           </div>
         </div>
 

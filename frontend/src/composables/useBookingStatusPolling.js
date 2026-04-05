@@ -11,10 +11,11 @@ export function useBookingStatusPolling(holdID, { intervalMs = 2000, onTerminal 
   const errorMessage = ref('')
   let intervalId = null
 
-  async function pollOnce() {
+  async function pollOnce({ reconcilePayment = false } = {}) {
     try {
       errorMessage.value = ''
-      const response = await api.get(`/booking-status/${holdID}`, { includeUserHeader: false })
+      const query = reconcilePayment ? '?reconcilePayment=true' : ''
+      const response = await api.get(`/booking-status/${holdID}${query}`, { includeUserHeader: false })
       payload.value = response
 
       if (response?.holdExpiry) {

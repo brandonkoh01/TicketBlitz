@@ -78,6 +78,16 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _parse_bool_query(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+
+    return False
+
+
 BaseConfig.REQUEST_TIMEOUT_SECONDS = _env_float("BOOKING_STATUS_TIMEOUT_SECONDS", 3.0)
 BaseConfig.ALLOW_CONFIRMED_WITHOUT_TICKET = _env_bool("BOOKING_STATUS_ALLOW_CONFIRMED_WITHOUT_TICKET", False)
 
@@ -204,9 +214,12 @@ def _fetch_inventory_hold(hold_id: str) -> dict[str, Any]:
     return payload
 
 
-def _fetch_payment_hold(hold_id: str) -> dict[str, Any] | None:
+def _fetch_payment_hold(hold_id: str, *, reconcile: bool = False) -> dict[str, Any] | None:
     base_url = current_app.config["PAYMENT_SERVICE_URL"]
-    url = _join_url(base_url, f"/payment/hold/{hold_id}")
+    path = f"/payment/hold/{hold_id}"
+    if reconcile:
+        path = f"{path}?reconcile=true"
+    url = _join_url(base_url, path)
     status_code, payload = _request_json(url, headers=_internal_auth_headers())
 
     if status_code == 404:
@@ -273,7 +286,12 @@ def _is_expired_terminal_hold(hold_status: str, inventory_hold: dict[str, Any]) 
     return bool(inventory_hold.get("expiredAt"))
 
 
-def _build_booking_status_payload(hold_id: str, inventory_hold: dict[str, Any]) -> dict[str, Any]:
+def _build_booking_status_payload(
+    hold_id: str,
+    inventory_hold: dict[str, Any],
+    *,
+    reconcile_payment: bool = False,
+) -> dict[str, Any]:
     hold_status = str(inventory_hold.get("holdStatus") or "UNKNOWN")
     normalized_hold_status = hold_status.upper()
 
@@ -317,7 +335,7 @@ def _build_booking_status_payload(hold_id: str, inventory_hold: dict[str, Any]) 
         payload["dependencyStatus"]["eticket"] = "skipped"
         return payload
 
-    payment = _fetch_payment_hold(hold_id)
+    payment = _fetch_payment_hold(hold_id, reconcile=reconcile_payment)
     if not payment:
         payload["dependencyStatus"]["payment"] = "not_found"
         return payload
@@ -388,7 +406,12 @@ def get_booking_status(hold_id: str):
     try:
         parsed_hold_id = _parse_hold_id(hold_id)
         hold = _fetch_inventory_hold(parsed_hold_id)
-        payload = _build_booking_status_payload(parsed_hold_id, hold)
+        reconcile_payment = _parse_bool_query(request.args.get("reconcilePayment"))
+        payload = _build_booking_status_payload(
+            parsed_hold_id,
+            hold,
+            reconcile_payment=reconcile_payment,
+        )
         return _api_response(payload, 200)
     except ApiError as error:
         return _json_error(error.message, error.status_code, _safe_error_details(error))

@@ -229,6 +229,38 @@ class PaymentRefactorTests(unittest.TestCase):
         self.assertIn("waitlistID", payload)
         self.assertIsNone(payload["waitlistID"])
 
+    def test_payment_hold_with_reconcile_query_reconciles_pending_transaction(self):
+        app = payment.create_app()
+        hold_id = str(uuid.uuid4())
+        transaction_id = str(uuid.uuid4())
+
+        pending = {
+            "transaction_id": transaction_id,
+            "hold_id": hold_id,
+            "stripe_payment_intent_id": "pi_test_reconcile",
+            "status": "PENDING",
+            "amount": "10.00",
+            "currency": "SGD",
+            "failure_reason": None,
+            "created_at": "2026-04-01T00:00:00+00:00",
+            "updated_at": "2026-04-01T00:00:00+00:00",
+        }
+        succeeded = {
+            **pending,
+            "status": "SUCCEEDED",
+            "updated_at": "2026-04-01T00:00:05+00:00",
+        }
+
+        with patch("payment._require_supabase"):
+            with patch("payment._fetch_latest_transaction_for_hold", return_value=pending):
+                with patch("payment._reconcile_pending_transaction", return_value=succeeded) as reconcile_mock:
+                    with app.test_client() as client:
+                        response = client.get(f"/payment/hold/{hold_id}?reconcile=true")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["paymentStatus"], "SUCCEEDED")
+        reconcile_mock.assert_called_once_with(pending)
+
 
 if __name__ == "__main__":
     unittest.main()

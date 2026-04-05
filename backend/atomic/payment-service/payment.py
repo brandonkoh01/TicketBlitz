@@ -132,6 +132,16 @@ def _as_minor_units(value: Any, field_name: str) -> int:
     return parsed
 
 
+def _parse_bool_query_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+
+    return False
+
+
 def _validate_payment_intent_amount_and_currency(
     payment_intent: Dict[str, Any], transaction: Dict[str, Any]
 ) -> None:
@@ -623,6 +633,66 @@ def _handle_payment_intent_failed(payment_intent: Dict[str, Any]) -> Dict[str, A
         raise NotFoundError(
             "Transaction disappeared during failed webhook processing")
     return updated
+
+
+def _reconcile_pending_transaction(transaction: Dict[str, Any]) -> Dict[str, Any]:
+    if not transaction:
+        return transaction
+
+    if str(transaction.get("status") or "").upper() != "PENDING":
+        return transaction
+
+    payment_intent_id = transaction.get("stripe_payment_intent_id")
+    if not payment_intent_id:
+        return transaction
+
+    try:
+        _require_stripe()
+    except ApiError as error:
+        logger.warning(
+            "Skipping payment reconciliation for transaction_id=%s: %s",
+            transaction.get("transaction_id"),
+            error.message,
+        )
+        return transaction
+
+    try:
+        payment_intent = stripe.PaymentIntent.retrieve(payment_intent_id)
+        payment_intent_payload = _stripe_object_to_dict(payment_intent)
+    except stripe.error.StripeError as error:
+        logger.warning(
+            "Unable to reconcile payment intent %s: %s",
+            payment_intent_id,
+            error,
+        )
+        return transaction
+
+    payment_intent_status = str(payment_intent_payload.get("status") or "").lower()
+
+    try:
+        if payment_intent_status == "succeeded":
+            _handle_payment_intent_succeeded(payment_intent_payload)
+        elif payment_intent_status in {"requires_payment_method", "canceled"}:
+            _handle_payment_intent_failed(payment_intent_payload)
+        else:
+            return transaction
+    except ApiError as error:
+        logger.warning(
+            "Payment reconciliation did not update transaction_id=%s: %s",
+            transaction.get("transaction_id"),
+            error.message,
+        )
+        return transaction
+    except Exception as error:
+        logger.exception(
+            "Unexpected reconciliation error for transaction_id=%s: %s",
+            transaction.get("transaction_id"),
+            error,
+        )
+        return transaction
+
+    refreshed = _fetch_transaction_by_transaction_id(transaction.get("transaction_id"))
+    return refreshed or transaction
 
 
 def _normalize_status(value: str) -> str:
@@ -1869,6 +1939,10 @@ def create_app() -> Flask:
             transaction = _fetch_latest_transaction_for_hold(hold_uuid)
             if not transaction:
                 raise NotFoundError("No transaction found for hold")
+
+            reconcile_requested = _parse_bool_query_value(request.args.get("reconcile"))
+            if reconcile_requested:
+                transaction = _reconcile_pending_transaction(transaction)
 
             return _api_response(
                 {
