@@ -141,11 +141,12 @@ Known waitlist fixtures:
 | CO-022 | should_return_already_refunded_when_payment_status_refund_succeeded | Use `BK_ALREADY_REFUNDED` | `POST /orchestrator/cancellation` body `{"bookingID":"70000000-0000-0000-0000-000000000003","userID":"00000000-0000-0000-0000-000000000005"}` | HTTP `200`; `status="ALREADY_REFUNDED"`; includes `bookingID`, `holdID`. |
 | CO-023 | should_return_409_when_refund_already_in_progress | Use `BK_REFUND_PENDING` | `POST /orchestrator/cancellation` body `{"bookingID":"7b100000-0000-0000-0000-000000000003","userID":"00000000-0000-0000-0000-000000000003"}` | HTTP `409`; `error="Refund is already in progress"`. |
 | CO-024 | should_return_409_when_refund_previously_failed | Use `BK_REFUND_FAILED_SEEDED` | `POST /orchestrator/cancellation` body `{"bookingID":"7b100000-0000-0000-0000-000000000004","userID":"00000000-0000-0000-0000-000000000005"}` | HTTP `409`; `error="Refund previously failed and needs manual follow-up"`. |
-| CO-025 | should_return_cancellation_in_progress_when_refund_request_fails | Use `BK_SUCCEEDED_WITHIN`; ensure this case runs late or on reset fixture | `POST /orchestrator/cancellation` body `{"bookingID":"70000000-0000-0000-0000-000000000001","userID":"00000000-0000-0000-0000-000000000001","reason":"Manual swagger failure-path validation"}` | HTTP `502`; body `status="CANCELLATION_IN_PROGRESS"`; `nextSteps` indicates manual follow-up. |
+| CO-025 | should_return_stateful_refund_gate_result_for_primary_fixture | Use `BK_SUCCEEDED_WITHIN`; fixture state determines path | `POST /orchestrator/cancellation` body `{"bookingID":"70000000-0000-0000-0000-000000000001","userID":"00000000-0000-0000-0000-000000000001","reason":"Manual swagger failure-path validation"}` | Branch snapshot expectation: HTTP `409` (`Refund previously failed...`). Fault-injection expectation (when starting from `SUCCEEDED` and forcing refund failure): HTTP `502` with `status="CANCELLATION_IN_PROGRESS"`. |
 | CO-026 | should_return_409_after_previous_failure_sets_refund_failed | Run after CO-025 without reseed | Re-run CO-025 input | HTTP `409`; `error="Refund previously failed and needs manual follow-up"`. |
 
 Notes for CO-025:
-- In many local setups, this path is deterministic because seeded Stripe payment intent IDs are not live in Stripe test account, causing refund failure and compensation.
+- This case is stateful. In the current branch snapshot, `70000000-0000-0000-0000-000000000001` is commonly already in `REFUND_FAILED` and returns `409`.
+- To deterministically validate the `502` compensation path, reset the booking to a `SUCCEEDED`-eligible state first and then force refund failure.
 
 ### Group C: Reallocation Confirm Endpoint
 
@@ -156,10 +157,10 @@ Notes for CO-025:
 | CO-032 | should_return_409_when_waitlist_hold_does_not_match_new_hold | Internal header set; use `WL_CONFIRMED` | body `{"bookingID":"70000000-0000-0000-0000-000000000001","newHoldID":"40000000-0000-0000-0000-000000000005","waitlistID":"bcefea06-1048-45c9-bde2-04f4d80f3510"}` | HTTP `409`; `error="waitlist entry is not associated with newHoldID"`. |
 | CO-033 | should_return_409_when_waitlist_entry_already_confirmed | Internal header set; use `WL_CONFIRMED` with matching hold | body `{"bookingID":"70000000-0000-0000-0000-000000000001","newHoldID":"40000000-0000-0000-0000-000000000004","waitlistID":"bcefea06-1048-45c9-bde2-04f4d80f3510"}` | HTTP `409`; `error="Waitlist entry is already confirmed"`. |
 | CO-034 | should_return_409_when_waitlist_entry_not_eligible | Internal header set; use `WL_CANCELLED` | body `{"bookingID":"70000000-0000-0000-0000-000000000001","newHoldID":"40000000-0000-0000-0000-000000000004","waitlistID":"1aa98295-4279-40b7-b29a-4c7dc7ad1dce"}` | HTTP `409`; `error="Waitlist entry is not eligible for confirmation"`. |
-| CO-035 | should_return_409_when_new_user_does_not_match_waitlist_owner | Prepare fixture SQL `FX-RC-01` below and set internal header | body `{"bookingID":"70000000-0000-0000-0000-000000000001","newHoldID":"5c300000-0000-0000-0000-000000000001","waitlistID":"6d3a5c49-7600-49d1-9632-a852475cd694","newUserID":"00000000-0000-0000-0000-000000000002"}` | HTTP `409`; `error="newUserID does not match the waitlist entry owner"`. |
+| CO-035 | should_return_409_when_new_user_does_not_match_waitlist_owner | Prepare fixture SQL `FX-RC-01` below and set internal header | body `{"bookingID":"70000000-0000-0000-0000-000000000001","newHoldID":"020bccd4-e822-43b8-932c-5d646cb8a4dd","waitlistID":"6d3a5c49-7600-49d1-9632-a852475cd694","newUserID":"00000000-0000-0000-0000-000000000002"}` | HTTP `409`; `error="newUserID does not match the waitlist entry owner"`. |
 | CO-036 | should_return_409_when_waitlist_payment_not_completed | Prepare fixture SQL `FX-RC-02` below and set internal header | body `{"bookingID":"70000000-0000-0000-0000-000000000001","newHoldID":"c6743671-e1c3-4a5e-9db8-df1be6f58ba5","waitlistID":"6d3a5c49-7600-49d1-9632-a852475cd694"}` | HTTP `409`; `error="Waitlist payment is not completed"`. |
-| CO-037 | should_return_200_when_reallocation_confirmation_completes_successfully | Requires full dependency readiness: valid hold offered + payment `SUCCEEDED` + reachable OutSystems with transfer success | body uses valid live hold/waitlist pair + internal header | HTTP `200`; `status="REALLOCATION_CONFIRMED"`; includes `ticketID`, `seatNumber`, `newUserID`. |
-| CO-038 | should_return_502_when_transfer_step_fails_after_hold_confirmed | Requires controlled setup where OutSystems `/etickets/update` fails but earlier dependency steps succeed | same endpoint with valid live pair + internal header | HTTP `502`; `status="REALLOCATION_RECONCILIATION_REQUIRED"`; includes `bookingID`, `waitlistID`, `newHoldID`, `nextSteps`. |
+| CO-037 | should_return_200_when_reallocation_confirmation_completes_successfully | Requires full dependency readiness: waitlist offered + payment `SUCCEEDED` + reachable OutSystems transfer success. Branch-validated pair: `waitlistID=6d3a5c49-7600-49d1-9632-a852475cd694`, `newHoldID=020bccd4-e822-43b8-932c-5d646cb8a4dd` | body uses valid live hold/waitlist pair + internal header | HTTP `200`; `status="REALLOCATION_CONFIRMED"`; includes `ticketID`, `seatNumber`, `newUserID`. |
+| CO-038 | should_return_502_when_transfer_step_fails_after_hold_confirmed | Fault-injection only: force OutSystems `/etickets/update` to fail while earlier dependency steps still succeed | same endpoint with valid live pair + internal header | HTTP `502`; `status="REALLOCATION_RECONCILIATION_REQUIRED"`; includes `bookingID`, `waitlistID`, `newHoldID`, `nextSteps`. In healthy integrations this request may return HTTP `200` instead. |
 
 ### Group D: Route Parity (Direct vs Kong)
 
@@ -239,7 +240,7 @@ order by requested_at desc;
 ```sql
 update public.waitlist_entries
 set status = 'HOLD_OFFERED',
-    hold_id = '5c300000-0000-0000-0000-000000000001'
+  hold_id = '020bccd4-e822-43b8-932c-5d646cb8a4dd'
 where waitlist_id = '6d3a5c49-7600-49d1-9632-a852475cd694';
 ```
 
@@ -261,13 +262,33 @@ set status = 'WAITING',
 where waitlist_id = '6d3a5c49-7600-49d1-9632-a852475cd694';
 ```
 
+Recommended service-level setup for CO-037/CO-038 (avoids drift between DB and waitlist API state):
+
+```http
+PUT /waitlist/6d3a5c49-7600-49d1-9632-a852475cd694/offer
+Content-Type: application/json
+X-Internal-Token: <INTERNAL_SERVICE_TOKEN>
+
+{"holdID":"020bccd4-e822-43b8-932c-5d646cb8a4dd"}
+```
+
+Then confirm with:
+
+```http
+GET /waitlist/6d3a5c49-7600-49d1-9632-a852475cd694
+```
+
+Expected: `status=HOLD_OFFERED` and `holdID=020bccd4-e822-43b8-932c-5d646cb8a4dd`.
+
 ## 8) Recommended Execution Order
 
 1. Group A (contract and validation)
 2. Group B non-destructive cases (CO-020 to CO-024)
-3. Group C (CO-030 to CO-036), with fixture cleanup
-4. Group D parity checks
-5. Destructive path CO-025 and CO-026 (last), or run after a reseed reset
+3. Group C validation gates (CO-030 to CO-036), with fixture cleanup
+4. CO-037 success path (requires `SUCCEEDED` hold fixture)
+5. Group D parity checks
+6. Destructive/stateful path CO-025 and CO-026 (last), or run after reseed reset
+7. CO-038 fault-injection path only when you intentionally force OutSystems update failure
 
 ## 9) Coverage Matrix
 
