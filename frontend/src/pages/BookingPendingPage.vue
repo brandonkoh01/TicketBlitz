@@ -23,7 +23,14 @@ const holdExpiry = ref('')
 const clientSecret = ref('')
 const paymentMountRef = ref(null)
 
-const stripePayment = useStripePaymentElement()
+const {
+  isReady: paymentReady,
+  isSubmitting: paymentSubmitting,
+  errorMessage: paymentErrorMessage,
+  mount: mountStripePaymentElement,
+  confirmPayment: confirmStripePayment,
+  unmount: unmountStripePayment,
+} = useStripePaymentElement()
 
 const polling = useBookingStatusPolling(holdID.value, {
   onTerminal: (payload) => {
@@ -102,7 +109,7 @@ async function mountPaymentElement() {
   }
 
   try {
-    await stripePayment.mount({
+    await mountStripePaymentElement({
       clientSecret: clientSecret.value,
       mountNode: paymentMountRef.value,
     })
@@ -116,7 +123,7 @@ async function handleConfirmPayment() {
   localError.value = ''
 
   try {
-    const paymentIntent = await stripePayment.confirmPayment({
+    const paymentIntent = await confirmStripePayment({
       returnUrl: `${window.location.origin}/booking/pending/${holdID.value}`,
     })
 
@@ -125,7 +132,7 @@ async function handleConfirmPayment() {
       await polling.pollOnce()
     }
   } catch (error) {
-    localError.value = error?.message || 'Payment confirmation failed.'
+    localError.value = error?.message || paymentErrorMessage.value || 'Payment confirmation failed.'
   }
 }
 
@@ -141,7 +148,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   polling.stop()
-  stripePayment.unmount()
+  unmountStripePayment()
 })
 </script>
 
@@ -184,10 +191,10 @@ onUnmounted(() => {
           </div>
 
           <p
-            v-if="localError || polling.errorMessage"
+            v-if="localError || paymentErrorMessage || polling.errorMessage"
             class="mt-6 border-2 border-black bg-black px-4 py-3 text-xs font-black uppercase tracking-[0.14em] text-white"
           >
-            {{ localError || polling.errorMessage }}
+            {{ localError || paymentErrorMessage || polling.errorMessage }}
           </p>
 
           <p
@@ -207,10 +214,10 @@ onUnmounted(() => {
             <button
               type="button"
               class="mt-4 inline-flex h-14 w-full items-center justify-center border-2 border-black bg-black px-6 text-xs font-black uppercase tracking-[0.24em] text-white transition duration-200 ease-out hover:bg-[var(--swiss-accent)] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
-              :disabled="!stripePayment.isReady || stripePayment.isSubmitting"
+              :disabled="!paymentReady || paymentSubmitting"
               @click="handleConfirmPayment"
             >
-              {{ stripePayment.isSubmitting ? 'Submitting Payment' : 'Confirm Payment' }}
+              {{ paymentSubmitting ? 'Submitting Payment' : 'Confirm Payment' }}
             </button>
           </div>
 
