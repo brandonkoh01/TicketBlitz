@@ -7,3 +7,7 @@
 # Python bytecode/cache
 __pycache__/
 *.py[cod]
+
+# Python cache artifacts
+__pycache__/
+*.py[cod]
