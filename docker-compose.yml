@@ -372,7 +372,7 @@ services:
   reservation-orchestrator:
     build:
       context: .
-      dockerfile: backend/composite/scenario-1/reservation-orchestrator/Dockerfile
+      dockerfile: backend/composite/reservation-orchestrator/Dockerfile
     container_name: ticketblitz-reservation-orchestrator
     restart: on-failure
     env_file:

@@ -743,7 +743,7 @@ services:
 
   reservation-orchestrator:
     build:
-      context: ./composite/scenario-1/reservation-orchestrator
+      context: ./composite/reservation-orchestrator
       dockerfile: ../../../docker/Dockerfile.flask
     image: ticketblitz/reservation-orchestrator:latest
     container_name: ticketblitz-reservation-orchestrator

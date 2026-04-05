@@ -12,11 +12,11 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY backend/shared/requirements.txt backend/shared/requirements.txt
-COPY backend/composite/scenario-1/reservation-orchestrator/requirements.txt backend/composite/scenario-1/reservation-orchestrator/requirements.txt
-RUN pip install --no-cache-dir -r backend/composite/scenario-1/reservation-orchestrator/requirements.txt
+COPY backend/composite/reservation-orchestrator/requirements.txt backend/composite/reservation-orchestrator/requirements.txt
+RUN pip install --no-cache-dir -r backend/composite/reservation-orchestrator/requirements.txt
 
 COPY backend/shared backend/shared
-COPY backend/composite/scenario-1/reservation-orchestrator backend/composite/scenario-1/reservation-orchestrator
+COPY backend/composite/reservation-orchestrator backend/composite/reservation-orchestrator
 
 USER appuser
 
@@ -24,4 +24,4 @@ EXPOSE 5000
 
 STOPSIGNAL SIGTERM
 
-CMD ["python", "backend/composite/scenario-1/reservation-orchestrator/app.py"]
+CMD ["python", "backend/composite/reservation-orchestrator/app.py"]
