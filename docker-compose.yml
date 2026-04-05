@@ -249,7 +249,7 @@ services:
       USER_SERVICE_URL: ${USER_SERVICE_URL:-http://user-service:5000}
       EVENT_SERVICE_URL: ${EVENT_SERVICE_URL:-http://event-service:5000}
       INTERNAL_AUTH_HEADER: ${INTERNAL_AUTH_HEADER:-X-Internal-Token}
-      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-ticketblitz-internal-token}
       NOTIFICATION_TOPIC_ROUTING_KEY: ${NOTIFICATION_TOPIC_ROUTING_KEY:-notification.send}
     depends_on:
       payment-service:
