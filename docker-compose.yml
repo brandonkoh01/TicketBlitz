@@ -8,8 +8,8 @@ services:
     env_file:
       - .env.local
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?Set RABBITMQ_USER using --env-file .env.local}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD using --env-file .env.local}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-ticketblitz}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-123}
     ports:
       - "5672:5672"
       - "15672:15672"
