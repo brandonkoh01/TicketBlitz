@@ -232,6 +232,45 @@ services:
     networks:
       - ticketblitz-net
 
+  cancellation-orchestrator:
+    build:
+      context: .
+      dockerfile: backend/composite/cancellation-orchestrator/Dockerfile
+    container_name: ticketblitz-cancellation-orchestrator
+    restart: on-failure
+    env_file:
+      - .env.local
+    environment:
+      PORT: "5000"
+      SERVICE_NAME: cancellation-orchestrator
+      PAYMENT_SERVICE_URL: ${PAYMENT_SERVICE_URL:-http://payment-service:5000}
+      INVENTORY_SERVICE_URL: ${INVENTORY_SERVICE_URL:-http://inventory-service:5000}
+      WAITLIST_SERVICE_URL: ${WAITLIST_SERVICE_URL:-http://waitlist-service:5000}
+      USER_SERVICE_URL: ${USER_SERVICE_URL:-http://user-service:5000}
+      EVENT_SERVICE_URL: ${EVENT_SERVICE_URL:-http://event-service:5000}
+      INTERNAL_AUTH_HEADER: ${INTERNAL_AUTH_HEADER:-X-Internal-Token}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}
+      NOTIFICATION_TOPIC_ROUTING_KEY: ${NOTIFICATION_TOPIC_ROUTING_KEY:-notification.send}
+    depends_on:
+      payment-service:
+        condition: service_healthy
+      inventory-service:
+        condition: service_healthy
+      waitlist-service:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+    ports:
+      - "6003:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - ticketblitz-net
+
   expiry-scheduler-service:
     build:
       context: .
@@ -440,6 +479,8 @@ services:
       flash-sale-orchestrator:
         condition: service_healthy
       reservation-orchestrator:
+        condition: service_healthy
+      cancellation-orchestrator:
         condition: service_healthy
     volumes:
       - ./kong:/kong/declarative:ro
