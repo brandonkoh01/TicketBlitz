@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useAuthStore } from '@/stores/authStore'
+import { useOrganiserDashboardScenario2 } from '@/composables/useOrganiserDashboardScenario2'
 
 const authStore = useAuthStore()
 const isAuthenticated = computed(() => authStore.isAuthenticated.value)
@@ -11,38 +12,54 @@ const sideNavLinks = [
   { icon: 'trending_up', label: 'Sales Analytics', active: false },
 ]
 
-const tierRows = [
-  {
-    name: 'Early Bird',
-    subtitle: 'First adopters special',
-    range: '0 - 50%',
-    progressClass: 'w-1/2 bg-[#ffd900]',
-    price: '$80.00',
-    status: 'active',
-  },
-  {
-    name: 'Phase 1',
-    subtitle: 'General admission mid-tier',
-    range: '51 - 80%',
-    progressClass: 'w-[30%] bg-[#ffd900]/30',
-    price: '$120.00',
-    status: 'pending',
-  },
-  {
-    name: 'Last Chance',
-    subtitle: 'Final inventory pricing',
-    range: '81 - 100%',
-    progressClass: 'w-1/5 bg-[#ffd900]/30',
-    price: '$160.00',
-    status: 'pending',
-  },
-]
-
 const alertRows = [
   { icon: 'payments', title: 'Payout Alerts', detail: 'Every 10 tickets sold' },
   { icon: 'trending_up', title: 'Tier Activation', detail: 'Instant push when price jumps' },
   { icon: 'error', title: 'Inventory Low', detail: 'Notify when < 5% remaining' },
 ]
+
+const {
+  discountPercentage,
+  durationMinutes,
+  escalationPercentage,
+  errorMessage,
+  noticeMessage,
+  unsupportedMessage,
+  eventsLoading,
+  launchLoading,
+  endLoading,
+  requestBusy,
+  selectedEventID,
+  eventOptions,
+  tierRows,
+  flashSaleIsActive,
+  activeFlashSaleID,
+  canEndFlashSale,
+  lastCorrelationID,
+  systemHealth,
+  clearFlashMessages,
+  loadEvents,
+  launchSelectedFlashSale,
+  endSelectedFlashSale,
+} = useOrganiserDashboardScenario2()
+
+const unsupportedControlNote = 'Not available for current backend scope.'
+
+const isLaunchDisabled = computed(() => launchLoading.value || requestBusy.value || !selectedEventID.value)
+
+function onLaunchSale() {
+  clearFlashMessages()
+  void launchSelectedFlashSale()
+}
+
+function onEndSale() {
+  clearFlashMessages()
+  void endSelectedFlashSale()
+}
+
+function onRefreshEvents() {
+  void loadEvents()
+}
 </script>
 
 <template>
@@ -77,11 +94,21 @@ const alertRows = [
 
         <div class="flex items-center gap-4">
           <div class="flex gap-2">
-            <button class="relative flex items-center justify-center w-10 h-10 rounded-lg transition-colors hover:bg-slate-100">
+            <button
+              class="relative flex h-10 w-10 cursor-not-allowed items-center justify-center rounded-lg opacity-50"
+              type="button"
+              disabled
+              :title="unsupportedControlNote"
+            >
               <UiMaterialIcon name="notifications" />
               <span class="absolute top-2 right-2 flex h-2 w-2 rounded-full bg-[#ffd900] ring-2 ring-white" />
             </button>
-            <button class="flex items-center justify-center w-10 h-10 rounded-lg transition-colors hover:bg-slate-100">
+            <button
+              class="flex h-10 w-10 cursor-not-allowed items-center justify-center rounded-lg opacity-50"
+              type="button"
+              disabled
+              :title="unsupportedControlNote"
+            >
               <UiMaterialIcon name="settings" />
             </button>
           </div>
@@ -115,18 +142,69 @@ const alertRows = [
             <div class="rounded-xl border border-[#ffd900]/20 bg-[#ffd900]/10 p-4">
               <p class="mb-2 text-xs font-bold text-slate-900 uppercase tracking-widest">Need Help?</p>
               <p class="mb-3 text-xs text-slate-600">Check our guide on dynamic ticket pricing strategies.</p>
-              <button class="w-full rounded-lg bg-slate-900 py-2 text-xs font-bold text-white">View Documentation</button>
+              <button
+                class="w-full cursor-not-allowed rounded-lg bg-slate-900 py-2 text-xs font-bold text-white opacity-60"
+                type="button"
+                disabled
+                :title="unsupportedControlNote"
+              >
+                View Documentation
+              </button>
             </div>
           </div>
         </aside>
 
         <section class="flex-1 overflow-y-auto bg-[#f8f8f5] p-4 custom-scrollbar lg:p-10">
+          <div class="mb-6 grid grid-cols-1 gap-3 xl:grid-cols-3">
+            <div class="rounded-xl border border-slate-200 bg-white p-4 xl:col-span-2">
+              <label class="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-500">Selected Event</label>
+              <div class="flex gap-3">
+                <select
+                  v-model="selectedEventID"
+                  class="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#ffd900]"
+                  :disabled="eventsLoading || requestBusy"
+                >
+                  <option value="" disabled>Select an event</option>
+                  <option v-for="event in eventOptions" :key="event.id" :value="event.id">{{ event.label }}</option>
+                </select>
+                <button
+                  class="rounded-lg border border-slate-200 bg-white px-4 text-xs font-bold uppercase tracking-wider disabled:cursor-not-allowed disabled:opacity-50"
+                  type="button"
+                  :disabled="eventsLoading || requestBusy"
+                  @click="onRefreshEvents"
+                >
+                  {{ eventsLoading ? 'Loading...' : 'Refresh' }}
+                </button>
+              </div>
+            </div>
+            <div class="rounded-xl border border-slate-200 bg-white p-4">
+              <p class="text-[10px] font-black uppercase tracking-widest text-slate-500">Flash Sale Status</p>
+              <p class="mt-2 text-sm font-semibold" :class="flashSaleIsActive ? 'text-green-600' : 'text-slate-500'">
+                {{ flashSaleIsActive ? 'ACTIVE' : 'INACTIVE' }}
+              </p>
+              <p class="mt-1 text-xs text-slate-500">{{ activeFlashSaleID || 'No active flash sale id' }}</p>
+            </div>
+          </div>
+
+          <div v-if="errorMessage" class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {{ errorMessage }}
+          </div>
+          <div v-if="noticeMessage" class="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+            {{ noticeMessage }}
+          </div>
+          <div v-if="unsupportedMessage" class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+            {{ unsupportedMessage }}
+          </div>
+          <div v-if="lastCorrelationID" class="mb-4 text-[11px] font-medium uppercase tracking-widest text-slate-500">
+            Correlation ID: {{ lastCorrelationID }}
+          </div>
+
           <div class="mb-10 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
             <div class="space-y-2">
               <nav class="mb-4 flex gap-2 text-xs font-medium text-slate-400">
                 <a class="hover:text-[#ffd900]" href="#">Events</a>
                 <span>/</span>
-                <a class="hover:text-[#ffd900]" href="#">Neon Nights 2026</a>
+                <a class="hover:text-[#ffd900]" href="#">Live Event Configuration</a>
                 <span>/</span>
                 <span class="text-slate-900">Flash Sale Setup</span>
               </nav>
@@ -134,9 +212,31 @@ const alertRows = [
               <p class="max-w-xl text-slate-500">Configure automated ticket price increments based on inventory depletion. Once a threshold is reached, the next tier activates instantly.</p>
             </div>
 
-            <div class="flex gap-3">
-              <button class="rounded-lg border border-slate-200 px-6 py-2.5 text-sm font-bold transition-all hover:bg-white">Save Draft</button>
-              <button class="rounded-lg bg-[#ffd900] px-6 py-2.5 text-sm font-bold text-slate-900 transition-all hover:shadow-lg hover:shadow-[#ffd900]/20">Launch Sale</button>
+            <div class="flex flex-wrap gap-3">
+              <button
+                class="cursor-not-allowed rounded-lg border border-slate-200 px-6 py-2.5 text-sm font-bold opacity-60"
+                type="button"
+                disabled
+                :title="unsupportedControlNote"
+              >
+                Save Draft
+              </button>
+              <button
+                class="rounded-lg bg-[#ffd900] px-6 py-2.5 text-sm font-bold text-slate-900 transition-all hover:shadow-lg hover:shadow-[#ffd900]/20 disabled:cursor-not-allowed disabled:opacity-50"
+                type="button"
+                :disabled="isLaunchDisabled"
+                @click="onLaunchSale"
+              >
+                {{ launchLoading ? 'Launching...' : 'Launch Sale' }}
+              </button>
+              <button
+                class="rounded-lg border border-slate-300 bg-white px-6 py-2.5 text-sm font-bold text-slate-900 transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                type="button"
+                :disabled="!canEndFlashSale"
+                @click="onEndSale"
+              >
+                {{ endLoading ? 'Ending...' : 'End Sale' }}
+              </button>
             </div>
           </div>
 
@@ -148,7 +248,12 @@ const alertRows = [
                     <UiMaterialIcon name="sell" class="text-[#ffd900]" />
                     <h3 class="font-bold uppercase tracking-tight text-sm">Automated Pricing Tiers</h3>
                   </div>
-                  <button class="text-xs font-bold bg-[#ffd900] px-3 py-1 rounded text-slate-900 hover:opacity-90 transition-opacity flex items-center gap-1">
+                  <button
+                    class="flex cursor-not-allowed items-center gap-1 rounded bg-[#ffd900] px-3 py-1 text-xs font-bold text-slate-900 opacity-60"
+                    type="button"
+                    disabled
+                    :title="unsupportedControlNote"
+                  >
                     <UiMaterialIcon name="add" class="text-xs" /> Add Tier
                   </button>
                 </div>
@@ -164,7 +269,12 @@ const alertRows = [
                       </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100">
-                      <tr v-for="row in tierRows" :key="row.name" class="group hover:bg-slate-50 transition-colors">
+                      <tr
+                        v-for="row in tierRows"
+                        :key="row.id"
+                        class="group transition-colors"
+                        :class="row.isChanged ? 'bg-[#fff9cc]' : 'hover:bg-slate-50'"
+                      >
                         <td class="px-6 py-5">
                           <p class="text-sm font-bold">{{ row.name }}</p>
                           <p class="text-xs text-slate-400">{{ row.subtitle }}</p>
@@ -187,6 +297,12 @@ const alertRows = [
                             Active
                           </span>
                           <span
+                            v-else-if="row.status === 'sold_out'"
+                            class="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-tighter text-rose-700"
+                          >
+                            Sold Out
+                          </span>
+                          <span
                             v-else
                             class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-400 uppercase tracking-tighter"
                           >
@@ -194,7 +310,12 @@ const alertRows = [
                           </span>
                         </td>
                         <td class="px-6 py-5 text-right">
-                          <button class="text-slate-400 hover:text-[#ffd900] transition-colors">
+                          <button
+                            class="cursor-not-allowed text-slate-300"
+                            type="button"
+                            disabled
+                            :title="unsupportedControlNote"
+                          >
                             <UiMaterialIcon name="edit" class="text-xl" />
                           </button>
                         </td>
@@ -211,29 +332,49 @@ const alertRows = [
               <UiDashboardPanel icon="tune" title="Sale Configuration">
                 <div class="space-y-6">
                   <div>
-                    <label class="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-400">Max Tickets per Order</label>
-                    <select class="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none transition-all focus:ring-2 focus:ring-[#ffd900]">
-                      <option>4 Tickets</option>
-                      <option>6 Tickets</option>
-                      <option>10 Tickets</option>
-                    </select>
+                    <label class="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-400">Discount Percentage</label>
+                    <input
+                      v-model="discountPercentage"
+                      type="number"
+                      min="1"
+                      max="100"
+                      step="0.01"
+                      class="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none transition-all focus:ring-2 focus:ring-[#ffd900]"
+                    >
                   </div>
 
                   <div>
+                    <label class="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-400">Duration (Minutes)</label>
+                    <input
+                      v-model="durationMinutes"
+                      type="number"
+                      min="1"
+                      max="40320"
+                      class="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none transition-all focus:ring-2 focus:ring-[#ffd900]"
+                    >
+                  </div>
+
+                  <div>
+                    <label class="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-400">Escalation Percentage</label>
+                    <input
+                      v-model="escalationPercentage"
+                      type="number"
+                      min="0"
+                      max="500"
+                      step="0.01"
+                      class="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none transition-all focus:ring-2 focus:ring-[#ffd900]"
+                    >
+                  </div>
+
+                  <div class="pt-2">
                     <label class="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-400">Resale Protection</label>
                     <div class="flex items-center justify-between">
-                      <span class="text-sm font-medium text-slate-700">Identity Verification Required</span>
-                      <UiToggleSwitch :enabled="true" />
+                      <span class="text-sm font-medium text-slate-700">Show inventory bar to users</span>
+                      <UiToggleSwitch :enabled="false" :disabled="true" />
                     </div>
                   </div>
 
-                  <div>
-                    <label class="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-400">Countdown Display</label>
-                    <div class="flex items-center justify-between">
-                      <span class="text-sm font-medium text-slate-700">Show inventory bar to users</span>
-                      <UiToggleSwitch :enabled="false" />
-                    </div>
-                  </div>
+                  <p class="text-[11px] uppercase tracking-wider text-slate-400">{{ unsupportedControlNote }}</p>
                 </div>
               </UiDashboardPanel>
 
@@ -253,7 +394,14 @@ const alertRows = [
                     </div>
                   </div>
 
-                  <button class="w-full pt-2 text-xs font-bold uppercase tracking-widest text-slate-400 transition-colors hover:text-[#ffd900]">Configure Integrations</button>
+                  <button
+                    class="w-full cursor-not-allowed pt-2 text-xs font-bold uppercase tracking-widest text-slate-400 opacity-60"
+                    type="button"
+                    disabled
+                    :title="unsupportedControlNote"
+                  >
+                    Configure Integrations
+                  </button>
                 </div>
               </UiDashboardPanel>
 
@@ -265,12 +413,12 @@ const alertRows = [
                 <div class="space-y-4">
                   <div>
                     <p class="text-xs font-bold uppercase tracking-tight text-slate-900/70">Active Sessions</p>
-                    <p class="text-3xl font-black text-slate-900">1,204</p>
+                    <p class="text-3xl font-black text-slate-900">{{ systemHealth.activeSessions }}</p>
                   </div>
                   <div class="h-1 w-full rounded-full bg-slate-900/10">
-                    <div class="h-full w-[78%] rounded-full bg-slate-900" />
+                    <div class="h-full rounded-full bg-slate-900" :style="{ width: `${systemHealth.progressPercent}%` }" />
                   </div>
-                  <p class="text-[10px] italic font-medium leading-relaxed text-slate-900/70">"Dynamic pricing is performing 22% better than static pre-sales for this time slot."</p>
+                  <p class="text-[10px] italic font-medium leading-relaxed text-slate-900/70">"{{ systemHealth.insight }}"</p>
                 </div>
               </section>
             </div>

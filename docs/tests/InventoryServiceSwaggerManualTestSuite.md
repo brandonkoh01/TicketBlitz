@@ -49,7 +49,7 @@ Important:
 ### 2.1 Source Context Used To Craft Inputs
 
 - Supabase project: `cpxcpvcfbohvpiubbujg`
-- Live event snapshot used: EVT-301 (`10000000-0000-0000-0000-000000000301`) and EVT-401-MANUAL (`10000000-0000-0000-0000-000000000401`).
+- Live event snapshot used: EVT-301 (`10000000-0000-0000-0000-000000000301`) and EVT-501 (`10000000-0000-0000-0000-000000000501`).
 - Live seat distribution for EVT-301 used to shape availability and sold-out cases.
 - Context7 documentation source used: Flasgger (`/flasgger/flasgger`) with emphasis on `specs_route`, generated OpenAPI spec route behavior, and Swagger UI initialization patterns.
 - Current DB preflight finding at authoring time: inventory RPC functions may be missing in runtime DB, so mutation tests include explicit RPC readiness checks.
@@ -68,7 +68,7 @@ Use these shared constants across test cases.
 ### 3.1 IDs from Supabase (project `cpxcpvcfbohvpiubbujg`)
 
 - `EVENT_ID_MAIN`: `10000000-0000-0000-0000-000000000301` (EVT-301)
-- `EVENT_ID_ALT`: `10000000-0000-0000-0000-000000000401` (EVT-401-MANUAL)
+- `EVENT_ID_ALT`: `10000000-0000-0000-0000-000000000501` (EVT-501)
 - `USER_ID_BRANDON`: `00000000-0000-0000-0000-000000000001`
 - `USER_ID_BOONE`: `00000000-0000-0000-0000-000000000002`
 - `USER_ID_IAN`: `00000000-0000-0000-0000-000000000003`

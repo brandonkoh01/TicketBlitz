@@ -58,6 +58,21 @@ def parse_float_env(name: str, default: float, minimum: Optional[float] = None) 
     return parsed
 
 
+def parse_bool_env(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+
+    logger.warning("Invalid boolean for %s=%s. Using default=%s", name, value, default)
+    return default
+
+
 def validate_http_url(name: str, value: str) -> str:
     parsed = urlparse(value)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -70,6 +85,9 @@ class SchedulerConfig:
     service_name: str
     inventory_service_url: str
     maintenance_path: str
+    flash_sale_orchestrator_url: str
+    flash_sale_reconcile_path: str
+    flash_sale_reconcile_enabled: bool
     expiry_interval_seconds: int
     error_retry_delay_seconds: int
     error_retry_jitter_seconds: float
@@ -97,6 +115,26 @@ class SchedulerConfig:
         if not maintenance_path.startswith("/"):
             maintenance_path = f"/{maintenance_path}"
 
+        flash_sale_orchestrator_url = os.getenv(
+            "FLASH_SALE_ORCHESTRATOR_URL",
+            "http://flash-sale-orchestrator:5000",
+        ).strip()
+        if not flash_sale_orchestrator_url:
+            flash_sale_orchestrator_url = "http://flash-sale-orchestrator:5000"
+        flash_sale_orchestrator_url = validate_http_url(
+            "FLASH_SALE_ORCHESTRATOR_URL",
+            flash_sale_orchestrator_url,
+        )
+
+        flash_sale_reconcile_path = os.getenv(
+            "FLASH_SALE_RECONCILE_PATH",
+            "/internal/flash-sale/reconcile-expired",
+        ).strip()
+        if not flash_sale_reconcile_path:
+            flash_sale_reconcile_path = "/internal/flash-sale/reconcile-expired"
+        if not flash_sale_reconcile_path.startswith("/"):
+            flash_sale_reconcile_path = f"/{flash_sale_reconcile_path}"
+
         internal_auth_header = os.getenv("INTERNAL_AUTH_HEADER", "X-Internal-Token").strip()
         internal_service_token = os.getenv("INTERNAL_SERVICE_TOKEN", "").strip()
 
@@ -107,6 +145,9 @@ class SchedulerConfig:
             service_name=os.getenv("SERVICE_NAME", "expiry-scheduler-service"),
             inventory_service_url=inventory_service_url,
             maintenance_path=maintenance_path,
+            flash_sale_orchestrator_url=flash_sale_orchestrator_url,
+            flash_sale_reconcile_path=flash_sale_reconcile_path,
+            flash_sale_reconcile_enabled=parse_bool_env("FLASH_SALE_RECONCILE_ENABLED", False),
             expiry_interval_seconds=parse_int_env("EXPIRY_INTERVAL_SECONDS", 60, minimum=1),
             error_retry_delay_seconds=parse_int_env(
                 "EXPIRY_ERROR_RETRY_DELAY_SECONDS",
@@ -182,11 +223,28 @@ class ExpiryScheduler:
     def maintenance_url(self) -> str:
         return f"{self.config.inventory_service_url}{self.config.maintenance_path}"
 
+    @property
+    def flash_sale_reconcile_url(self) -> str:
+        return f"{self.config.flash_sale_orchestrator_url}{self.config.flash_sale_reconcile_path}"
+
     def run_once(self) -> bool:
         headers = {"Content-Type": "application/json"}
         if self.config.internal_service_token:
             headers[self.config.internal_auth_header] = self.config.internal_service_token
 
+        success = self._run_inventory_expiry(headers)
+        if not success:
+            return False
+
+        if self.config.flash_sale_reconcile_enabled:
+            success = self._run_flash_sale_reconcile(headers)
+            if not success:
+                return False
+
+        self.last_success_at = datetime.now(timezone.utc).isoformat()
+        return True
+
+    def _run_inventory_expiry(self, headers: dict[str, str]) -> bool:
         try:
             response = self._session.post(
                 self.maintenance_url,
@@ -251,12 +309,61 @@ class ExpiryScheduler:
             )
             return False
 
-        self.last_success_at = datetime.now(timezone.utc).isoformat()
         logger.info(
             "Expiry batch completed count=%s sampleHoldIDs=%s lastSuccessAt=%s",
             count,
             sample_hold_ids,
-            self.last_success_at,
+            datetime.now(timezone.utc).isoformat(),
+        )
+        return True
+
+    def _run_flash_sale_reconcile(self, headers: dict[str, str]) -> bool:
+        try:
+            response = self._session.post(
+                self.flash_sale_reconcile_url,
+                json={},
+                headers=headers,
+                timeout=(
+                    self.config.request_connect_timeout_seconds,
+                    self.config.request_read_timeout_seconds,
+                ),
+            )
+        except RequestException as error:
+            logger.warning("Flash sale reconciliation request failed: %s", error)
+            return False
+
+        if response.status_code != 200:
+            body = response.text.strip().replace("\n", " ")[:300]
+            logger.warning(
+                "Flash sale reconciliation returned status=%s body=%s",
+                response.status_code,
+                body,
+            )
+            return False
+
+        try:
+            payload = response.json()
+        except ValueError as error:
+            logger.warning("Flash sale reconciliation returned invalid JSON: %s", error)
+            return False
+
+        if not isinstance(payload, dict):
+            logger.warning("Flash sale reconciliation returned non-object payload: %r", payload)
+            return False
+
+        if payload.get("status") != "success":
+            logger.warning(
+                "Flash sale reconciliation payload indicates failure: %r",
+                payload,
+            )
+            return False
+
+        ended_count = payload.get("endedCount", 0)
+        skipped_count = payload.get("skippedCount", 0)
+        logger.info(
+            "Flash sale reconciliation completed endedCount=%s skippedCount=%s",
+            ended_count,
+            skipped_count,
         )
         return True
 

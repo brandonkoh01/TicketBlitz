@@ -38,6 +38,9 @@ class FakeDB:
     def eq(self, *_args, **_kwargs):
         return self
 
+    def gt(self, *_args, **_kwargs):
+        return self
+
     def in_(self, *_args, **_kwargs):
         return self
 
@@ -159,6 +162,35 @@ class EventServiceWriteRollbackTests(unittest.TestCase):
         body = response.get_json()
         self.assertEqual(response.status_code, 415)
         self.assertEqual(body["error"], "Content-Type must be application/json")
+
+    def test_flash_sale_status_does_not_mark_expired_active_sale_as_active(self):
+        fake_db = FakeDB(
+            [
+                [
+                    {
+                        "event_id": "event-123",
+                        "flash_sale_active": True,
+                        "active_flash_sale_id": "sale-123",
+                    }
+                ],
+                [],
+            ]
+        )
+
+        with patch.object(event_module, "require_db", return_value=None), \
+            patch.object(event_module, "parse_uuid", return_value=("event-123", None)), \
+            patch.object(
+                event_module,
+                "fetch_event",
+                return_value=({"event_id": "event-123", "status": "FLASH_SALE_ACTIVE"}, None),
+            ), \
+            patch.object(event_module, "get_db", return_value=fake_db):
+            response = self.client.get("/event/a73813ea-2e9e-4ecf-8ce6-2966a2f3218d/flash-sale/status")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertFalse(body["flash_sale_active"])
+        self.assertIsNone(body["active_flash_sale"])
 
 
 if __name__ == "__main__":

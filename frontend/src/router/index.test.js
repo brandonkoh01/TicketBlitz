@@ -9,6 +9,8 @@ async function loadRouterWithStore(store) {
   }
 
   vi.doMock('@/pages/MainLandingPage.vue', () => ({ default: stubComponent }))
+  vi.doMock('@/pages/EventCatalogPage.vue', () => ({ default: stubComponent }))
+  vi.doMock('@/pages/EventDetailPage.vue', () => ({ default: stubComponent }))
   vi.doMock('@/pages/OrganiserDashboardPage.vue', () => ({ default: stubComponent }))
   vi.doMock('@/pages/TicketPurchasePage.vue', () => ({ default: stubComponent }))
   vi.doMock('@/pages/MyTicketsPage.vue', () => ({ default: stubComponent }))
@@ -113,5 +115,22 @@ describe('router auth guards', () => {
     await router.isReady()
 
     expect(router.currentRoute.value.name).toBe('organiser-dashboard')
+  })
+  it('allows public access to events catalog and event detail routes', async () => {
+    const store = {
+      initializeAuthStore: vi.fn().mockResolvedValue(undefined),
+      authEnabled: false,
+      isAuthenticated: { value: false },
+    }
+
+    const router = await loadRouterWithStore(store)
+
+    await router.push('/events')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('events')
+
+    await router.push('/events/10000000-0000-0000-0000-000000000501')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('event-detail')
   })
 })

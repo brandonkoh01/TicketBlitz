@@ -50,7 +50,7 @@ where seat_id in (
 );
 
 delete from public.events
-where event_id = '10000000-0000-0000-0000-000000000401';
+where event_id = '10000000-0000-0000-0000-000000000901';
 
 -- ---------------------------------------------------------------------------
 -- 1) Event fixture for outside-policy refund tests
@@ -69,9 +69,9 @@ insert into public.events (
   status,
   metadata
 ) values (
-  '10000000-0000-0000-0000-000000000401',
-  'EVT-401-MANUAL',
-  'Manual Policy Boundary Event',
+  '10000000-0000-0000-0000-000000000901',
+  'EVT-901-POLICY-FIXTURE',
+  'Payment Policy Boundary Fixture Event',
   'Fixture event for refund policy lockout test cases.',
   'TicketBlitz Test Venue',
   now() + interval '12 hours',
@@ -385,7 +385,7 @@ insert into public.seat_holds (
 (
   '4b100000-0000-0000-0000-000000000008',
   '30000000-0000-0000-0000-000000000012',
-  '10000000-0000-0000-0000-000000000401',
+  '10000000-0000-0000-0000-000000000901',
   '20000000-0000-0000-0000-000000000101',
   '00000000-0000-0000-0000-000000000001',
   false,
@@ -547,7 +547,7 @@ insert into public.transactions (
 (
   '7b100000-0000-0000-0000-000000000006',
   '4b100000-0000-0000-0000-000000000008',
-  '10000000-0000-0000-0000-000000000401',
+  '10000000-0000-0000-0000-000000000901',
   '00000000-0000-0000-0000-000000000001',
   388.00,
   'SGD',
