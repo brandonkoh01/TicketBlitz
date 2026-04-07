@@ -584,13 +584,23 @@ class ReservationOrchestrator:
         self.config = config
         self.client = client
 
+    def _resolve_domain_user(self, requested_user_id: str, correlation_id: str) -> tuple[str, dict[str, Any]]:
+        user = self.client.get_user(requested_user_id, correlation_id)
+
+        user_id = user.get("userID") if isinstance(user, dict) else None
+        if not isinstance(user_id, str):
+            raise ExternalServiceError("user-service response missing userID")
+
+        domain_user_id = _parse_uuid(user_id, "user.userID")
+        return domain_user_id, user
+
     def reserve(self, payload: dict[str, Any], correlation_id: str) -> dict[str, Any]:
         user_id = _parse_uuid(payload.get("userID"), "userID")
         event_id = _parse_uuid(payload.get("eventID"), "eventID")
         seat_category = _normalize_seat_category(payload.get("seatCategory"))
         qty = _parse_qty(payload.get("qty"))
 
-        user = self.client.get_user(user_id, correlation_id)
+        domain_user_id, user = self._resolve_domain_user(user_id, correlation_id)
         event = self.client.get_event(event_id, correlation_id)
         if event is None:
             raise NotFoundError("Event not found")
@@ -602,7 +612,7 @@ class ReservationOrchestrator:
         if available > 0 and inventory_status != "SOLD_OUT":
             hold = self.client.create_hold(
                 event_id=event_id,
-                user_id=user_id,
+                user_id=domain_user_id,
                 seat_category=seat_category,
                 qty=qty,
                 from_waitlist=False,
@@ -610,7 +620,7 @@ class ReservationOrchestrator:
             )
             payment = self.client.initiate_payment(
                 hold_id=hold["holdID"],
-                user_id=user_id,
+                user_id=domain_user_id,
                 amount=hold.get("amount"),
                 correlation_id=correlation_id,
             )
@@ -633,7 +643,7 @@ class ReservationOrchestrator:
             }
 
         waitlist = self.client.join_waitlist(
-            user_id=user_id,
+            user_id=domain_user_id,
             event_id=event_id,
             seat_category=seat_category,
             correlation_id=correlation_id,
@@ -662,10 +672,11 @@ class ReservationOrchestrator:
     def reserve_confirm(self, payload: dict[str, Any], correlation_id: str) -> dict[str, Any]:
         hold_id = _parse_uuid(payload.get("holdID"), "holdID")
         user_id = _parse_uuid(payload.get("userID"), "userID")
+        domain_user_id, _ = self._resolve_domain_user(user_id, correlation_id)
 
         hold = self.client.get_hold(hold_id, correlation_id)
         hold_user = hold.get("userID")
-        if hold_user and hold_user != user_id:
+        if hold_user and hold_user != domain_user_id:
             raise ConflictError("holdID does not belong to userID")
 
         payment_state = self.client.get_payment_hold(hold_id, correlation_id)
@@ -675,7 +686,7 @@ class ReservationOrchestrator:
         if payment_status == "SUCCEEDED" or hold_status == "CONFIRMED":
             ticket = self.client.get_eticket_by_hold(hold_id, correlation_id)
             if ticket is None:
-                ticket = self.client.generate_eticket(hold, user_id, correlation_id)
+                ticket = self.client.generate_eticket(hold, domain_user_id, correlation_id)
 
             return {
                 "status": "CONFIRMED",
@@ -690,7 +701,7 @@ class ReservationOrchestrator:
 
         payment = self.client.initiate_payment(
             hold_id=hold_id,
-            user_id=user_id,
+            user_id=domain_user_id,
             amount=hold.get("amount"),
             correlation_id=correlation_id,
         )
@@ -721,7 +732,11 @@ class ReservationOrchestrator:
 
         hold = self.client.get_hold(parsed_hold_id, correlation_id)
         hold_user_id = hold.get("userID")
-        if authenticated_user_id and hold_user_id and hold_user_id != authenticated_user_id:
+        domain_authenticated_user_id: Optional[str] = None
+        if authenticated_user_id:
+            domain_authenticated_user_id, _ = self._resolve_domain_user(authenticated_user_id, correlation_id)
+
+        if domain_authenticated_user_id and hold_user_id and hold_user_id != domain_authenticated_user_id:
             raise ConflictError("holdID does not belong to authenticated user")
 
         waitlist = self.client.get_waitlist_by_hold(parsed_hold_id, correlation_id)
@@ -764,9 +779,10 @@ class ReservationOrchestrator:
             raise ValidationError("Authenticated user header is required")
 
         parsed_waitlist_id = _parse_uuid(waitlist_id, "waitlistID")
+        domain_user_id, _ = self._resolve_domain_user(authenticated_user_id, correlation_id)
         cancelled = self.client.cancel_waitlist(
             waitlist_id=parsed_waitlist_id,
-            user_id=authenticated_user_id,
+            user_id=domain_user_id,
             correlation_id=correlation_id,
         )
 
@@ -777,7 +793,7 @@ class ReservationOrchestrator:
         return {
             "status": "CANCELLED",
             "waitlistID": parsed_waitlist_id,
-            "userID": authenticated_user_id,
+            "userID": domain_user_id,
             "correlationID": correlation_id,
         }
 

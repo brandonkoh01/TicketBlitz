@@ -67,6 +67,17 @@ class UserRepository:
 
         result = query.execute()
         rows = result.data or []
+        if rows:
+            return rows[0]
+
+        # Auth identity UUIDs can differ from the canonical public.users.user_id.
+        # Fall back to auth_user_id to support callers that pass authenticated user IDs.
+        query = self._client.table("users").select(self.SELECT_COLUMNS).eq("auth_user_id", user_id).limit(1)
+        if not include_deleted:
+            query = query.is_("deleted_at", "null")
+
+        result = query.execute()
+        rows = result.data or []
         return rows[0] if rows else None
 
     def list_users(

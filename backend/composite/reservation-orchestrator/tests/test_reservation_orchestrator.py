@@ -197,6 +197,67 @@ class FakeDownstreamClient:
         return self.inventory
 
 
+class CanonicalUserDownstreamClient:
+    AUTH_USER_ID = "22222222-2222-2222-2222-222222222222"
+    DOMAIN_USER_ID = "11111111-1111-1111-1111-111111111111"
+
+    def __init__(self):
+        self.last_get_user_id = None
+        self.last_hold_user_id = None
+        self.last_payment_user_id = None
+        self.last_cancel_waitlist_user_id = None
+
+    def get_user(self, user_id, correlation_id):
+        self.last_get_user_id = user_id
+        return {"userID": self.DOMAIN_USER_ID, "email": "fan@example.com", "name": "Fan User"}
+
+    def get_event(self, event_id, correlation_id):
+        return {"eventID": event_id, "name": "Sample Event"}
+
+    def get_inventory(self, event_id, seat_category, correlation_id):
+        return {"available": 1, "status": "AVAILABLE"}
+
+    def create_hold(self, *, event_id, user_id, seat_category, qty, from_waitlist, correlation_id):
+        self.last_hold_user_id = user_id
+        return {
+            "holdID": "40000000-0000-0000-0000-000000000001",
+            "eventID": event_id,
+            "userID": user_id,
+            "seatCategory": seat_category,
+            "holdStatus": "HELD",
+            "holdExpiry": "2026-04-08T00:00:00+00:00",
+            "amount": 123,
+            "currency": "SGD",
+        }
+
+    def initiate_payment(self, *, hold_id, user_id, amount, correlation_id):
+        self.last_payment_user_id = user_id
+        return {"paymentIntentID": "pi_test", "clientSecret": "pi_test_secret"}
+
+    def get_eticket_by_hold(self, hold_id, correlation_id):
+        return None
+
+    def get_hold(self, hold_id, correlation_id):
+        return {
+            "holdID": hold_id,
+            "userID": self.DOMAIN_USER_ID,
+            "holdStatus": "HELD",
+            "holdExpiry": "2026-04-08T00:00:00+00:00",
+            "amount": 123,
+            "currency": "SGD",
+        }
+
+    def get_payment_hold(self, hold_id, correlation_id):
+        return None
+
+    def get_waitlist_by_hold(self, hold_id, correlation_id):
+        return {"status": "WAITING"}
+
+    def cancel_waitlist(self, *, waitlist_id, user_id, correlation_id):
+        self.last_cancel_waitlist_user_id = user_id
+        return {"status": "CANCELLED", "waitlistID": waitlist_id}
+
+
 class ReservationOrchestratorServiceTestCase(unittest.TestCase):
     def test_reserve_raises_not_found_when_event_missing(self):
         config = type("Config", (), {"HTTP_MAX_RETRIES": 0})
@@ -212,6 +273,41 @@ class ReservationOrchestratorServiceTestCase(unittest.TestCase):
                 },
                 "20000000-0000-0000-0000-000000000001",
             )
+
+    def test_reserve_maps_authenticated_user_to_domain_user(self):
+        config = type("Config", (), {"HTTP_MAX_RETRIES": 0})
+        client = CanonicalUserDownstreamClient()
+        service = reservation_app.ReservationOrchestrator(config, client)
+
+        response = service.reserve(
+            {
+                "userID": client.AUTH_USER_ID,
+                "eventID": "10000000-0000-0000-0000-000000000301",
+                "seatCategory": "CAT1",
+                "qty": 1,
+            },
+            "20000000-0000-0000-0000-000000000001",
+        )
+
+        self.assertEqual(response["status"], "PAYMENT_PENDING")
+        self.assertEqual(client.last_get_user_id, client.AUTH_USER_ID)
+        self.assertEqual(client.last_hold_user_id, client.DOMAIN_USER_ID)
+        self.assertEqual(client.last_payment_user_id, client.DOMAIN_USER_ID)
+
+    def test_leave_waitlist_maps_authenticated_user_to_domain_user(self):
+        config = type("Config", (), {"HTTP_MAX_RETRIES": 0})
+        client = CanonicalUserDownstreamClient()
+        service = reservation_app.ReservationOrchestrator(config, client)
+
+        response = service.leave_waitlist(
+            "791293dd-b5d9-4bc8-b159-14f6b6161870",
+            "20000000-0000-0000-0000-000000000001",
+            authenticated_user_id=client.AUTH_USER_ID,
+        )
+
+        self.assertEqual(response["status"], "CANCELLED")
+        self.assertEqual(response["userID"], client.DOMAIN_USER_ID)
+        self.assertEqual(client.last_cancel_waitlist_user_id, client.DOMAIN_USER_ID)
 
 
 if __name__ == "__main__":
