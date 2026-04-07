@@ -70,8 +70,8 @@ Supabase context source:
 1. Bring stack up with fresh images:
    - `docker compose up -d --build`
 2. Confirm service and docs availability:
-   - Direct orchestrator docs: `http://localhost:6003/docs`
-   - Direct OpenAPI: `http://localhost:6003/openapi.json`
+  - Direct orchestrator docs: `http://localhost:6004/docs`
+  - Direct OpenAPI: `http://localhost:6004/openapi.json`
    - Kong base: `http://localhost:8000`
 3. Confirm `.env.local` has matching internal auth values used by orchestrator:
    - `INTERNAL_AUTH_HEADER` (default `X-Internal-Token`)
@@ -166,7 +166,7 @@ Notes for CO-025:
 
 | ID | Test name | Arrange | Act | Assert (expected output) |
 |---|---|---|---|---|
-| CO-040 | should_match_alias_denied_response_between_service_and_kong | Use policy-denied case CO-021 | Compare direct `http://localhost:6003/bookings/cancel/7b100000-0000-0000-0000-000000000006` vs Kong `http://localhost:8000/bookings/cancel/7b100000-0000-0000-0000-000000000006` with same body | Same status code (`409`) and same semantic payload (`status=DENIED`, reason). |
+| CO-040 | should_match_alias_denied_response_between_service_and_kong | Use policy-denied case CO-021 | Compare direct `http://localhost:6004/bookings/cancel/7b100000-0000-0000-0000-000000000006` vs Kong `http://localhost:8000/bookings/cancel/7b100000-0000-0000-0000-000000000006` with same body | Same status code (`409`) and same semantic payload (`status=DENIED`, reason). |
 | CO-041 | should_match_validation_error_between_service_and_kong | Use invalid UUID path | Compare direct and Kong for `POST /bookings/cancel/not-a-uuid` | Same status code (`400`) and same validation error semantics. |
 
 ## 7) SQL Helpers

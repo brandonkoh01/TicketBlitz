@@ -261,7 +261,7 @@ services:
       user-service:
         condition: service_healthy
     ports:
-      - "6003:5000"
+      - "6004:5000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 10s
