@@ -1,10 +1,11 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useRoleNavigation } from '@/composables/useRoleNavigation'
 import { useApiClient } from '@/composables/useApiClient'
 import { useScenarioReservation } from '@/composables/useScenarioReservation'
 
+const route = useRoute()
 const router = useRouter()
 const { primaryNavItems: navItems } = useRoleNavigation()
 const api = useApiClient()
@@ -26,6 +27,47 @@ const selectedCategory = computed(
   () => categories.value.find((category) => category.category_code === selectedSeatCategory.value) || null
 )
 
+function getQueryValue(value) {
+  if (Array.isArray(value)) {
+    return typeof value[0] === 'string' ? value[0].trim() : ''
+  }
+
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function applyEventPrefill() {
+  const requestedEventID = getQueryValue(route.query.eventID)
+  if (!requestedEventID || events.value.length === 0) return false
+
+  const hasMatch = events.value.some((event) => event.event_id === requestedEventID)
+  if (!hasMatch) return false
+
+  if (selectedEventID.value !== requestedEventID) {
+    selectedEventID.value = requestedEventID
+  }
+
+  return true
+}
+
+function applyCategoryPrefill() {
+  const requestedCategoryCode = getQueryValue(route.query.seatCategory)
+  if (!requestedCategoryCode || categories.value.length === 0) return false
+
+  const requestedUpper = requestedCategoryCode.toUpperCase()
+  const matchedCategory = categories.value.find(
+    (category) =>
+      typeof category.category_code === 'string' && category.category_code.toUpperCase() === requestedUpper
+  )
+
+  if (!matchedCategory) return false
+
+  if (selectedSeatCategory.value !== matchedCategory.category_code) {
+    selectedSeatCategory.value = matchedCategory.category_code
+  }
+
+  return true
+}
+
 async function loadEvents() {
   loadingEvents.value = true
   localError.value = ''
@@ -34,7 +76,8 @@ async function loadEvents() {
     const payload = await api.get('/events', { includeUserHeader: false })
     events.value = payload?.events || []
 
-    if (!selectedEventID.value && events.value.length > 0) {
+    const hasAppliedPrefill = applyEventPrefill()
+    if (!hasAppliedPrefill && !selectedEventID.value && events.value.length > 0) {
       selectedEventID.value = events.value[0].event_id
     }
   } catch (error) {
@@ -54,7 +97,8 @@ async function loadCategories(eventID) {
     const payload = await api.get(`/event/${eventID}/categories`, { includeUserHeader: false })
     categories.value = payload?.categories || []
 
-    if (!categories.value.some((category) => category.category_code === selectedSeatCategory.value)) {
+    const hasAppliedPrefill = applyCategoryPrefill()
+    if (!hasAppliedPrefill && !categories.value.some((category) => category.category_code === selectedSeatCategory.value)) {
       selectedSeatCategory.value = categories.value[0]?.category_code || ''
     }
   } catch (error) {
@@ -69,6 +113,21 @@ async function loadCategories(eventID) {
 watch(selectedEventID, (eventID) => {
   loadCategories(eventID)
 })
+
+watch(
+  () => [route.query.eventID, route.query.seatCategory],
+  () => {
+    const hasAppliedEvent = applyEventPrefill()
+    if (!hasAppliedEvent && events.value.length > 0 && !events.value.some((event) => event.event_id === selectedEventID.value)) {
+      selectedEventID.value = events.value[0]?.event_id || ''
+    }
+
+    const hasAppliedCategory = applyCategoryPrefill()
+    if (!hasAppliedCategory && categories.value.length > 0 && !categories.value.some((category) => category.category_code === selectedSeatCategory.value)) {
+      selectedSeatCategory.value = categories.value[0]?.category_code || ''
+    }
+  }
+)
 
 async function handleReserve() {
   localError.value = ''
