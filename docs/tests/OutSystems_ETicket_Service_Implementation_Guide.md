@@ -13,6 +13,7 @@ This guide restores the canonical flow that supports these endpoints:
 3. `GET /eticket/validate`
 4. `PUT /etickets/status/{ticketID}`
 5. `POST /etickets/update`
+6. `GET /etickets/user/{userID}`
 
 ---
 
@@ -29,6 +30,7 @@ The service must support:
 3. Ownership validation for cancellation and transfer flows.
 4. Ticket status updates.
 5. Ticket transfer and reissue updates.
+6. User-level ticket retrieval for My Tickets and profile views.
 
 The source of truth for ticket records is the OutSystems service itself.
 
@@ -111,6 +113,23 @@ Create these structures exactly.
 2. `message` (Text, Required)
 3. `details` (Text, Optional)
 4. `correlationID` (Text, Optional)
+
+### 2.10 ETicketListItem
+
+1. `ticketID` (Text, Required)
+2. `holdID` (Text, Required)
+3. `userID` (Text, Required)
+4. `eventID` (Text, Required)
+5. `seatID` (Text, Required)
+6. `seatNumber` (Text, Required)
+7. `status` (Text, Required)
+8. `issuedAt` (DateTime, Required)
+
+### 2.11 GetETicketsByUserResponse
+
+1. `userID` (Text, Required)
+2. `tickets` (List of `ETicketListItem`, Required)
+3. `count` (Integer, Required)
 
 Publish `TB_Fnd_Contracts` after creating the structures.
 
@@ -1471,9 +1490,153 @@ Publish after completion.
 
 ---
 
+## 11.3 Implement Step 14: GET /etickets/user/{userID}
+
+This method returns all tickets owned by one user. It is read-only and should return a stable, descending order by issue time.
+
+### 11.3.1 Method definition
+
+1. Open `REST > v1 > GetETicketsByUser`.
+2. Confirm input parameter `userID` (Text) from path.
+3. Set output parameter to `OutBody` of type `GetETicketsByUserResponse`.
+4. Add local variables:
+   - `CorrelationId` (Text)
+   - `TicketItem` (`ETicketListItem`)
+   - `TicketsOut` (List of `ETicketListItem`)
+
+### 11.3.2 Build the flow
+
+1. Start.
+2. Add Assign:
+   - `CorrelationId = GenerateGuid()`
+3. Call `ValidateRequiredText` with:
+   - `Value = userID`
+   - `FieldName = "userID"`
+4. Add Decision on `ValidateRequiredText.IsValid`.
+
+#### Invalid input branch (`False`)
+
+1. Call `BuildApiError` with:
+   - `Code = "INVALID_REQUEST"`
+   - `Message = ValidateRequiredText.ErrorMessage`
+   - `Details = "userID"`
+   - `CorrelationID = CorrelationId`
+2. Assign response fallback:
+   - `OutBody.userID = userID`
+   - `OutBody.count = 0`
+   - Clear `TicketsOut` list and assign `OutBody.tickets = TicketsOut`
+3. Call `LogApiEvent`:
+   - `EventName = "GetETicketsByUser"`
+   - `TicketId = ""`
+   - `HoldId = ""`
+   - `CorrelationId = CorrelationId`
+   - `RequestBody = "userID=" + userID`
+   - `ResponseBody = BuildApiError.ErrorOut.code + "|" + BuildApiError.ErrorOut.message + "|" + BuildApiError.ErrorOut.details`
+   - `Outcome = "400|" + BuildApiError.ErrorOut.code`
+4. Call `HTTPRequestHandler.SetStatusCode(400)`.
+5. End with `OutBody`.
+
+#### Valid input branch (`True`)
+
+1. Add Aggregate `GetTicketsByUser`:
+   - Source: `ETicket`
+   - Filter: `ETicket.UserId = userID`
+   - Sort: `ETicket.IssuedAt` descending, then `ETicket.CreatedAt` descending
+2. Add Decision `HasUserTickets` with condition:
+   - `GetTicketsByUser.List.Length > 0`
+
+#### HasUserTickets = `False` (user has no tickets)
+
+1. Clear `TicketsOut` list.
+2. Assign:
+   - `OutBody.userID = userID`
+   - `OutBody.tickets = TicketsOut`
+   - `OutBody.count = 0`
+3. Call `LogApiEvent`:
+   - `EventName = "GetETicketsByUser"`
+   - `TicketId = ""`
+   - `HoldId = ""`
+   - `CorrelationId = CorrelationId`
+   - `RequestBody = "userID=" + userID`
+   - `ResponseBody = "count=0"`
+   - `Outcome = "200|OK"`
+4. Call `HTTPRequestHandler.SetStatusCode(200)`.
+5. End with `OutBody`.
+
+#### HasUserTickets = `True` (detailed loop implementation)
+
+1. Clear `TicketsOut` list before entering loop.
+2. Add `For Each` over `GetTicketsByUser.List`.
+3. In the loop properties, set Record List to `GetTicketsByUser.List`.
+4. Inside loop, add an Assign named `MapCurrentTicketToItem`.
+5. Map all fields from current aggregate row:
+   - `TicketItem.ticketID = GetTicketsByUser.List.Current.ETicket.TicketId`
+   - `TicketItem.holdID = GetTicketsByUser.List.Current.ETicket.HoldId`
+   - `TicketItem.userID = GetTicketsByUser.List.Current.ETicket.UserId`
+   - `TicketItem.eventID = GetTicketsByUser.List.Current.ETicket.EventId`
+   - `TicketItem.seatID = GetTicketsByUser.List.Current.ETicket.SeatId`
+   - `TicketItem.seatNumber = GetTicketsByUser.List.Current.ETicket.SeatNumber`
+   - `TicketItem.status = GetTicketsByUser.List.Current.ETicket.Status`
+   - `TicketItem.issuedAt = GetTicketsByUser.List.Current.ETicket.IssuedAt`
+6. Add Action `ListAppend` right after the mapping Assign:
+   - `List = TicketsOut`
+   - `Element = TicketItem`
+7. Return to the `For Each` cycle line so the next record repeats Steps 5 and 6.
+8. After the loop ends, add Assign:
+   - `OutBody.userID = userID`
+   - `OutBody.tickets = TicketsOut`
+   - `OutBody.count = ListLength(TicketsOut)`
+9. Call `LogApiEvent`:
+   - `EventName = "GetETicketsByUser"`
+   - `TicketId = ""`
+   - `HoldId = ""`
+   - `CorrelationId = CorrelationId`
+   - `RequestBody = "userID=" + userID`
+   - `ResponseBody = "count=" + IntegerToText(OutBody.count)`
+   - `Outcome = "200|OK"`
+10. Call `HTTPRequestHandler.SetStatusCode(200)`.
+11. End with `OutBody`.
+
+### 11.3.3 AllExceptions handler
+
+1. Add `AllExceptions` handler in `GetETicketsByUser`.
+2. Call `BuildApiError`:
+   - `Code = "500"`
+   - `Message = "Internal server error."`
+   - `Details = "Unexpected error in GetETicketsByUser."`
+   - `CorrelationID = CorrelationId`
+3. Assign fallback response:
+   - `OutBody.userID = userID`
+   - `OutBody.count = 0`
+   - Clear `TicketsOut` and assign `OutBody.tickets = TicketsOut`
+4. Call `LogApiEvent`:
+   - `EventName = "GetETicketsByUser"`
+   - `TicketId = ""`
+   - `HoldId = ""`
+   - `CorrelationId = CorrelationId`
+   - `RequestBody = "userID=" + userID`
+   - `ResponseBody = BuildApiError.ErrorOut.code + "|" + BuildApiError.ErrorOut.message + "|" + BuildApiError.ErrorOut.details`
+   - `Outcome = "500|INTERNAL_ERROR"`
+5. Call `HTTPRequestHandler.SetStatusCode(500)`.
+6. End with `OutBody`.
+
+### 11.3.4 Completion check
+
+1. Existing user with tickets returns `200` and `count > 0`.
+2. Existing user with no tickets returns `200` and `count = 0`.
+3. Missing/blank `userID` returns `400`.
+4. Unexpected exception path returns `500` with safe fallback body.
+5. `HasUserTickets` decision routes correctly:
+   - `False` branch skips loop and returns empty list.
+   - `True` branch runs full loop mapping and appends every row.
+
+Publish after completion.
+
+---
+
 ## 11.4 Response Pattern — Standard Across All Methods
 
-All 5 REST methods follow the **same single response pattern** since each has only ONE output parameter: `OutBody`.
+All 6 REST methods follow the **same single response pattern** since each has only ONE output parameter: `OutBody`.
 
 **Reminder: See Section 6.4 for how to use `HTTPRequestHandler.SetStatusCode()`.**
 
@@ -1543,7 +1706,7 @@ Result: HTTP 404 + OutBody (with error fields) as JSON
 - End with `OutBody` — the response object is serialized to JSON with the status code you set
 - The caller must check the HTTP status code to interpret whether this is an error
 
-### 11.5 Logging Retrofit Checklist (Apply to All 5 Methods)
+### 11.5 Logging Retrofit Checklist (Apply to All 6 Methods)
 
 Use this checklist if your current implementation logs only `GenerateETicket`.
 
@@ -1552,8 +1715,9 @@ Use this checklist if your current implementation logs only `GenerateETicket`.
 3. `ValidateTicketOwnership`: add `LogApiEvent` before every End (`200`, `400`, `403`, `404`, `409`, `500`).
 4. `UpdateTicketStatus`: add `LogApiEvent` before every End (`200`, `400`, `404`, `409`, `500`).
 5. `UpdateETickets`: add `LogApiEvent` before every End (`200`, `400`, `404`, `500`).
-6. Ensure `CorrelationId` is set once at method start (incoming value or generated GUID) and reused in all log calls.
-7. Ensure every `AllExceptions` handler logs `Outcome = "500|INTERNAL_ERROR"` before End.
+6. `GetETicketsByUser`: add `LogApiEvent` before every End (`200`, `400`, `500`).
+7. Ensure `CorrelationId` is set once at method start (incoming value or generated GUID) and reused in all log calls.
+8. Ensure every `AllExceptions` handler logs `Outcome = "500|INTERNAL_ERROR"` before End.
 
 ### 11.6 Exact LogApiEvent Field Mapping for Error Paths
 
@@ -1769,6 +1933,28 @@ For exception path (`500`):
 6. `ResponseBody = "500|Internal server error"`
 7. `Outcome = "500|INTERNAL_ERROR"`
 
+#### F) GetETicketsByUser (`GET /etickets/user/{userID}`)
+
+For invalid input (`400`) in Step 11.3.2:
+
+1. `EventName = "GetETicketsByUser"`
+2. `TicketId = ""`
+3. `HoldId = ""`
+4. `CorrelationId = CorrelationId`
+5. `RequestBody = "userID=" + userID`
+6. `ResponseBody = BuildApiError.ErrorOut.code + "|" + BuildApiError.ErrorOut.message + "|" + BuildApiError.ErrorOut.details`
+7. `Outcome = "400|" + BuildApiError.ErrorOut.code`
+
+For exception path (`500`):
+
+1. `EventName = "GetETicketsByUser"`
+2. `TicketId = ""`
+3. `HoldId = ""`
+4. `CorrelationId = CorrelationId`
+5. `RequestBody = "userID=" + userID`
+6. `ResponseBody = "500|Internal server error"`
+7. `Outcome = "500|INTERNAL_ERROR"`
+
 Implementation order reminder for every error path:
 
 1. `BuildApiError` (when applicable)
@@ -1871,6 +2057,18 @@ For `TRANSFER_AND_REISSUE` idempotent replay success (`200`) in Step 11.2.2:
 6. `ResponseBody = OutBody.operation + "|" + OutBody.oldTicketStatus + "|" + OutBody.newTicketID`
 7. `Outcome = "200|IDEMPOTENT_REPLAY"`
 
+#### F) GetETicketsByUser (`GET /etickets/user/{userID}`)
+
+For successful read (`200`) in Step 11.3.2:
+
+1. `EventName = "GetETicketsByUser"`
+2. `TicketId = ""`
+3. `HoldId = ""`
+4. `CorrelationId = CorrelationId`
+5. `RequestBody = "userID=" + userID`
+6. `ResponseBody = "count=" + IntegerToText(OutBody.count)`
+7. `Outcome = "200|OK"`
+
 Implementation order reminder for every success path:
 
 1. Assign `OutBody` success values
@@ -1911,6 +2109,7 @@ Keep these URLs exactly:
 3. `/eticket/validate`
 4. `/etickets/status/{ticketID}`
 5. `/etickets/update`
+6. `/etickets/user/{userID}`
 
 Do not rename path segments after publishing unless you also update all consumers.
 
@@ -1931,7 +2130,7 @@ Use the correct status code for the final branch of each method:
 
 ### 13.1 All Exceptions rule for every endpoint
 
-For each REST method in this guide (`GenerateETicket`, `GetETicketByHold`, `ValidateTicketOwnership`, `UpdateTicketStatus`, `UpdateETickets`):
+For each REST method in this guide (`GenerateETicket`, `GetETicketByHold`, `ValidateTicketOwnership`, `UpdateTicketStatus`, `UpdateETickets`, `GetETicketsByUser`):
 
 1. Add an `AllExceptions` handler at action level.
 2. Call `BuildApiError` with:
@@ -1995,8 +2194,9 @@ Test this order:
 3. `GET /eticket/hold/{holdID}`.
 4. `GET /eticket/validate` with the correct user.
 5. `GET /eticket/validate` with the wrong user.
-6. `PUT /etickets/status/{ticketID}` to update status.
-7. `POST /etickets/update` for transfer flow if needed.
+6. `GET /etickets/user/{userID}` for user-level list retrieval.
+7. `PUT /etickets/status/{ticketID}` to update status.
+8. `POST /etickets/update` for transfer flow if needed.
 
 ---
 
@@ -2021,7 +2221,15 @@ For the UI/status poll:
 2. If `200`, show ticket data.
 3. If `404`, treat it as still processing unless other business errors exist.
 
-### 16.3 Cancellation / Transfer flows
+### 16.3 User Ticket Listing (My Tickets / Profile)
+
+Use:
+
+1. `GET /etickets/user/{userID}`
+2. If `200` and `count > 0`, render ticket cards from `OutBody.tickets`.
+3. If `200` and `count = 0`, render empty-state UI.
+
+### 16.4 Cancellation / Transfer flows
 
 Use:
 
@@ -2044,6 +2252,7 @@ The canonical E-Ticket API list is:
 3. `GET /eticket/validate`
 4. `PUT /etickets/status/{ticketID}`
 5. `POST /etickets/update`
+6. `GET /etickets/user/{userID}`
 
 ---
 
@@ -2052,13 +2261,14 @@ The canonical E-Ticket API list is:
 The implementation is complete only when all of these are true:
 
 1. The OutSystems module is published.
-2. All 5 endpoints appear in Swagger.
+2. All 6 endpoints appear in Swagger.
 3. Custom authentication is enforced.
 4. `POST /eticket/generate` is idempotent by `holdID`.
 5. `GET /eticket/hold/{holdID}` works.
 6. `GET /eticket/validate` works.
 7. `PUT /etickets/status/{ticketID}` works.
 8. `POST /etickets/update` works.
+9. `GET /etickets/user/{userID}` works.
 
 ---
 
@@ -2089,6 +2299,8 @@ Required request headers for all endpoints:
    - Purpose: Transition ticket status with explicit transition rules.
 5. `POST /etickets/update`
    - Purpose: Perform cancel-only or transfer-and-reissue in one operation.
+6. `GET /etickets/user/{userID}`
+   - Purpose: Retrieve all tickets owned by one user for dashboard/profile views.
 
 ### 19.3 Detailed Contract by Endpoint
 
@@ -2270,6 +2482,32 @@ Common error status codes:
 2. `404` old ticket not found
 3. `409` business conflict (`HOLD_ALREADY_ASSIGNED`, `INVALID_TICKET_STATE`)
 4. `500` internal error
+
+#### F) GET /etickets/user/{userID}
+
+Purpose:
+
+1. Retrieve all tickets owned by one user.
+2. Support fan ticket-center pages with one request.
+
+Path input:
+
+1. `userID` (required)
+
+Success response:
+
+1. `200`
+
+Output body (`GetETicketsByUserResponse`):
+
+1. `userID`
+2. `tickets` (List of `ETicketListItem`)
+3. `count`
+
+Common error status codes:
+
+1. `400` invalid `userID`
+2. `500` internal error
 
 ### 19.4 Orchestrator Call Sequencing Recommendations
 
