@@ -8,10 +8,12 @@ from typing import Any
 
 import requests
 from dotenv import load_dotenv
-from flask import Blueprint, Flask, Response, current_app, jsonify, request
+from flask import Blueprint, Flask, current_app, jsonify, request
 from flask_cors import CORS
 
 from shared.mq import publish_json
+from shared.openapi import register_openapi_routes
+from shared.swagger_specs import get_service_swagger_spec
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -965,144 +967,9 @@ def confirm_reallocation():
 
 
 def _build_openapi_spec(base_url: str) -> dict[str, Any]:
-    return {
-        "openapi": "3.0.3",
-        "info": {
-            "title": "TicketBlitz Cancellation Orchestrator API",
-            "version": "1.0.0",
-            "description": "Scenario 3 cancellation and reallocation orchestration endpoints.",
-        },
-        "servers": [{"url": base_url}],
-        "paths": {
-            "/health": {
-                "get": {
-                    "summary": "Health check",
-                    "responses": {
-                        "200": {
-                            "description": "Service health",
-                        }
-                    },
-                }
-            },
-            "/orchestrator/cancellation": {
-                "post": {
-                    "summary": "Start cancellation and refund orchestration",
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "required": ["bookingID", "userID"],
-                                    "properties": {
-                                        "bookingID": {"type": "string", "format": "uuid"},
-                                        "userID": {"type": "string", "format": "uuid"},
-                                        "reason": {"type": "string"},
-                                        "correlationID": {"type": "string", "format": "uuid"},
-                                    },
-                                }
-                            }
-                        },
-                    },
-                    "responses": {
-                        "200": {"description": "Cancellation completed"},
-                        "202": {"description": "Reallocation payment pending"},
-                        "409": {"description": "Policy denied or conflict"},
-                        "502": {"description": "Refund failed with compensation"},
-                    },
-                }
-            },
-            "/bookings/cancel/{booking_id}": {
-                "post": {
-                    "summary": "Alias endpoint for Kong-facing cancellation path",
-                    "parameters": [
-                        {
-                            "name": "booking_id",
-                            "in": "path",
-                            "required": True,
-                            "schema": {"type": "string", "format": "uuid"},
-                        }
-                    ],
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "required": ["userID"],
-                                    "properties": {
-                                        "userID": {"type": "string", "format": "uuid"},
-                                        "reason": {"type": "string"},
-                                        "correlationID": {"type": "string", "format": "uuid"},
-                                    },
-                                }
-                            }
-                        },
-                    },
-                    "responses": {
-                        "200": {"description": "Cancellation completed"},
-                        "202": {"description": "Reallocation payment pending"},
-                    },
-                }
-            },
-            "/orchestrator/cancellation/reallocation/confirm": {
-                "post": {
-                    "summary": "Finalize waitlist reallocation after new payment",
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "required": ["bookingID", "newHoldID", "waitlistID"],
-                                    "properties": {
-                                        "bookingID": {"type": "string", "format": "uuid"},
-                                        "newHoldID": {"type": "string", "format": "uuid"},
-                                        "waitlistID": {"type": "string", "format": "uuid"},
-                                        "newUserID": {"type": "string", "format": "uuid"},
-                                        "correlationID": {"type": "string", "format": "uuid"},
-                                    },
-                                }
-                            }
-                        },
-                    },
-                    "responses": {
-                        "200": {"description": "Reallocation confirmed"},
-                        "409": {"description": "Payment not completed"},
-                    },
-                }
-            },
-        },
-    }
-
-
-def _build_swagger_ui_html(openapi_url: str) -> str:
-    return """<!doctype html>
-<html lang=\"en\">
-  <head>
-    <meta charset=\"UTF-8\" />
-    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
-    <title>TicketBlitz Cancellation Orchestrator API Docs</title>
-    <link rel=\"stylesheet\" href=\"https://unpkg.com/swagger-ui-dist@5/swagger-ui.css\" />
-    <style>
-      body {{ margin: 0; background: #fafafa; }}
-      #swagger-ui {{ max-width: 1180px; margin: 0 auto; }}
-    </style>
-  </head>
-  <body>
-    <div id=\"swagger-ui\"></div>
-    <script src=\"https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js\"></script>
-    <script>
-      window.ui = SwaggerUIBundle({{
-        url: '{openapi_url}',
-        dom_id: '#swagger-ui',
-        deepLinking: true,
-        displayRequestDuration: true,
-      }});
-    </script>
-  </body>
-</html>
-""".format(openapi_url=openapi_url)
+    spec = get_service_swagger_spec("cancellation-orchestrator")
+    spec["servers"] = [{"url": base_url}]
+    return spec
 
 
 def _register_error_handlers(app: Flask) -> None:
@@ -1131,13 +998,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     CORS(app)
     app.register_blueprint(cancellation_bp)
 
-    @app.get("/openapi.json")
-    def openapi_json():
-        return jsonify(_build_openapi_spec(request.host_url.rstrip("/")))
-
-    @app.get("/docs")
-    def docs():
-        return Response(_build_swagger_ui_html("/openapi.json"), mimetype="text/html")
+    register_openapi_routes(app, lambda: _build_openapi_spec(request.host_url.rstrip("/")))
 
     _register_error_handlers(app)
 

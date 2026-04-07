@@ -181,7 +181,7 @@ Within each HTTP service, follow:
 2. Read endpoints
 3. Write endpoints
 4. Error handling
-5. OpenAPI (`/openapi.json`, `/docs`)
+5. OpenAPI (service-specific docs route; see section 13.3 for each service)
 6. Container build and health check
 7. Kong route validation
 
@@ -639,9 +639,12 @@ curl -i -X POST http://localhost:8000/reserve \
 
 | Service | URL |
 |---|---|
-| Event Service docs | http://localhost:5001/docs |
+| Event Service docs | http://localhost:5001/apidocs/ |
 | User Service docs | http://localhost:5002/docs |
+| Inventory Service docs | http://localhost:5003/inventory/docs/ |
+| Payment Service docs | http://localhost:5004/docs |
 | Waitlist Service docs | http://localhost:5005/docs |
+| Reservation Orchestrator docs | http://localhost:6001/docs |
 | Booking Status docs | http://localhost:6002/docs |
 | Cancellation docs | http://localhost:6004/docs |
 | Kong Admin API | http://localhost:8001 |

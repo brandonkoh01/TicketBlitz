@@ -8,8 +8,10 @@ from typing import Any
 
 import requests
 from dotenv import load_dotenv
-from flask import Blueprint, Flask, Response, current_app, jsonify, request
+from flask import Blueprint, Flask, current_app, jsonify, request
 from flask_cors import CORS
+from shared.openapi import register_openapi_routes
+from shared.swagger_specs import get_service_swagger_spec
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -421,164 +423,21 @@ def get_booking_status(hold_id: str):
 
 
 def _build_openapi_spec(base_url: str) -> dict[str, Any]:
-    return {
-        "openapi": "3.0.3",
-        "info": {
-            "title": "TicketBlitz Booking Status Service API",
-            "version": "1.0.0",
-            "description": "Composite read endpoint for booking status polling.",
-        },
-        "servers": [{"url": base_url}],
-        "paths": {
-            "/health": {
-                "get": {
-                    "summary": "Health check",
-                    "responses": {
-                        "200": {
-                            "description": "Service health",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/HealthResponse"}
-                                }
-                            },
-                        }
-                    },
-                }
-            },
-            "/booking-status/{hold_id}": {
-                "get": {
-                    "summary": "Resolve booking status by hold ID",
-                    "parameters": [
-                        {
-                            "in": "path",
-                            "name": "hold_id",
-                            "required": True,
-                            "schema": {"type": "string", "format": "uuid"},
-                            "description": "Seat hold ID",
-                        }
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Booking status response",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/BookingStatusResponse"}
-                                }
-                            },
-                        },
-                        "400": {
-                            "description": "Invalid hold ID",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/ErrorResponse"}
-                                }
-                            },
-                        },
-                        "404": {
-                            "description": "Hold not found",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/ErrorResponse"}
-                                }
-                            },
-                        },
-                        "503": {
-                            "description": "Dependency unavailable",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/ErrorResponse"}
-                                }
-                            },
-                        },
-                    },
-                }
-            },
-        },
-        "components": {
-            "schemas": {
-                "HealthResponse": {
-                    "type": "object",
-                    "properties": {
-                        "status": {"type": "string"},
-                        "service": {"type": "string"},
-                        "dependencies": {"type": "object"},
-                    },
-                    "required": ["status", "service"],
-                },
-                "BookingStatusResponse": {
-                    "type": "object",
-                    "properties": {
-                        "holdID": {"type": "string", "format": "uuid"},
-                        "uiStatus": {
-                            "type": "string",
-                            "enum": [
-                                UI_STATUS_PROCESSING,
-                                UI_STATUS_CONFIRMED,
-                                UI_STATUS_FAILED_PAYMENT,
-                                UI_STATUS_EXPIRED,
-                            ],
-                        },
-                        "holdStatus": {"type": "string"},
-                        "paymentStatus": {"type": ["string", "null"]},
-                        "ticketStatus": {"type": ["string", "null"]},
-                        "ticketID": {"type": ["string", "null"]},
-                        "seatNumber": {"type": ["string", "null"]},
-                        "amount": {"type": ["number", "null"]},
-                        "currency": {"type": ["string", "null"]},
-                        "holdExpiry": {"type": ["string", "null"], "format": "date-time"},
-                        "confirmedAt": {"type": ["string", "null"], "format": "date-time"},
-                        "expiredAt": {"type": ["string", "null"], "format": "date-time"},
-                        "releasedAt": {"type": ["string", "null"], "format": "date-time"},
-                        "transactionID": {"type": ["string", "null"], "format": "uuid"},
-                        "paymentIntentID": {"type": ["string", "null"]},
-                        "failureReason": {"type": ["string", "null"]},
-                        "issuedAt": {"type": ["string", "null"], "format": "date-time"},
-                        "fromWaitlist": {"type": ["boolean", "null"]},
-                        "dependencyStatus": {"type": "object"},
-                        "updatedAt": {"type": ["string", "null"], "format": "date-time"},
-                    },
-                    "required": ["holdID", "uiStatus", "holdStatus"],
-                },
-                "ErrorResponse": {
-                    "type": "object",
-                    "properties": {
-                        "error": {"type": "string"},
-                        "details": {},
-                    },
-                    "required": ["error"],
-                },
-            }
-        },
-    }
+    spec = get_service_swagger_spec("booking-status-service")
+    spec["servers"] = [{"url": base_url}]
 
+    enum_values = spec.get("components", {}).get("schemas", {}).get("BookingStatusResponse", {}).get("properties", {}).get(
+        "uiStatus", {}
+    )
+    if isinstance(enum_values, dict):
+        enum_values["enum"] = [
+            UI_STATUS_PROCESSING,
+            UI_STATUS_CONFIRMED,
+            UI_STATUS_FAILED_PAYMENT,
+            UI_STATUS_EXPIRED,
+        ]
 
-def _build_swagger_ui_html(openapi_url: str) -> str:
-    return """<!doctype html>
-<html lang=\"en\">
-  <head>
-    <meta charset=\"UTF-8\" />
-    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
-    <title>TicketBlitz Booking Status API Docs</title>
-    <link rel=\"stylesheet\" href=\"https://unpkg.com/swagger-ui-dist@5/swagger-ui.css\" />
-    <style>
-      body {{ margin: 0; background: #fafafa; }}
-      #swagger-ui {{ max-width: 1180px; margin: 0 auto; }}
-    </style>
-  </head>
-  <body>
-    <div id=\"swagger-ui\"></div>
-    <script src=\"https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js\"></script>
-    <script>
-      window.ui = SwaggerUIBundle({{
-        url: '{openapi_url}',
-        dom_id: '#swagger-ui',
-        deepLinking: true,
-        displayRequestDuration: true,
-      }});
-    </script>
-  </body>
-</html>
-""".format(openapi_url=openapi_url)
+    return spec
 
 
 def _register_error_handlers(app: Flask) -> None:
@@ -607,13 +466,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     CORS(app)
     app.register_blueprint(booking_status_bp)
 
-    @app.get("/openapi.json")
-    def openapi_json():
-        return jsonify(_build_openapi_spec(request.host_url.rstrip("/")))
-
-    @app.get("/docs")
-    def docs():
-        return Response(_build_swagger_ui_html("/openapi.json"), mimetype="text/html")
+    register_openapi_routes(app, lambda: _build_openapi_spec(request.host_url.rstrip("/")))
 
     _register_error_handlers(app)
 

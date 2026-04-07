@@ -1,4 +1,4 @@
-# Scenario 1 Demo Runbook (Unabridged End-to-End Implementation)
+# Scenario 1 Demo Runbook (Deterministic Demo + Test Cases)
 
 ## Objective
 Execute Scenario 1 exactly as defined in `docs/Scenarios.md`, from first request to final UI state, including all asynchronous handoffs:
@@ -13,7 +13,13 @@ This runbook is aligned to:
 - `docs/Scenarios.md` (Scenario 1 architecture and contracts)
 - `docs/Setup.md` (runtime setup)
 - live Supabase project `cpxcpvcfbohvpiubbujg`
-- current service behavior observed on 2026-04-05
+- current service behavior and Supabase snapshot observed on 2026-04-07
+
+Test design in this revision prioritizes:
+
+- critical business flow assertions first (reserve/waitlist/promotion/timeout)
+- deterministic fixtures for repeatable demos
+- edge and error-path checks that commonly fail during live demos
 
 ## Scope And Non-Negotiable Design Rules
 
@@ -31,10 +37,32 @@ This runbook follows these Scenario 1 implementation rules from `docs/Scenarios.
 
 Use these IDs in payloads unless explicitly stated otherwise:
 
-- Available branch event (`EVT-301`): `10000000-0000-0000-0000-000000000301`
-- Sold-out/waitlist branch event (`EVT-501`): `10000000-0000-0000-0000-000000000501`
-- Fan user (API demo): `eba6aebb-a848-410b-8d6e-1b8275c4ce9c`
-- Deterministic expired hold fixture: `40000000-0000-0000-0000-000000000003`
+- Primary event (`EVT-301`): `10000000-0000-0000-0000-000000000301`
+- Primary fan user (API reserve demo): `eba6aebb-a848-410b-8d6e-1b8275c4ce9c`
+- Deterministic expired fixture hold: `40000000-0000-0000-0000-000000000003`
+
+### 1.1 New deterministic fixture pack (inserted 2026-04-07)
+
+These rows were inserted into Supabase project `cpxcpvcfbohvpiubbujg` and can be re-seeded from:
+
+- `database/20260407_seed_scenario1_demo_fixtures.sql`
+
+Fixture IDs:
+
+- Users: `9d100000-0000-0000-0000-000000000001` to `...0003`
+- Seats: `9d200000-0000-0000-0000-000000000001` to `...0003`
+- Holds:
+   - `9d300000-0000-0000-0000-000000000001` (`HELD`, waitlist offered)
+   - `9d300000-0000-0000-0000-000000000002` (`EXPIRED`, timeout)
+   - `9d300000-0000-0000-0000-000000000003` (`CONFIRMED`, payment succeeded)
+- Waitlist entries:
+   - `9d400000-0000-0000-0000-000000000001` (`WAITING`)
+   - `9d400000-0000-0000-0000-000000000002` (`HOLD_OFFERED`)
+   - `9d400000-0000-0000-0000-000000000003` (`EXPIRED`)
+   - `9d400000-0000-0000-0000-000000000004` (`CONFIRMED`)
+- Transactions:
+   - `9d500000-0000-0000-0000-000000000001` (`PENDING`)
+   - `9d500000-0000-0000-0000-000000000002` (`SUCCEEDED`)
 
 ## 2) Preflight (Do Not Skip)
 
@@ -97,6 +125,27 @@ npm install
 npm run dev
 ```
 
+### 2.6 Seed deterministic Scenario 1 fixtures (recommended)
+
+Run in Supabase SQL editor:
+
+```sql
+-- execute file: database/20260407_seed_scenario1_demo_fixtures.sql
+```
+
+Minimum verification:
+
+```sql
+select hold_id, status
+from public.seat_holds
+where hold_id in (
+   '9d300000-0000-0000-0000-000000000001',
+   '9d300000-0000-0000-0000-000000000002',
+   '9d300000-0000-0000-0000-000000000003'
+)
+order by hold_id;
+```
+
 ## 3) Stripe Webhook Setup (Required For 1A/1C Finalization)
 
 Start webhook forwarding in a dedicated terminal:
@@ -145,7 +194,7 @@ curl -s -X POST "http://localhost:8000/reserve" \
    -H "Content-Type: application/json" \
    -H "x-customer-api-key: ticketblitz-customer-dev-key" \
    -H "X-User-ID: eba6aebb-a848-410b-8d6e-1b8275c4ce9c" \
-   -d '{"userID":"eba6aebb-a848-410b-8d6e-1b8275c4ce9c","eventID":"10000000-0000-0000-0000-000000000301","seatCategory":"CAT2","qty":1}'
+   -d '{"userID":"eba6aebb-a848-410b-8d6e-1b8275c4ce9c","eventID":"10000000-0000-0000-0000-000000000301","seatCategory":"PEN","qty":1}'
 ```
 
 Expected:
@@ -168,7 +217,7 @@ Expected:
 ### 5.3 Complete payment in UI
 
 1. Open `http://localhost:5173/ticket-purchase`
-2. Reserve `EVT-301` + `CAT2`
+2. Reserve `EVT-301` + `PEN`
 3. Confirm page route `/booking/pending/<holdID>`
 4. Use Stripe test card
     - Success: `4242424242424242`
@@ -204,6 +253,8 @@ Expected evidence:
 
 ## 6) Step 1B Implementation (Sold Out -> WAITLISTED)
 
+The most stable sold-out branch in the current snapshot is `EVT-301` + `CAT2`.
+
 ### 6.1 Request sold-out category reservation
 
 ```bash
@@ -211,7 +262,7 @@ curl -s -X POST "http://localhost:8000/reserve" \
    -H "Content-Type: application/json" \
    -H "x-customer-api-key: ticketblitz-customer-dev-key" \
    -H "X-User-ID: eba6aebb-a848-410b-8d6e-1b8275c4ce9c" \
-   -d '{"userID":"eba6aebb-a848-410b-8d6e-1b8275c4ce9c","eventID":"10000000-0000-0000-0000-000000000501","seatCategory":"CAT1","qty":1}'
+   -d '{"userID":"eba6aebb-a848-410b-8d6e-1b8275c4ce9c","eventID":"10000000-0000-0000-0000-000000000301","seatCategory":"CAT2","qty":1}'
 ```
 
 Expected:
@@ -354,9 +405,9 @@ Expected evidence:
 ### 8.1 Deterministic timeout fixture check
 
 ```bash
-curl -s "http://localhost:8000/waitlist/confirm/40000000-0000-0000-0000-000000000003" \
+curl -s "http://localhost:8000/waitlist/confirm/9d300000-0000-0000-0000-000000000002" \
    -H "x-customer-api-key: ticketblitz-customer-dev-key" \
-   -H "X-User-ID: 00000000-0000-0000-0000-000000000001"
+   -H "X-User-ID: 9d100000-0000-0000-0000-000000000003"
 ```
 
 Expected:
@@ -369,7 +420,7 @@ Expected:
 ### 8.2 Booking status expiration confirmation
 
 ```bash
-curl -s "http://localhost:8000/booking-status/40000000-0000-0000-0000-000000000003" \
+curl -s "http://localhost:8000/booking-status/9d300000-0000-0000-0000-000000000002" \
    -H "x-customer-api-key: ticketblitz-customer-dev-key"
 ```
 
@@ -412,12 +463,14 @@ Use these queries to prove every state transition end-to-end.
 ### 9.1 Hold lifecycle
 
 ```sql
-select hold_id, user_id, status, hold_expiry, updated_at
+select hold_id, user_id, status, release_reason, hold_expires_at, confirmed_at, expired_at, updated_at
 from public.seat_holds
 where hold_id in (
    '<HOLD_ID_FROM_1A>',
    '<OFFERED_HOLD_ID_FROM_1C>',
-   '40000000-0000-0000-0000-000000000003'
+   '9d300000-0000-0000-0000-000000000001',
+   '9d300000-0000-0000-0000-000000000002',
+   '9d300000-0000-0000-0000-000000000003'
 )
 order by updated_at desc;
 ```
@@ -427,7 +480,12 @@ order by updated_at desc;
 ```sql
 select waitlist_id, user_id, status, hold_id, offered_at, updated_at
 from public.waitlist_entries
-where event_id = '10000000-0000-0000-0000-000000000301'
+where waitlist_id in (
+   '9d400000-0000-0000-0000-000000000001',
+   '9d400000-0000-0000-0000-000000000002',
+   '9d400000-0000-0000-0000-000000000003',
+   '9d400000-0000-0000-0000-000000000004'
+)
 order by updated_at desc
 limit 20;
 ```
@@ -437,7 +495,13 @@ limit 20;
 ```sql
 select hold_id, stripe_payment_intent_id, status, amount, updated_at
 from public.transactions
-where hold_id in ('<HOLD_ID_FROM_1A>', '<OFFERED_HOLD_ID_FROM_1C>')
+where hold_id in (
+   '<HOLD_ID_FROM_1A>',
+   '<OFFERED_HOLD_ID_FROM_1C>',
+   '9d300000-0000-0000-0000-000000000001',
+   '9d300000-0000-0000-0000-000000000003',
+   '8b200000-0000-0000-0000-000000000002'
+)
 order by updated_at desc;
 ```
 
@@ -448,19 +512,69 @@ select s.seat_id, s.status, c.category_code, s.updated_at
 from public.seats s
 join public.seat_categories c on c.category_id = s.category_id
 where s.event_id = '10000000-0000-0000-0000-000000000301'
-   and c.category_code in ('CAT1', 'CAT2')
+    and c.category_code in ('CAT1', 'CAT2', 'PEN')
 order by s.updated_at desc
 limit 20;
 ```
 
-## 10) Expected Outcomes Matrix (Complete)
+### 9.5 Fixture smoke check (newly seeded rows)
 
-| Scenario branch | Input | Mandatory output |
-|---|---|---|
-| 1A reserve available | `POST /reserve` (EVT-301 CAT2) | `status=PAYMENT_PENDING`, then booking status reaches `CONFIRMED` |
-| 1B sold out join waitlist | `POST /reserve` (EVT-501 CAT1) | `status=WAITLISTED`, with `waitlistID` and `position` |
-| 1C waitlist promotion | release hold with reason `PAYMENT_TIMEOUT`, then `GET /waitlist/confirm/{holdID}` + `POST /reserve/confirm` | `uiStatus=WAITLIST_OFFERED`, then `status=PAYMENT_PENDING`, then booking status `CONFIRMED` after payment |
-| 1D timeout terminal | fixture hold or live expiry path | booking status `uiStatus=EXPIRED` |
+```sql
+select
+   h.hold_id,
+   h.status as hold_status,
+   w.waitlist_id,
+   w.status as waitlist_status,
+   t.status as payment_status,
+   u.email
+from public.seat_holds h
+left join public.waitlist_entries w on w.hold_id = h.hold_id
+left join public.transactions t on t.hold_id = h.hold_id
+join public.users u on u.user_id = h.user_id
+where h.hold_id in (
+   '9d300000-0000-0000-0000-000000000001',
+   '9d300000-0000-0000-0000-000000000002',
+   '9d300000-0000-0000-0000-000000000003'
+)
+order by h.hold_id;
+```
+
+## 10) Scenario 1 Test Cases (Demo-Ready)
+
+Naming convention: `should_<expected_behavior>_when_<condition>`
+
+### 10.1 Critical path cases (run during presentation)
+
+| ID | Test name | Type | Arrange | Act | Assert |
+|---|---|---|---|---|---|
+| S1-001 | should_return_payment_pending_when_public_pen_seat_is_available | Integration | Use `EVT-301`, `PEN`, user `eba6aebb-a848-410b-8d6e-1b8275c4ce9c` | `POST /reserve` via Kong | HTTP `200`; `status=PAYMENT_PENDING`; includes `holdID`, `clientSecret`, `returnURL` |
+| S1-002 | should_return_processing_before_webhook_fulfillment_completes | Integration | Use `holdID` from S1-001 immediately | `GET /booking-status/{holdID}` | `uiStatus=PROCESSING` prior to webhook completion |
+| S1-003 | should_return_waitlisted_when_evt301_cat2_is_sold_out | Integration | Current snapshot has `EVT-301` + `CAT2` sold out | `POST /reserve` with `seatCategory=CAT2` | HTTP `200`; `status=WAITLISTED`; `waitlistID` and numeric `position` present |
+| S1-004 | should_return_waitlist_offered_when_seeded_offer_hold_is_requested | Integration | Seeded fixture hold `9d300000-0000-0000-0000-000000000001`, user `9d100000-0000-0000-0000-000000000001` | `GET /waitlist/confirm/9d300000-0000-0000-0000-000000000001` | HTTP `200`; `uiStatus=WAITLIST_OFFERED`; waitlist status `HOLD_OFFERED` |
+| S1-005 | should_return_payment_pending_when_waitlist_offer_is_confirmed | Integration | Same fixture as S1-004 | `POST /reserve/confirm` with `holdID=9d300000-0000-0000-0000-000000000001` and matching `userID` | HTTP `200`; `status=PAYMENT_PENDING`; `paymentIntentID` and `clientSecret` present |
+| S1-006 | should_return_expired_for_seeded_timeout_hold | Integration | Seeded fixture hold `9d300000-0000-0000-0000-000000000002` | `GET /booking-status/9d300000-0000-0000-0000-000000000002` and `GET /waitlist/confirm/9d300000-0000-0000-0000-000000000002` | `uiStatus=EXPIRED` on both APIs |
+
+### 10.2 Deterministic terminal-state fixtures
+
+| ID | Test name | Type | Fixture | Expected outcome |
+|---|---|---|---|---|
+| S1-007 | should_show_confirmed_for_seeded_confirmed_hold | Integration | `holdID=9d300000-0000-0000-0000-000000000003` | `booking-status` returns `uiStatus=CONFIRMED` or `PROCESSING` with `paymentStatus=SUCCEEDED` if e-ticket dependency is unavailable |
+| S1-008 | should_show_failed_payment_for_known_failed_fixture | Integration | `holdID=8b200000-0000-0000-0000-000000000002` | `booking-status` returns `uiStatus=FAILED_PAYMENT` and `failureReason=card_declined` |
+
+### 10.3 Error-path coverage (quick negative checks)
+
+| ID | Test name | Type | Request | Expected |
+|---|---|---|---|---|
+| S1-009 | should_return_400_when_reserve_has_invalid_event_uuid | Validation | `POST /reserve` with `eventID=not-a-uuid` | HTTP `400`; field validation error |
+| S1-010 | should_return_409_when_user_header_mismatches_payload_user | Auth/validation | `POST /reserve` with `X-User-ID != userID` | HTTP `409`; mismatch error |
+| S1-011 | should_return_404_when_reserve_confirm_hold_not_found | Validation | `POST /reserve/confirm` with unknown `holdID` | HTTP `404`; hold not found |
+| S1-012 | should_return_409_when_reserve_confirm_hold_owned_by_another_user | Validation | `POST /reserve/confirm` with valid hold but different user | HTTP `409`; ownership conflict |
+
+Coverage note:
+
+- Critical business flow: S1-001 to S1-006
+- Terminal and exception states: S1-007 to S1-012
+- These cases are designed to remain stable even when live queue timing varies.
 
 ## 11) Important Runtime Caveat
 
@@ -516,9 +630,10 @@ docker compose up -d reservation-orchestrator booking-status-service inventory-s
 Use this exact order for presentation:
 
 1. Show stack health + Stripe webhook listener.
-2. Run 1A reserve and show `PAYMENT_PENDING`, then complete payment and show `CONFIRMED`.
-3. Run 1B sold-out reserve and show `WAITLISTED` + position.
-4. Run 1C release/promotion and show `WAITLIST_OFFERED` -> payment -> `CONFIRMED`.
-5. Run 1D fixture hold and show `EXPIRED`.
-6. Show logs proving async events (`booking.confirmed`, `seat.released`, `notification.send`).
-7. Show SQL validation of hold/waitlist/payment transitions.
+2. Confirm seeded fixtures (`9d3*`, `9d4*`, `9d5*`) exist in Supabase.
+3. Execute S1-001 and S1-002 (`PAYMENT_PENDING` -> `PROCESSING`).
+4. Execute S1-003 (`WAITLISTED`) and show waitlist position.
+5. Execute S1-004 and S1-005 (`WAITLIST_OFFERED` -> `PAYMENT_PENDING`).
+6. Execute S1-006 (`EXPIRED`) using `9d300000-0000-0000-0000-000000000002`.
+7. Execute one negative case from S1-009 to S1-012.
+8. Show SQL validation queries and async logs.

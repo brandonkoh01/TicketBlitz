@@ -10,7 +10,8 @@ from flask import Blueprint, Flask, current_app, jsonify, request
 from flask_cors import CORS
 
 from shared.mq import publish_json, rabbitmq_configured
-from shared.openapi import build_openapi_spec, register_openapi_routes
+from shared.openapi import register_openapi_routes
+from shared.swagger_specs import get_service_swagger_spec
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -846,165 +847,9 @@ def waitlist_confirm(hold_id: str):
 
 
 def _build_openapi(service_name: str) -> dict[str, Any]:
-    return build_openapi_spec(
-        service_name=service_name,
-        title="TicketBlitz Reservation Orchestrator API",
-        description="Composite endpoints for reservation, waitlist confirmation, and payment setup.",
-        paths={
-            "/health": {
-                "get": {
-                    "summary": "Service health status",
-                    "tags": ["System"],
-                    "responses": {
-                        "200": {
-                            "description": "Healthy service response",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/HealthResponse"}
-                                }
-                            },
-                        }
-                    },
-                }
-            },
-            "/reserve": {
-                "post": {
-                    "summary": "Reserve a ticket or join waitlist",
-                    "tags": ["Reservation"],
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {"$ref": "#/components/schemas/ReserveRequest"}
-                            }
-                        },
-                    },
-                    "responses": {
-                        "200": {
-                            "description": "Reservation outcome",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/ReserveResponse"}
-                                }
-                            },
-                        },
-                        "400": {"$ref": "#/components/responses/BadRequest"},
-                        "404": {"$ref": "#/components/responses/NotFound"},
-                        "409": {"$ref": "#/components/responses/BadRequest"},
-                        "502": {"$ref": "#/components/responses/ServiceUnavailable"},
-                        "503": {"$ref": "#/components/responses/ServiceUnavailable"},
-                    },
-                }
-            },
-            "/reserve/confirm": {
-                "post": {
-                    "summary": "Resume or confirm payment flow for a hold",
-                    "tags": ["Reservation"],
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {"$ref": "#/components/schemas/ReserveConfirmRequest"}
-                            }
-                        },
-                    },
-                    "responses": {
-                        "200": {
-                            "description": "Payment or confirmation state",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/ReserveResponse"}
-                                }
-                            },
-                        },
-                        "400": {"$ref": "#/components/responses/BadRequest"},
-                        "404": {"$ref": "#/components/responses/NotFound"},
-                        "409": {"$ref": "#/components/responses/BadRequest"},
-                        "502": {"$ref": "#/components/responses/ServiceUnavailable"},
-                        "503": {"$ref": "#/components/responses/ServiceUnavailable"},
-                    },
-                }
-            },
-            "/waitlist/confirm/{hold_id}": {
-                "get": {
-                    "summary": "Load waitlist confirmation state by hold ID",
-                    "tags": ["Reservation"],
-                    "parameters": [
-                        {
-                            "name": "hold_id",
-                            "in": "path",
-                            "required": True,
-                            "schema": {"type": "string", "format": "uuid"},
-                        }
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Waitlist confirmation context",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/WaitlistConfirmResponse"}
-                                }
-                            },
-                        },
-                        "400": {"$ref": "#/components/responses/BadRequest"},
-                        "404": {"$ref": "#/components/responses/NotFound"},
-                        "502": {"$ref": "#/components/responses/ServiceUnavailable"},
-                        "503": {"$ref": "#/components/responses/ServiceUnavailable"},
-                    },
-                }
-            },
-        },
-        extra_components={
-            "schemas": {
-                "ReserveRequest": {
-                    "type": "object",
-                    "required": ["userID", "eventID", "seatCategory"],
-                    "properties": {
-                        "userID": {"type": "string", "format": "uuid"},
-                        "eventID": {"type": "string", "format": "uuid"},
-                        "seatCategory": {"type": "string"},
-                        "qty": {"type": "integer", "default": 1},
-                        "correlationID": {"type": "string", "format": "uuid"},
-                    },
-                },
-                "ReserveConfirmRequest": {
-                    "type": "object",
-                    "required": ["holdID", "userID"],
-                    "properties": {
-                        "holdID": {"type": "string", "format": "uuid"},
-                        "userID": {"type": "string", "format": "uuid"},
-                        "correlationID": {"type": "string", "format": "uuid"},
-                    },
-                },
-                "ReserveResponse": {
-                    "type": "object",
-                    "properties": {
-                        "status": {"type": "string"},
-                        "holdID": {"type": "string", "format": "uuid"},
-                        "waitlistID": {"type": "string", "format": "uuid"},
-                        "position": {"type": "integer"},
-                        "paymentIntentID": {"type": "string"},
-                        "clientSecret": {"type": "string"},
-                        "returnURL": {"type": "string"},
-                        "correlationID": {"type": "string", "format": "uuid"},
-                    },
-                    "additionalProperties": True,
-                },
-                "WaitlistConfirmResponse": {
-                    "type": "object",
-                    "properties": {
-                        "uiStatus": {"type": "string"},
-                        "hold": {"type": "object", "additionalProperties": True},
-                        "waitlist": {"type": "object", "additionalProperties": True},
-                        "payment": {"type": "object", "additionalProperties": True},
-                        "eticket": {"type": "object", "additionalProperties": True},
-                        "correlationID": {"type": "string", "format": "uuid"},
-                    },
-                    "additionalProperties": True,
-                },
-            }
-        },
-    )
+    spec = get_service_swagger_spec("reservation-orchestrator")
+    spec["servers"] = [{"url": "/", "description": f"{service_name} root"}]
+    return spec
 
 
 def _validate_required_config(app: Flask) -> None:
