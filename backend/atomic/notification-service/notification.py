@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import pika
+from python_http_client.exceptions import HTTPError
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 
@@ -569,6 +570,31 @@ class NotificationWorker:
 
         try:
             response = self._sendgrid_client.send(message)
+        except HTTPError as error:
+            status_code = int(getattr(error, "status_code", 0) or 0)
+            detail = getattr(error, "body", None) or str(error)
+
+            if status_code in {401, 403}:
+                if not self.config.is_production:
+                    logger.warning(
+                        "Non-production fallback for invalid SendGrid credentials. status=%s type=%s",
+                        status_code,
+                        event_type,
+                    )
+                    return
+
+                raise PermanentNotificationError(
+                    f"SendGrid authentication failed with status {status_code}: {detail}"
+                ) from error
+
+            if 400 <= status_code < 500 and status_code != 429:
+                raise PermanentNotificationError(
+                    f"SendGrid rejected request with status {status_code}: {detail}"
+                ) from error
+
+            raise TransientNotificationError(
+                f"SendGrid temporary failure with status {status_code}: {detail}"
+            ) from error
         except Exception as error:
             raise TransientNotificationError(
                 f"SendGrid transport error: {error}") from error

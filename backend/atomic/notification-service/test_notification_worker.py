@@ -3,6 +3,7 @@ import os
 import pathlib
 import sys
 import unittest
+from python_http_client.exceptions import HTTPError
 
 # Ensure shared/ can be imported by notification.py during test execution.
 SERVICE_DIR = pathlib.Path(__file__).resolve().parent
@@ -36,6 +37,16 @@ class _FakeSendGridClient:
     def send(self, message):
         self.sent.append(message)
         return self.response
+
+
+class _FakeRaisingSendGridClient:
+    def __init__(self, error):
+        self.error = error
+        self.sent = []
+
+    def send(self, message):
+        self.sent.append(message)
+        raise self.error
 
 
 class _FakeChannel:
@@ -224,6 +235,37 @@ class NotificationWorkerTests(unittest.TestCase):
 
         worker._sendgrid_client = _FakeSendGridClient(
             _FakeResponse(400, "bad request"))
+        with self.assertRaises(notification.PermanentNotificationError):
+            worker.send_email(
+                "BOOKING_CONFIRMED",
+                ["fan@example.com"],
+                {"eventName": "Coldplay Live"},
+            )
+
+    def test_send_email_non_production_sendgrid_http_401_falls_back(self):
+        os.environ["SENDGRID_TEMPLATE_BOOKING_CONFIRMED"] = "d-template-id"
+
+        worker = notification.NotificationWorker(
+            self._config(is_production=False, api_key="test-key"))
+        worker._sendgrid_client = _FakeRaisingSendGridClient(
+            HTTPError(401, "Unauthorized", b"unauthorized", {})
+        )
+
+        worker.send_email(
+            "BOOKING_CONFIRMED",
+            ["fan@example.com"],
+            {"eventName": "Coldplay Live"},
+        )
+
+    def test_send_email_production_sendgrid_http_401_raises_permanent(self):
+        os.environ["SENDGRID_TEMPLATE_BOOKING_CONFIRMED"] = "d-template-id"
+
+        worker = notification.NotificationWorker(
+            self._config(is_production=True, api_key="test-key"))
+        worker._sendgrid_client = _FakeRaisingSendGridClient(
+            HTTPError(401, "Unauthorized", b"unauthorized", {})
+        )
+
         with self.assertRaises(notification.PermanentNotificationError):
             worker.send_email(
                 "BOOKING_CONFIRMED",

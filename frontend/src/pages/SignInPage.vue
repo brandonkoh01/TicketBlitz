@@ -85,7 +85,7 @@ async function handleSignIn() {
     <template #right>
       <div class="relative border-4 border-black bg-white p-6 md:p-8">
         <div class="mb-8 flex items-end justify-between gap-4">
-          <h2 class="text-2xl font-black uppercase tracking-[-0.03em] md:text-3xl">User Login</h2>
+          <h2 class="text-2xl font-black uppercase tracking-[-0.03em] md:text-3xl">Login</h2>
           <p class="text-[9px] font-bold uppercase tracking-[0.16em] text-black/45">Ref ID: TB_772</p>
         </div>
 
