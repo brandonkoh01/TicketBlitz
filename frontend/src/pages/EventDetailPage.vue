@@ -196,7 +196,7 @@ async function onSelectCategory(category) {
             </div>
 
             <p class="mt-6 border-t-2 border-black pt-4 text-[10px] font-black uppercase tracking-[0.16em] text-black/60">
-              Select a category to continue into scenario 1 booking with prefilled values.
+              Select a category to continue booking with prefilled values.
             </p>
           </aside>
         </div>

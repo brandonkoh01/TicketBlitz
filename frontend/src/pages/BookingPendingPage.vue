@@ -22,6 +22,7 @@ const statusLabel = ref('PROCESSING')
 const holdExpiry = ref('')
 const clientSecret = ref('')
 const paymentMountRef = ref(null)
+const awaitingBookingResolution = ref(false)
 
 const {
   isReady: paymentReady,
@@ -55,6 +56,7 @@ const polling = useBookingStatusPolling(holdID.value, {
 })
 
 const countdown = useHoldCountdown(holdExpiry)
+const isPaymentProcessing = computed(() => paymentSubmitting.value || awaitingBookingResolution.value)
 
 watch(
   () => polling.payload.value,
@@ -120,6 +122,10 @@ async function mountPaymentElement() {
 }
 
 async function handleConfirmPayment() {
+  if (isPaymentProcessing.value) {
+    return
+  }
+
   localError.value = ''
 
   try {
@@ -127,11 +133,13 @@ async function handleConfirmPayment() {
       returnUrl: `${window.location.origin}/booking/pending/${holdID.value}`,
     })
 
-    if (paymentIntent?.status === 'succeeded') {
+    if (paymentIntent?.status === 'succeeded' || paymentIntent?.status === 'processing') {
+      awaitingBookingResolution.value = true
       localInfo.value = 'Payment submitted successfully. Waiting for booking confirmation...'
       await polling.pollOnce({ reconcilePayment: true })
     }
   } catch (error) {
+    awaitingBookingResolution.value = false
     localError.value = error?.message || paymentErrorMessage.value || 'Payment confirmation failed.'
   }
 }
@@ -147,6 +155,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  awaitingBookingResolution.value = false
   polling.stop()
   unmountStripePayment()
 })
@@ -214,10 +223,10 @@ onUnmounted(() => {
             <button
               type="button"
               class="mt-4 inline-flex h-14 w-full items-center justify-center border-2 border-black bg-black px-6 text-xs font-black uppercase tracking-[0.24em] text-white transition duration-200 ease-out hover:bg-[var(--swiss-accent)] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
-              :disabled="!paymentReady || paymentSubmitting"
+              :disabled="!paymentReady || isPaymentProcessing"
               @click="handleConfirmPayment"
             >
-              {{ paymentSubmitting ? 'Submitting Payment' : 'Confirm Payment' }}
+              {{ isPaymentProcessing ? 'Processing Payment' : 'Confirm Payment' }}
             </button>
           </div>
 

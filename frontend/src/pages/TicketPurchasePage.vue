@@ -204,9 +204,7 @@ onMounted(() => {
       <div class="mx-auto max-w-[1800px] px-6 py-8 md:px-10 md:py-10">
         <SectionLabel index="06." label="Reserve Ticket" />
         <h1 class="mt-8 text-[clamp(2.4rem,7vw,5.6rem)] font-black uppercase leading-[0.9] tracking-[-0.04em]">
-          Start Scenario
-          <br>
-          1 Booking
+          Start Booking
         </h1>
       </div>
     </section>
@@ -245,11 +243,6 @@ onMounted(() => {
               </select>
             </label>
 
-            <div class="border-t-2 border-black pt-6">
-              <p class="text-xs font-black uppercase tracking-[0.18em] text-black/70">
-                Reservation route: <span class="text-black">POST /reserve via Kong</span>
-              </p>
-            </div>
 
             <p
               v-if="localError || reservation.errorMessage"
