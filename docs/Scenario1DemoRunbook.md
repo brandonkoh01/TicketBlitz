@@ -1,103 +1,92 @@
-# Scenario 1 Demo Runbook (Deterministic Demo + Test Cases)
+# Scenario 1 UI Demo Runbook (TicketBlitz Frontend)
 
 ## Objective
-Execute Scenario 1 exactly as defined in `docs/Scenarios.md`, from first request to final UI state, including all asynchronous handoffs:
+Run Scenario 1 end-to-end using the frontend UI routes, while validating each state transition against the backend and Supabase.
 
-1. Step 1A: Seat available -> `PAYMENT_PENDING` -> `PROCESSING` -> `CONFIRMED`
-2. Step 1B: Sold out -> `WAITLISTED` (`WAITING` + position polling)
-3. Step 1C: Seat released -> `PENDING_WAITLIST` -> `HOLD_OFFERED` -> `PAYMENT_PENDING` -> `CONFIRMED`
-4. Step 1D: Timeout -> hold expires -> waitlist offer expires -> `EXPIRED`
+Scenario 1 coverage in this runbook:
+
+1. Step 1A: Seat available -> PAYMENT_PENDING -> PROCESSING -> CONFIRMED
+2. Step 1B: Sold out -> WAITLISTED (WAITING + position polling)
+3. Step 1C: Seat released -> HOLD_OFFERED -> PAYMENT_PENDING -> CONFIRMED
+4. Step 1D: Timeout path -> EXPIRED
 
 This runbook is aligned to:
 
-- `docs/Scenarios.md` (Scenario 1 architecture and contracts)
-- `docs/Setup.md` (runtime setup)
-- live Supabase project `cpxcpvcfbohvpiubbujg`
-- current service behavior and Supabase snapshot observed on 2026-04-07
+- docs/Scenarios.md
+- docs/Setup.md
+- frontend route behavior in `ticket-purchase`, `booking/pending/:holdID`, `waitlist/:waitlistID`, `waitlist/confirm/:holdID`, `booking/result/:holdID`, `my-tickets`
+- Supabase project `cpxcpvcfbohvpiubbujg`
 
-Test design in this revision prioritizes:
+## 1) Demo Data Pack (Live Snapshot)
 
-- critical business flow assertions first (reserve/waitlist/promotion/timeout)
-- deterministic fixtures for repeatable demos
-- edge and error-path checks that commonly fail during live demos
+Use this data pack as the default for demo execution.
 
-## Scope And Non-Negotiable Design Rules
+### 1.1 Primary Event
 
-This runbook follows these Scenario 1 implementation rules from `docs/Scenarios.md`:
+- Event ID: `10000000-0000-0000-0000-000000000301`
+- Event code: `EVT-301`
+- Name: `Coldplay Live 2026`
 
-- All user-facing HTTP goes through Kong (`http://localhost:8000`).
-- Reservation flow is synchronous up to payment setup; fulfillment is asynchronous.
-- Booking status for pending pages is read from Booking Status Service polling.
-- Waitlist Promotion Orchestrator never reads waitlist tables directly (uses Waitlist Service API).
-- Expiry Scheduler never writes inventory directly (uses Inventory maintenance API).
-- Waitlist release path protects seats as `PENDING_WAITLIST` to prevent public seat stealing.
-- E-ticket integration boundary is OutSystems REST.
+### 1.2 Seat Categories for EVT-301
 
-## 1) Baseline Demo Data
+Snapshot used for this runbook:
 
-Use these IDs in payloads unless explicitly stated otherwise:
+- `CAT1`: available=5, pending_waitlist=3, sold=3, total=11
+- `CAT2`: available=0, sold=3, total=3
+- `PEN`: available=3, sold=7, total=10
 
-- Primary event (`EVT-301`): `10000000-0000-0000-0000-000000000301`
-- Primary fan user (API reserve demo): `eba6aebb-a848-410b-8d6e-1b8275c4ce9c`
-- Deterministic expired fixture hold: `40000000-0000-0000-0000-000000000003`
+Implications:
 
-### 1.1 New deterministic fixture pack (inserted 2026-04-07)
+- Use `PEN` for stable "seat available" demos.
+- Use `CAT2` for stable "already sold out" waitlist demos.
+- Use `CAT1` for controlled release/promotion flow (1C/1D), because it has enough inventory to create and release a temporary hold.
 
-These rows were inserted into Supabase project `cpxcpvcfbohvpiubbujg` and can be re-seeded from:
+### 1.3 Known Hold Fixtures (Optional Backup Checks)
 
-- `database/20260407_seed_scenario1_demo_fixtures.sql`
+These are useful for quick EXPIRED/CONFIRMED sanity checks if live flow timing is unstable:
 
-Fixture IDs:
+- `9d300000-0000-0000-0000-000000000002` -> `EXPIRED`
+- `9d300000-0000-0000-0000-000000000003` -> `CONFIRMED`
+- `40000000-0000-0000-0000-000000000003` -> `EXPIRED`
 
-- Users: `9d100000-0000-0000-0000-000000000001` to `...0003`
-- Seats: `9d200000-0000-0000-0000-000000000001` to `...0003`
-- Holds:
-   - `9d300000-0000-0000-0000-000000000001` (`HELD`, waitlist offered)
-   - `9d300000-0000-0000-0000-000000000002` (`EXPIRED`, timeout)
-   - `9d300000-0000-0000-0000-000000000003` (`CONFIRMED`, payment succeeded)
-- Waitlist entries:
-   - `9d400000-0000-0000-0000-000000000001` (`WAITING`)
-   - `9d400000-0000-0000-0000-000000000002` (`HOLD_OFFERED`)
-   - `9d400000-0000-0000-0000-000000000003` (`EXPIRED`)
-   - `9d400000-0000-0000-0000-000000000004` (`CONFIRMED`)
-- Transactions:
-   - `9d500000-0000-0000-0000-000000000001` (`PENDING`)
-   - `9d500000-0000-0000-0000-000000000002` (`SUCCEEDED`)
+### 1.4 Demo User Strategy
 
-## 2) Preflight (Do Not Skip)
+For a UI demo, create two fresh fan accounts from `/sign-up`:
 
-### 2.1 Frontend environment
+- Fan A email: `scenario1.ui.a.<timestamp>@ticketblitz.com`
+- Fan B email: `scenario1.ui.b.<timestamp>@ticketblitz.com`
+- Password for both: `TicketBlitz#2026!`
 
-`frontend/.env.local` must include:
+Use separate browser sessions (normal + incognito) so Fan A and Fan B stay logged in simultaneously.
+
+## 2) Preflight Setup
+
+### 2.1 Environment
+
+Frontend (`frontend/.env.local`):
 
 - `VITE_API_BASE_URL=/api`
 - `VITE_CUSTOMER_API_KEY=ticketblitz-customer-dev-key`
 - `VITE_STRIPE_PUBLISHABLE_KEY=pk_test_...`
 
-### 2.2 Backend environment
-
-Root `.env.local` must include:
+Backend (`.env.local` at repo root):
 
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_KEY`
-- `RABBITMQ_USER`
-- `RABBITMQ_PASSWORD`
-- `RABBITMQ_URL`
+- `RABBITMQ_URL`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD`
 - `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
 - `INTERNAL_SERVICE_TOKEN`
-- `STRIPE_WEBHOOK_SECRET` (must match current Stripe CLI session)
 - `OUTSYSTEMS_BASE_URL`
 - `OUTSYSTEMS_API_KEY`
 
-### 2.3 Start backend stack
-
-From repository root:
+### 2.2 Start backend stack
 
 ```bash
 docker compose --env-file .env.local up -d --build
 ```
 
-Health checks:
+Quick checks:
 
 ```bash
 curl -s http://localhost:8000/events
@@ -106,18 +95,7 @@ curl -s http://localhost:6002/health
 curl -s http://localhost:5004/health
 ```
 
-### 2.4 Verify RabbitMQ exchanges (required for async branches)
-
-```bash
-docker compose exec rabbitmq rabbitmqctl list_exchanges name type | grep ticketblitz
-```
-
-Expected exchanges:
-
-- `ticketblitz` (`topic`)
-- `ticketblitz.price` (`fanout`, Scenario 2 only, optional for this runbook)
-
-### 2.5 Start frontend
+### 2.3 Start frontend
 
 ```bash
 cd frontend
@@ -125,515 +103,239 @@ npm install
 npm run dev
 ```
 
-### 2.6 Seed deterministic Scenario 1 fixtures (recommended)
-
-Run in Supabase SQL editor:
-
-```sql
--- execute file: database/20260407_seed_scenario1_demo_fixtures.sql
-```
-
-Minimum verification:
-
-```sql
-select hold_id, status
-from public.seat_holds
-where hold_id in (
-   '9d300000-0000-0000-0000-000000000001',
-   '9d300000-0000-0000-0000-000000000002',
-   '9d300000-0000-0000-0000-000000000003'
-)
-order by hold_id;
-```
-
-## 3) Stripe Webhook Setup (Required For 1A/1C Finalization)
-
-Start webhook forwarding in a dedicated terminal:
+### 2.4 Start Stripe webhook forwarding (required for CONFIRMED path)
 
 ```bash
 stripe listen --forward-to localhost:8000/payment/webhook
 ```
 
-Copy displayed `whsec_...` into root `.env.local`, then restart payment service:
+If Stripe CLI prints a new `whsec_...`, update `STRIPE_WEBHOOK_SECRET` and restart payment service:
 
 ```bash
 docker compose restart payment-service
 ```
 
-Optional webhook sanity check:
+## 3) UI Route Outcomes (Expected)
+
+Use these route transitions as acceptance criteria:
+
+- Reserve success path: `/ticket-purchase` -> `/booking/pending/:holdID` -> `/booking/result/:holdID?status=CONFIRMED`
+- Sold-out path: `/ticket-purchase` -> `/waitlist/:waitlistID`
+- Waitlist offer path: `/waitlist/:waitlistID` -> `/waitlist/confirm/:holdID` -> `/booking/pending/:holdID`
+- Expired offer path: `/waitlist/confirm/:holdID` -> `/booking/result/:holdID?status=EXPIRED`
+- Ticket visibility path: `/my-tickets` shows confirmed ticket cards
+
+## 4) Step 1A (Seat Available -> CONFIRMED)
+
+1. Sign in as Fan A.
+2. Open `/ticket-purchase`.
+3. Select event `EVT-301` and category `PEN`, qty `1`.
+4. Click `Reserve Ticket`.
+5. Verify redirect to `/booking/pending/:holdID`.
+6. In Stripe Payment Element, use card `4242 4242 4242 4242`.
+7. Click `Confirm Payment`.
+8. Verify transition to booking result with confirmed state.
+9. Open `/my-tickets` and verify one confirmed ticket appears.
+
+Expected UI text:
+
+- Booking result heading: `Booking Confirmed`
+- My Tickets count increments by 1
+
+Optional API proof:
 
 ```bash
-docker compose logs --tail 100 payment-service
+curl -s "http://localhost:8000/booking-status/<HOLD_ID_FROM_UI>" \
+  -H "x-customer-api-key: ticketblitz-customer-dev-key"
 ```
 
-## 4) Full Flow Map (From Scenarios.md)
+Expected terminal state: `uiStatus: "CONFIRMED"`.
 
-Use this sequence as the source of truth while presenting:
+## 5) Step 1B (Sold Out -> WAITLISTED)
 
-1. UI -> Kong: `POST /reserve`
-2. Reservation Orchestrator -> User Service: `GET /user/{userID}`
-3. Reservation Orchestrator -> Inventory Service: `GET /inventory/{eventID}/{seatCategory}`
-4. Reservation Orchestrator -> Inventory Service: `POST /inventory/hold` (`fromWaitlist:false`)
-5. Reservation Orchestrator -> Payment Service: `POST /payment/initiate`
-6. UI uses Stripe `clientSecret` and redirects to `/booking/pending/{holdID}`
-7. UI polls `GET /booking-status/{holdID}`
-8. Stripe webhook `payment_intent.succeeded` -> Payment Service
-9. Payment Service publishes `booking.confirmed`
-10. Booking Fulfillment Orchestrator confirms hold, generates e-ticket, publishes `notification.send`
-11. Booking Status Service eventually returns `uiStatus=CONFIRMED`
-12. For sold out path, Reservation Orchestrator joins waitlist and returns `WAITLISTED`
-13. For release path, Inventory publishes `seat.released`, Waitlist Promotion offers hold, user pays via `/reserve/confirm`
-14. For timeout path, Expiry Scheduler triggers hold expiry and Booking Status returns `EXPIRED`
+1. Stay signed in as Fan A.
+2. Open `/ticket-purchase`.
+3. Select event `EVT-301`, category `CAT2`, qty `1`.
+4. Click `Reserve Ticket`.
+5. Verify redirect to `/waitlist/:waitlistID`.
 
-## 5) Step 1A Implementation (Seat Available -> CONFIRMED)
+Expected UI on waitlist page:
 
-### 5.1 Reserve an available seat
+- Status displays `WAITLISTED`/`WAITING`
+- Position is shown and updates while polling
+
+Optional API proof:
 
 ```bash
-curl -s -X POST "http://localhost:8000/reserve" \
-   -H "Content-Type: application/json" \
-   -H "x-customer-api-key: ticketblitz-customer-dev-key" \
-   -H "X-User-ID: eba6aebb-a848-410b-8d6e-1b8275c4ce9c" \
-   -d '{"userID":"eba6aebb-a848-410b-8d6e-1b8275c4ce9c","eventID":"10000000-0000-0000-0000-000000000301","seatCategory":"PEN","qty":1}'
+curl -s "http://localhost:8000/waitlist/<WAITLIST_ID_FROM_UI>" \
+  -H "x-customer-api-key: ticketblitz-customer-dev-key"
 ```
 
-Expected:
+Expected: `status: "WAITING"`.
 
-- HTTP `200`
-- `status: "PAYMENT_PENDING"`
-- non-empty `holdID`, `paymentIntentID`, `clientSecret`, `holdExpiry`, `returnURL`
+## 6) Step 1C (Seat Released -> HOLD_OFFERED -> PAYMENT_PENDING -> CONFIRMED)
 
-### 5.2 Verify pre-webhook status (`PROCESSING` expected)
+This section uses two users to make the release and offer sequence deterministic without relying on missing seed files.
+
+### 6.1 Fan B creates a temporary hold on CAT1
+
+1. In Browser Session B (Fan B), open `/ticket-purchase`.
+2. Reserve `EVT-301`, category `CAT1`, qty `5`.
+3. Stop at `/booking/pending/:holdID` and do not complete payment.
+4. Capture this hold ID as `HOLD_B_SOURCE`.
+
+### 6.2 Fan A joins waitlist for CAT1
+
+1. In Browser Session A (Fan A), open `/ticket-purchase`.
+2. Reserve `EVT-301`, category `CAT1`, qty `1`.
+3. Verify redirect to `/waitlist/:waitlistID` and capture `WAITLIST_A`.
+
+If CAT1 still shows available seats, increase the held quantity from Fan B or create one additional temporary hold from Fan B, then retry.
+
+### 6.3 Release Fan B hold to trigger promotion
+
+Run from terminal:
 
 ```bash
-curl -s "http://localhost:8000/booking-status/<HOLD_ID_FROM_5_1>" \
-   -H "x-customer-api-key: ticketblitz-customer-dev-key"
+curl -s -X PUT "http://localhost:5003/inventory/hold/<HOLD_B_SOURCE>/release" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"PAYMENT_TIMEOUT"}'
 ```
 
-Expected:
+### 6.4 Verify waitlist offer in UI
 
-- `uiStatus: "PROCESSING"`
+1. Keep Fan A on `/waitlist/:waitlistID`.
+2. Wait for polling to detect offer and redirect to `/waitlist/confirm/:holdID`.
+3. Verify page indicates waitlist offer and active payment window.
+4. Click `Continue To Payment`.
+5. Verify redirect to `/booking/pending/:offeredHoldID`.
 
-### 5.3 Complete payment in UI
+### 6.5 Complete payment from offer
 
-1. Open `http://localhost:5173/ticket-purchase`
-2. Reserve `EVT-301` + `PEN`
-3. Confirm page route `/booking/pending/<holdID>`
-4. Use Stripe test card
-    - Success: `4242424242424242`
-    - 3DS challenge: `4000002500003155`
-    - Decline test: `4000000000009995`
+1. On pending page for `offeredHoldID`, submit Stripe success card `4242 4242 4242 4242`.
+2. Verify final state is confirmed and appears in `/my-tickets` for Fan A.
 
-### 5.4 Poll to terminal status
+## 7) Step 1D (Timeout -> EXPIRED)
+
+Use the same promoted hold flow as Step 1C, but intentionally do not pay.
+
+1. Reach `/waitlist/confirm/:holdID` for Fan A.
+2. Do not click `Continue To Payment`.
+3. Wait past hold expiry window plus scheduler/polling interval.
+4. Verify redirect to `/booking/result/:holdID?status=EXPIRED`.
+
+Expected UI text:
+
+- Heading: `Hold Expired`
+- Message indicates payment window expired
+
+Optional API proof:
 
 ```bash
-curl -s "http://localhost:8000/booking-status/<HOLD_ID_FROM_5_1>" \
-   -H "x-customer-api-key: ticketblitz-customer-dev-key"
+curl -s "http://localhost:8000/booking-status/<EXPIRED_HOLD_ID>" \
+  -H "x-customer-api-key: ticketblitz-customer-dev-key"
 ```
 
-Expected terminal response:
+Expected: `uiStatus: "EXPIRED"`.
 
-- `uiStatus: "CONFIRMED"`
-- plus seat/ticket metadata when e-ticket is reachable
+## 8) Supabase Validation Queries (Read-Only)
 
-### 5.5 Validate async chain in logs
+Run these in Supabase SQL editor to validate state transitions after the UI demo.
 
-```bash
-docker compose logs --tail 200 payment-service
-docker compose logs --tail 200 booking-fulfillment-orchestrator
-docker compose logs --tail 200 notification-service
-```
-
-Expected evidence:
-
-- payment webhook accepted
-- `booking.confirmed` consumed
-- inventory hold confirmed
-- notification event published/consumed
-
-## 6) Step 1B Implementation (Sold Out -> WAITLISTED)
-
-The most stable sold-out branch in the current snapshot is `EVT-301` + `CAT2`.
-
-### 6.1 Request sold-out category reservation
-
-```bash
-curl -s -X POST "http://localhost:8000/reserve" \
-   -H "Content-Type: application/json" \
-   -H "x-customer-api-key: ticketblitz-customer-dev-key" \
-   -H "X-User-ID: eba6aebb-a848-410b-8d6e-1b8275c4ce9c" \
-   -d '{"userID":"eba6aebb-a848-410b-8d6e-1b8275c4ce9c","eventID":"10000000-0000-0000-0000-000000000301","seatCategory":"CAT2","qty":1}'
-```
-
-Expected:
-
-- HTTP `200`
-- `status: "WAITLISTED"`
-- non-empty `waitlistID`
-- numeric `position`
-
-### 6.2 Waitlist status polling
-
-```bash
-curl -s "http://localhost:8000/waitlist/<WAITLIST_ID_FROM_6_1>" \
-   -H "x-customer-api-key: ticketblitz-customer-dev-key"
-```
-
-Expected:
-
-- `status: "WAITING"`
-- valid position value
-
-## 7) Step 1C Implementation (Seat Released -> WAITLIST_OFFERED -> PAYMENT_PENDING -> CONFIRMED)
-
-This is the protected waitlist promotion path from `docs/Scenarios.md`.
-
-### 7.1 Create a releasable hold on EVT-301 CAT1
-
-```bash
-curl -s -X POST "http://localhost:8000/reserve" \
-   -H "Content-Type: application/json" \
-   -H "x-customer-api-key: ticketblitz-customer-dev-key" \
-   -H "X-User-ID: eba6aebb-a848-410b-8d6e-1b8275c4ce9c" \
-   -d '{"userID":"eba6aebb-a848-410b-8d6e-1b8275c4ce9c","eventID":"10000000-0000-0000-0000-000000000301","seatCategory":"CAT1","qty":1}'
-```
-
-Capture `holdID` as `HOLD_RELEASE_SOURCE`.
-
-### 7.2 Release hold with timeout reason (publishes `seat.released`)
-
-```bash
-curl -s -X PUT "http://localhost:5003/inventory/hold/<HOLD_RELEASE_SOURCE>/release" \
-   -H "Content-Type: application/json" \
-   -d '{"reason":"PAYMENT_TIMEOUT"}'
-```
-
-Expected:
-
-- hold response indicates `RELEASED`
-- released seat transitions to waitlist-protected availability (`PENDING_WAITLIST`)
-
-### 7.3 Confirm waitlist entry offered a new hold
-
-Run in Supabase SQL editor:
+### 8.1 Event/category availability snapshot
 
 ```sql
 select
-   w.waitlist_id,
-   w.user_id,
-   c.category_code,
-   w.status,
-   w.hold_id,
-   w.offered_at
-from public.waitlist_entries w
-left join public.seat_categories c on c.category_id = w.category_id
-where w.event_id = '10000000-0000-0000-0000-000000000301'
-   and c.category_code = 'CAT1'
-order by w.updated_at desc
-limit 5;
+  c.event_id,
+  e.event_code,
+  c.category_code,
+  c.name as category_name,
+  count(*) filter (where s.status = 'AVAILABLE') as available_seats,
+  count(*) filter (where s.status = 'PENDING_WAITLIST') as pending_waitlist_seats,
+  count(*) filter (where s.status = 'HELD') as held_seats,
+  count(*) filter (where s.status = 'SOLD') as sold_seats,
+  count(*) as total_seats
+from public.seat_categories c
+join public.events e on e.event_id = c.event_id
+left join public.seats s on s.category_id = c.category_id
+where c.event_id = '10000000-0000-0000-0000-000000000301'
+group by c.event_id, e.event_code, c.category_code, c.name
+order by c.category_code;
 ```
 
-Expected:
-
-- at least one row with `status = 'HOLD_OFFERED'`
-- `hold_id` not null (capture as `OFFERED_HOLD_ID`)
-- capture corresponding `user_id` as `OFFERED_USER_ID`
-
-### 7.4 Validate `/waitlist/confirm/{holdID}` context
-
-```bash
-curl -s "http://localhost:8000/waitlist/confirm/<OFFERED_HOLD_ID>" \
-   -H "x-customer-api-key: ticketblitz-customer-dev-key" \
-   -H "X-User-ID: <OFFERED_USER_ID>"
-```
-
-Expected:
-
-- HTTP `200`
-- `uiStatus: "WAITLIST_OFFERED"`
-- hold shows active offer
-- waitlist object `status: "HOLD_OFFERED"`
-
-### 7.5 Continue from waitlist offer to payment setup
-
-```bash
-curl -s -X POST "http://localhost:8000/reserve/confirm" \
-   -H "Content-Type: application/json" \
-   -H "x-customer-api-key: ticketblitz-customer-dev-key" \
-   -H "X-User-ID: <OFFERED_USER_ID>" \
-   -d '{"holdID":"<OFFERED_HOLD_ID>","userID":"<OFFERED_USER_ID>"}'
-```
-
-Expected:
-
-- HTTP `200`
-- `status: "PAYMENT_PENDING"`
-- non-empty `clientSecret`, `paymentIntentID`, `returnURL`
-
-### 7.6 Complete payment and validate terminal `CONFIRMED`
-
-1. Open waitlist payment route in UI (`/waitlist/confirm/<OFFERED_HOLD_ID>`).
-2. Submit Stripe success card `4242424242424242`.
-3. Confirm redirect to pending route.
-4. Poll:
-
-```bash
-curl -s "http://localhost:8000/booking-status/<OFFERED_HOLD_ID>" \
-   -H "x-customer-api-key: ticketblitz-customer-dev-key"
-```
-
-Expected terminal state:
-
-- `uiStatus: "CONFIRMED"`
-
-### 7.7 Validate required async events occurred
-
-```bash
-docker compose logs --tail 200 waitlist-promotion-orchestrator
-docker compose logs --tail 200 booking-fulfillment-orchestrator
-docker compose logs --tail 200 notification-service
-```
-
-Expected evidence:
-
-- consumed `seat.released`
-- waitlist updated to offered then confirmed
-- fulfillment completed and notification sent
-
-## 8) Step 1D Implementation (Timeout / Expired)
-
-### 8.1 Deterministic timeout fixture check
-
-```bash
-curl -s "http://localhost:8000/waitlist/confirm/9d300000-0000-0000-0000-000000000002" \
-   -H "x-customer-api-key: ticketblitz-customer-dev-key" \
-   -H "X-User-ID: 9d100000-0000-0000-0000-000000000003"
-```
-
-Expected:
-
-- HTTP `200`
-- `uiStatus: "EXPIRED"`
-- hold status expired
-- waitlist status expired
-
-### 8.2 Booking status expiration confirmation
-
-```bash
-curl -s "http://localhost:8000/booking-status/9d300000-0000-0000-0000-000000000002" \
-   -H "x-customer-api-key: ticketblitz-customer-dev-key"
-```
-
-Expected:
-
-- `uiStatus: "EXPIRED"`
-- payment dependency marked skipped/not applicable for this expired fixture
-
-### 8.3 Live timeout path validation (optional, fully aligned to Scenarios.md)
-
-Use this if you want to demonstrate scheduler-driven expiry rather than fixture lookup.
-
-1. Produce a `HOLD_OFFERED` record using Step 1C up to 7.5.
-2. Do not complete payment.
-3. Wait for hold expiry window and scheduler interval.
-4. Verify expiry processing logs:
-
-```bash
-docker compose logs --tail 200 expiry-scheduler-service
-docker compose logs --tail 200 inventory-service
-docker compose logs --tail 200 waitlist-promotion-orchestrator
-```
-
-5. Verify timed-out hold state:
-
-```bash
-curl -s "http://localhost:8000/booking-status/<TIMED_OUT_HOLD_ID>" \
-   -H "x-customer-api-key: ticketblitz-customer-dev-key"
-```
-
-Expected:
-
-- `uiStatus: "EXPIRED"`
-- downstream promotion either offers next user or returns seat to `AVAILABLE` when waitlist empty
-
-## 9) Data Validation Queries (Supabase SQL)
-
-Use these queries to prove every state transition end-to-end.
-
-### 9.1 Hold lifecycle
+### 8.2 Hold lifecycle for captured IDs
 
 ```sql
-select hold_id, user_id, status, release_reason, hold_expires_at, confirmed_at, expired_at, updated_at
+select hold_id, user_id, status, hold_expires_at, confirmed_at, expired_at, release_reason, updated_at
 from public.seat_holds
 where hold_id in (
-   '<HOLD_ID_FROM_1A>',
-   '<OFFERED_HOLD_ID_FROM_1C>',
-   '9d300000-0000-0000-0000-000000000001',
-   '9d300000-0000-0000-0000-000000000002',
-   '9d300000-0000-0000-0000-000000000003'
+  '<HOLD_ID_1A>',
+  '<HOLD_B_SOURCE>',
+  '<OFFERED_HOLD_ID_1C>',
+  '<EXPIRED_HOLD_ID_1D>'
 )
 order by updated_at desc;
 ```
 
-### 9.2 Waitlist lifecycle
+### 8.3 Waitlist lifecycle
 
 ```sql
-select waitlist_id, user_id, status, hold_id, offered_at, updated_at
+select waitlist_id, user_id, event_id, status, hold_id, joined_at, offered_at, confirmed_at, expired_at
 from public.waitlist_entries
-where waitlist_id in (
-   '9d400000-0000-0000-0000-000000000001',
-   '9d400000-0000-0000-0000-000000000002',
-   '9d400000-0000-0000-0000-000000000003',
-   '9d400000-0000-0000-0000-000000000004'
-)
-order by updated_at desc
-limit 20;
+where waitlist_id in ('<WAITLIST_A>')
+   or hold_id in ('<OFFERED_HOLD_ID_1C>', '<EXPIRED_HOLD_ID_1D>')
+order by coalesce(confirmed_at, expired_at, offered_at, joined_at) desc;
 ```
 
-### 9.3 Payment lifecycle
+### 8.4 Payment transaction state
 
 ```sql
 select hold_id, stripe_payment_intent_id, status, amount, updated_at
 from public.transactions
-where hold_id in (
-   '<HOLD_ID_FROM_1A>',
-   '<OFFERED_HOLD_ID_FROM_1C>',
-   '9d300000-0000-0000-0000-000000000001',
-   '9d300000-0000-0000-0000-000000000003',
-   '8b200000-0000-0000-0000-000000000002'
-)
+where hold_id in ('<HOLD_ID_1A>', '<OFFERED_HOLD_ID_1C>', '<EXPIRED_HOLD_ID_1D>')
 order by updated_at desc;
 ```
 
-### 9.4 Seat state ownership check
+## 9) Condensed Demo Script (Presentation Order)
 
-```sql
-select s.seat_id, s.status, c.category_code, s.updated_at
-from public.seats s
-join public.seat_categories c on c.category_id = s.category_id
-where s.event_id = '10000000-0000-0000-0000-000000000301'
-    and c.category_code in ('CAT1', 'CAT2', 'PEN')
-order by s.updated_at desc
-limit 20;
-```
+1. Show stack health and Stripe webhook listener.
+2. Sign up/sign in Fan A and Fan B in separate sessions.
+3. Execute Step 1A and show confirmed ticket in `/my-tickets`.
+4. Execute Step 1B and show waitlist position in `/waitlist/:waitlistID`.
+5. Execute Step 1C with controlled release and show promotion to `/waitlist/confirm/:holdID`.
+6. Complete payment and show confirmed result.
+7. Execute Step 1D once by waiting out an offer and show expired result route.
+8. Run Supabase validation queries to prove all state transitions.
 
-### 9.5 Fixture smoke check (newly seeded rows)
+## 10) Fast Troubleshooting
 
-```sql
-select
-   h.hold_id,
-   h.status as hold_status,
-   w.waitlist_id,
-   w.status as waitlist_status,
-   t.status as payment_status,
-   u.email
-from public.seat_holds h
-left join public.waitlist_entries w on w.hold_id = h.hold_id
-left join public.transactions t on t.hold_id = h.hold_id
-join public.users u on u.user_id = h.user_id
-where h.hold_id in (
-   '9d300000-0000-0000-0000-000000000001',
-   '9d300000-0000-0000-0000-000000000002',
-   '9d300000-0000-0000-0000-000000000003'
-)
-order by h.hold_id;
-```
-
-## 10) Scenario 1 Test Cases (Demo-Ready)
-
-Naming convention: `should_<expected_behavior>_when_<condition>`
-
-### 10.1 Critical path cases (run during presentation)
-
-| ID | Test name | Type | Arrange | Act | Assert |
-|---|---|---|---|---|---|
-| S1-001 | should_return_payment_pending_when_public_pen_seat_is_available | Integration | Use `EVT-301`, `PEN`, user `eba6aebb-a848-410b-8d6e-1b8275c4ce9c` | `POST /reserve` via Kong | HTTP `200`; `status=PAYMENT_PENDING`; includes `holdID`, `clientSecret`, `returnURL` |
-| S1-002 | should_return_processing_before_webhook_fulfillment_completes | Integration | Use `holdID` from S1-001 immediately | `GET /booking-status/{holdID}` | `uiStatus=PROCESSING` prior to webhook completion |
-| S1-003 | should_return_waitlisted_when_evt301_cat2_is_sold_out | Integration | Current snapshot has `EVT-301` + `CAT2` sold out | `POST /reserve` with `seatCategory=CAT2` | HTTP `200`; `status=WAITLISTED`; `waitlistID` and numeric `position` present |
-| S1-004 | should_return_waitlist_offered_when_seeded_offer_hold_is_requested | Integration | Seeded fixture hold `9d300000-0000-0000-0000-000000000001`, user `9d100000-0000-0000-0000-000000000001` | `GET /waitlist/confirm/9d300000-0000-0000-0000-000000000001` | HTTP `200`; `uiStatus=WAITLIST_OFFERED`; waitlist status `HOLD_OFFERED` |
-| S1-005 | should_return_payment_pending_when_waitlist_offer_is_confirmed | Integration | Same fixture as S1-004 | `POST /reserve/confirm` with `holdID=9d300000-0000-0000-0000-000000000001` and matching `userID` | HTTP `200`; `status=PAYMENT_PENDING`; `paymentIntentID` and `clientSecret` present |
-| S1-006 | should_return_expired_for_seeded_timeout_hold | Integration | Seeded fixture hold `9d300000-0000-0000-0000-000000000002` | `GET /booking-status/9d300000-0000-0000-0000-000000000002` and `GET /waitlist/confirm/9d300000-0000-0000-0000-000000000002` | `uiStatus=EXPIRED` on both APIs |
-
-### 10.2 Deterministic terminal-state fixtures
-
-| ID | Test name | Type | Fixture | Expected outcome |
-|---|---|---|---|---|
-| S1-007 | should_show_confirmed_for_seeded_confirmed_hold | Integration | `holdID=9d300000-0000-0000-0000-000000000003` | `booking-status` returns `uiStatus=CONFIRMED` or `PROCESSING` with `paymentStatus=SUCCEEDED` if e-ticket dependency is unavailable |
-| S1-008 | should_show_failed_payment_for_known_failed_fixture | Integration | `holdID=8b200000-0000-0000-0000-000000000002` | `booking-status` returns `uiStatus=FAILED_PAYMENT` and `failureReason=card_declined` |
-
-### 10.3 Error-path coverage (quick negative checks)
-
-| ID | Test name | Type | Request | Expected |
-|---|---|---|---|---|
-| S1-009 | should_return_400_when_reserve_has_invalid_event_uuid | Validation | `POST /reserve` with `eventID=not-a-uuid` | HTTP `400`; field validation error |
-| S1-010 | should_return_409_when_user_header_mismatches_payload_user | Auth/validation | `POST /reserve` with `X-User-ID != userID` | HTTP `409`; mismatch error |
-| S1-011 | should_return_404_when_reserve_confirm_hold_not_found | Validation | `POST /reserve/confirm` with unknown `holdID` | HTTP `404`; hold not found |
-| S1-012 | should_return_409_when_reserve_confirm_hold_owned_by_another_user | Validation | `POST /reserve/confirm` with valid hold but different user | HTTP `409`; ownership conflict |
-
-Coverage note:
-
-- Critical business flow: S1-001 to S1-006
-- Terminal and exception states: S1-007 to S1-012
-- These cases are designed to remain stable even when live queue timing varies.
-
-## 11) Important Runtime Caveat
-
-`booking-status` can remain `PROCESSING` after payment success when e-ticket fetch/generation is unavailable.
-
-In that case, still treat flow as correct if you can show:
-
-- payment status is `SUCCEEDED`
-- inventory hold status is `CONFIRMED`
-- e-ticket dependency marked unavailable/not found
-
-To get terminal `CONFIRMED` in UI:
-
-1. ensure OutSystems endpoint + API key are valid
-2. ensure Stripe webhook forwarding is running and `STRIPE_WEBHOOK_SECRET` matches current listener
-
-## 12) Fast Troubleshooting
-
-### Payment does not leave pending
-
-1. Confirm Stripe listener is running.
-2. Confirm `STRIPE_WEBHOOK_SECRET` matches current `stripe listen` output.
-3. Restart payment service:
+### Payment remains pending
 
 ```bash
+docker compose logs --tail 200 payment-service
 docker compose restart payment-service
 ```
 
-### Waitlist promotion not firing
+Also verify the active Stripe CLI secret matches `STRIPE_WEBHOOK_SECRET`.
+
+### Waitlist offer does not appear
 
 ```bash
-docker compose ps waitlist-promotion-orchestrator
-docker compose logs -f waitlist-promotion-orchestrator --tail 200
+docker compose logs --tail 200 waitlist-promotion-orchestrator
+docker compose logs --tail 200 inventory-service
 ```
 
-### Expiry flow not firing
+Confirm that the released hold category matches the waitlisted category.
+
+### Expiry does not trigger
 
 ```bash
-docker compose ps expiry-scheduler-service
-docker compose logs -f expiry-scheduler-service --tail 200
-docker compose logs -f inventory-service --tail 200
+docker compose logs --tail 200 expiry-scheduler-service
+docker compose logs --tail 200 waitlist-promotion-orchestrator
 ```
 
-### Stale runtime behavior
+### My Tickets missing newly confirmed entry
 
-```bash
-docker compose build --no-cache reservation-orchestrator booking-status-service inventory-service payment-service waitlist-promotion-orchestrator expiry-scheduler-service
-docker compose up -d reservation-orchestrator booking-status-service inventory-service payment-service waitlist-promotion-orchestrator expiry-scheduler-service
-```
-
-## 13) Demo Script (Condensed Verbal Walkthrough)
-
-Use this exact order for presentation:
-
-1. Show stack health + Stripe webhook listener.
-2. Confirm seeded fixtures (`9d3*`, `9d4*`, `9d5*`) exist in Supabase.
-3. Execute S1-001 and S1-002 (`PAYMENT_PENDING` -> `PROCESSING`).
-4. Execute S1-003 (`WAITLISTED`) and show waitlist position.
-5. Execute S1-004 and S1-005 (`WAITLIST_OFFERED` -> `PAYMENT_PENDING`).
-6. Execute S1-006 (`EXPIRED`) using `9d300000-0000-0000-0000-000000000002`.
-7. Execute one negative case from S1-009 to S1-012.
-8. Show SQL validation queries and async logs.
+- Hard refresh `/my-tickets` after booking result confirms.
+- Verify `/etickets/user/{userID}` is reachable through Kong.
+- Verify OutSystems credentials in backend env.
