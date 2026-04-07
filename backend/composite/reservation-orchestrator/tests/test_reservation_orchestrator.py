@@ -21,7 +21,12 @@ class FakeOrchestrator:
         self.reserve_response = {"status": "WAITLISTED", "waitlistID": "00000000-0000-0000-0000-000000000100"}
         self.reserve_confirm_response = {"status": "PAYMENT_PENDING", "holdID": "00000000-0000-0000-0000-000000000200"}
         self.waitlist_confirm_response = {"uiStatus": "WAITLIST_OFFERED"}
+        self.leave_waitlist_response = {
+            "status": "CANCELLED",
+            "waitlistID": "00000000-0000-0000-0000-000000000300",
+        }
         self.last_authenticated_user_id = None
+        self.last_leave_authenticated_user_id = None
         self.raise_error = None
 
     def reserve(self, payload, correlation_id):
@@ -39,6 +44,12 @@ class FakeOrchestrator:
             raise self.raise_error
         self.last_authenticated_user_id = authenticated_user_id
         return self.waitlist_confirm_response
+
+    def leave_waitlist(self, waitlist_id, correlation_id, authenticated_user_id=None):
+        if self.raise_error:
+            raise self.raise_error
+        self.last_leave_authenticated_user_id = authenticated_user_id
+        return self.leave_waitlist_response
 
 
 class ReservationOrchestratorRoutesTestCase(unittest.TestCase):
@@ -113,6 +124,20 @@ class ReservationOrchestratorRoutesTestCase(unittest.TestCase):
 
     def test_waitlist_confirm_requires_auth_header(self):
         response = self.client.get("/waitlist/confirm/40000000-0000-0000-0000-000000000003")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "Authenticated user header is required")
+
+    def test_leave_waitlist_route(self):
+        response = self.client.delete(
+            "/waitlist/leave/791293dd-b5d9-4bc8-b159-14f6b6161870",
+            headers=self.auth_headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["status"], "CANCELLED")
+        self.assertEqual(self.fake.last_leave_authenticated_user_id, self.auth_headers["X-User-ID"])
+
+    def test_leave_waitlist_requires_auth_header(self):
+        response = self.client.delete("/waitlist/leave/791293dd-b5d9-4bc8-b159-14f6b6161870")
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.get_json()["error"], "Authenticated user header is required")
 

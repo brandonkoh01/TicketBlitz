@@ -1,12 +1,17 @@
 <script setup>
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useApiClient } from '@/composables/useApiClient'
 import { useWaitlistTracking } from '@/composables/useWaitlistTracking'
 
 const route = useRoute()
 const router = useRouter()
+const api = useApiClient()
 
 const waitlistID = computed(() => String(route.params.waitlistID || '').trim())
+const isLeaving = ref(false)
+const leaveError = ref('')
+const isLeaveModalOpen = ref(false)
 
 const { waitlist, errorMessage, start } = useWaitlistTracking(waitlistID.value, {
   onOffer: (payload) => {
@@ -22,6 +27,34 @@ const { waitlist, errorMessage, start } = useWaitlistTracking(waitlistID.value, 
 onMounted(() => {
   start()
 })
+
+async function handleLeaveWaitlist() {
+  if (isLeaving.value || isLeaveModalOpen.value) return
+
+  isLeaveModalOpen.value = true
+}
+
+function closeLeaveModal() {
+  if (isLeaving.value) return
+  isLeaveModalOpen.value = false
+}
+
+async function confirmLeaveWaitlist() {
+  if (isLeaving.value) return
+
+  leaveError.value = ''
+  isLeaving.value = true
+
+  try {
+    await api.del(`/waitlist/leave/${waitlistID.value}`)
+    isLeaveModalOpen.value = false
+    await router.replace({ name: 'ticket-purchase' })
+  } catch (error) {
+    leaveError.value = error?.message || 'Unable to leave waitlist right now.'
+  } finally {
+    isLeaving.value = false
+  }
+}
 </script>
 
 <template>
@@ -63,10 +96,10 @@ onMounted(() => {
           </div>
 
           <p
-            v-if="errorMessage"
+            v-if="leaveError || errorMessage"
             class="mt-5 border-2 border-black bg-black px-4 py-3 text-xs font-black uppercase tracking-[0.14em] text-white"
           >
-            {{ errorMessage }}
+            {{ leaveError || errorMessage }}
           </p>
 
           <p class="mt-5 text-xs font-black uppercase tracking-[0.14em] text-black/65">
@@ -74,15 +107,63 @@ onMounted(() => {
           </p>
 
           <div class="mt-6">
-            <RouterLink
-              to="/ticket-purchase"
-              class="inline-flex h-12 items-center justify-center border-2 border-black bg-white px-4 text-xs font-black uppercase tracking-[0.2em] transition duration-150 ease-out hover:bg-black hover:text-white"
+            <UiButton
+              as="button"
+              variant="secondary"
+              :disabled="isLeaving"
+              class="h-12 min-w-[14rem]"
+              @click="handleLeaveWaitlist"
             >
-              Back To Purchase
-            </RouterLink>
+              {{ isLeaving ? 'Leaving...' : 'Leave Waitlist' }}
+            </UiButton>
           </div>
         </article>
       </div>
+    </section>
+
+    <section
+      v-if="isLeaveModalOpen"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-6"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="leave-waitlist-title"
+      aria-describedby="leave-waitlist-description"
+    >
+      <article class="w-full max-w-xl border-4 border-black bg-white p-6 shadow-[10px_10px_0_0_#000] md:p-8">
+        <p class="text-[10px] font-black uppercase tracking-[0.2em] text-black/70">Confirm Action</p>
+        <h2
+          id="leave-waitlist-title"
+          class="mt-3 text-[clamp(1.6rem,4vw,2.3rem)] font-black uppercase leading-[0.95] tracking-[-0.03em]"
+        >
+          Leave waitlist queue?
+        </h2>
+        <p
+          id="leave-waitlist-description"
+          class="mt-4 border-2 border-black bg-[var(--swiss-muted)] px-4 py-3 text-xs font-black uppercase tracking-[0.14em] text-black/75"
+        >
+          This action cannot be undone.
+        </p>
+
+        <div class="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+          <UiButton
+            as="button"
+            variant="secondary"
+            class="h-12 min-w-[10rem]"
+            :disabled="isLeaving"
+            @click="closeLeaveModal"
+          >
+            Cancel
+          </UiButton>
+          <UiButton
+            as="button"
+            class="h-12 min-w-[12rem]"
+            :disabled="isLeaving"
+            @click="confirmLeaveWaitlist"
+          >
+            {{ isLeaving ? 'Leaving...' : 'Yes, Leave Waitlist' }}
+          </UiButton>
+        </div>
+      </article>
     </section>
   </main>
 </template>

@@ -66,6 +66,13 @@ services:
           - GET
           - OPTIONS
         strip_path: false
+      - name: waitlist-leave
+        paths:
+          - /waitlist/leave
+        methods:
+          - DELETE
+          - OPTIONS
+        strip_path: false
     plugins:
       - name: key-auth
         config:

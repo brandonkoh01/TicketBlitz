@@ -518,6 +518,24 @@ class DownstreamClient:
             allow_404=True,
         )
 
+    def cancel_waitlist(self, *, waitlist_id: str, user_id: str, correlation_id: str) -> dict[str, Any]:
+        payload = self._request(
+            service_name="waitlist-service",
+            base_url=self.config.WAITLIST_SERVICE_URL,
+            method="DELETE",
+            path=f"/waitlist/{waitlist_id}",
+            correlation_id=correlation_id,
+            auth_header=self.config.WAITLIST_SERVICE_AUTH_HEADER,
+            auth_token=self.config.INTERNAL_SERVICE_TOKEN,
+            json_body={
+                "userID": user_id,
+                "source": "USER_SELF_SERVICE",
+            },
+        )
+        if payload is None:
+            raise ExternalServiceError("Failed to cancel waitlist entry")
+        return payload
+
     def _outsystems_enabled(self) -> bool:
         return bool(self.config.OUTSYSTEMS_BASE_URL and self.config.OUTSYSTEMS_API_KEY)
 
@@ -736,6 +754,33 @@ class ReservationOrchestrator:
             "correlationID": correlation_id,
         }
 
+    def leave_waitlist(
+        self,
+        waitlist_id: str,
+        correlation_id: str,
+        authenticated_user_id: Optional[str],
+    ) -> dict[str, Any]:
+        if not authenticated_user_id:
+            raise ValidationError("Authenticated user header is required")
+
+        parsed_waitlist_id = _parse_uuid(waitlist_id, "waitlistID")
+        cancelled = self.client.cancel_waitlist(
+            waitlist_id=parsed_waitlist_id,
+            user_id=authenticated_user_id,
+            correlation_id=correlation_id,
+        )
+
+        status = str((cancelled or {}).get("status") or "").upper()
+        if status and status != "CANCELLED":
+            raise ConflictError("Waitlist entry was not cancelled")
+
+        return {
+            "status": "CANCELLED",
+            "waitlistID": parsed_waitlist_id,
+            "userID": authenticated_user_id,
+            "correlationID": correlation_id,
+        }
+
     def _publish_waitlist_joined(
         self,
         *,
@@ -843,6 +888,25 @@ def waitlist_confirm(hold_id: str):
         return _json_error(error, correlation_id)
     except Exception as error:  # pragma: no cover
         logger.exception("Unexpected error in /waitlist/confirm/%s: %s", hold_id, error)
+        return _json_error(ApiError("Internal server error", 500), correlation_id)
+
+
+@reservation_bp.delete("/waitlist/leave/<waitlist_id>")
+def leave_waitlist(waitlist_id: str):
+    correlation_id = _resolve_correlation_id(None)
+    try:
+        authenticated_user_id = _resolve_authenticated_user_id(required=True)
+        service: ReservationOrchestrator = current_app.config["ORCHESTRATOR"]
+        payload = service.leave_waitlist(
+            waitlist_id,
+            correlation_id,
+            authenticated_user_id=authenticated_user_id,
+        )
+        return _json_response(payload, 200, correlation_id)
+    except ApiError as error:
+        return _json_error(error, correlation_id)
+    except Exception as error:  # pragma: no cover
+        logger.exception("Unexpected error in /waitlist/leave/%s: %s", waitlist_id, error)
         return _json_error(ApiError("Internal server error", 500), correlation_id)
 
 

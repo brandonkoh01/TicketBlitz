@@ -331,6 +331,46 @@ class NotificationWorkerTests(unittest.TestCase):
                 }
             )
 
+    def test_build_template_data_waitlist_joined_derives_status_url(self):
+        worker = notification.NotificationWorker(self._config(is_production=False, api_key=""))
+        os.environ["WAITLIST_STATUS_URL_TEMPLATE"] = "https://ticketblitz.app/waitlist/{waitlistID}"
+
+        template_data = worker.build_template_data(
+            "WAITLIST_JOINED",
+            {
+                "type": "WAITLIST_JOINED",
+                "email": "fan@example.com",
+                "eventName": "Coldplay Live",
+                "position": 3,
+                "waitlistID": "a6f0574e-7c9f-4b12-8e56-fa95b8fbfa4a",
+            },
+        )
+
+        self.assertEqual(
+            template_data["waitlistStatusURL"],
+            "https://ticketblitz.app/waitlist/a6f0574e-7c9f-4b12-8e56-fa95b8fbfa4a",
+        )
+
+    def test_build_template_data_waitlist_joined_keeps_explicit_status_url(self):
+        worker = notification.NotificationWorker(self._config(is_production=False, api_key=""))
+
+        template_data = worker.build_template_data(
+            "WAITLIST_JOINED",
+            {
+                "type": "WAITLIST_JOINED",
+                "email": "fan@example.com",
+                "eventName": "Coldplay Live",
+                "position": 2,
+                "waitlistID": "waitlist-123",
+                "waitlistStatusURL": "https://example.com/custom/waitlist-123",
+            },
+        )
+
+        self.assertEqual(
+            template_data["waitlistStatusURL"],
+            "https://example.com/custom/waitlist-123",
+        )
+
     def test_sendgrid_live_booking_confirmed_email_delivery(self):
         self._require_sendgrid_live_test_enabled()
         self._require_sendgrid_live_env()

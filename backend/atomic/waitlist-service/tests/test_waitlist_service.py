@@ -538,6 +538,63 @@ class WaitlistServiceTestCase(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(payload["status"], "CANCELLED")
 
+    @patch.object(waitlist_service, "db_configured", return_value=True)
+    def test_cancel_waitlist_entry_marks_cancelled(self, _mock_db_configured):
+        repo = Mock()
+        repo.get_entry.return_value = _entry(status="WAITING")
+        repo.update_entry_if_status.return_value = _entry(status="CANCELLED")
+        repo.get_positions.return_value = {}
+        repo.get_category_map.return_value = {
+            CATEGORY_ID: {
+                "category_id": CATEGORY_ID,
+                "event_id": EVENT_ID,
+                "category_code": "CAT1",
+                "name": "Category 1",
+            }
+        }
+
+        client = self._build_client(repo)
+        response = client.delete(
+            f"/waitlist/{WAITLIST_ID}",
+            headers=self._auth_headers(),
+            json={"userID": USER_ID},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["waitlistID"], WAITLIST_ID)
+        self.assertEqual(payload["status"], "CANCELLED")
+
+    @patch.object(waitlist_service, "db_configured", return_value=True)
+    def test_cancel_waitlist_entry_rejects_user_mismatch(self, _mock_db_configured):
+        repo = Mock()
+        repo.get_entry.return_value = _entry(status="WAITING")
+
+        client = self._build_client(repo)
+        response = client.delete(
+            f"/waitlist/{WAITLIST_ID}",
+            headers=self._auth_headers(),
+            json={"userID": "00000000-0000-0000-0000-000000000099"},
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("does not belong", response.get_json()["error"])
+
+    @patch.object(waitlist_service, "db_configured", return_value=True)
+    def test_cancel_waitlist_entry_rejects_non_waiting_status(self, _mock_db_configured):
+        repo = Mock()
+        repo.get_entry.return_value = _entry(status="HOLD_OFFERED")
+
+        client = self._build_client(repo)
+        response = client.delete(
+            f"/waitlist/{WAITLIST_ID}",
+            headers=self._auth_headers(),
+            json={"userID": USER_ID},
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("Only WAITING entries can be cancelled", response.get_json()["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

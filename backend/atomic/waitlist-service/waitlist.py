@@ -930,6 +930,71 @@ def dequeue_waitlist_user(user_id: str):
         return _handle_repo_error(error)
 
 
+@waitlist_bp.delete("/waitlist/<waitlist_id>")
+def cancel_waitlist_entry(waitlist_id: str):
+    if not db_configured():
+        return _json_error("Supabase is not configured", 503)
+
+    payload = request.get_json(silent=True)
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        return _json_error("Request body must be a JSON object", 400)
+
+    try:
+        waitlist_uuid = _parse_uuid(waitlist_id, "waitlistID")
+        requested_user_raw = _extract(payload, "userID", "user_id")
+        requested_user_id = _parse_uuid(requested_user_raw, "userID") if requested_user_raw is not None else None
+
+        repo = _get_repo()
+        row = repo.get_entry(waitlist_uuid)
+        if row is None:
+            return _json_error("Waitlist entry not found", 404)
+
+        entry_user_id = row.get("user_id")
+        if requested_user_id and entry_user_id and requested_user_id != entry_user_id:
+            raise WaitlistConflictError("waitlistID does not belong to userID")
+
+        status = str(row.get("status") or "").upper()
+        if status != "WAITING":
+            raise WaitlistConflictError("Only WAITING entries can be cancelled")
+
+        updated = repo.update_entry_if_status(
+            waitlist_uuid,
+            expected_statuses=["WAITING"],
+            payload={"status": "CANCELLED"},
+        )
+
+        if updated is None:
+            latest = repo.get_entry(waitlist_uuid)
+            if latest is None:
+                raise WaitlistNotFoundError("Waitlist entry not found")
+
+            latest_status = str(latest.get("status") or "").upper()
+            if latest_status != "CANCELLED":
+                raise WaitlistConflictError(
+                    f"Cannot cancel waitlist entry from {latest_status} due to a concurrent update"
+                )
+
+            updated = latest
+
+        decorated = _decorate_entries(repo, [updated], include_email=False)[0]
+        return (
+            jsonify(
+                {
+                    "waitlistID": decorated["waitlistID"],
+                    "userID": decorated["userID"],
+                    "status": decorated["status"],
+                }
+            ),
+            200,
+        )
+    except ValueError as error:
+        return _json_error(str(error), 400)
+    except Exception as error:
+        return _handle_repo_error(error)
+
+
 @waitlist_bp.get("/waitlist/<waitlist_id>")
 def get_waitlist_entry(waitlist_id: str):
     if not db_configured():
