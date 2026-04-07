@@ -24,6 +24,18 @@ const footerGroups = [
 const purchasedTickets = ref([])
 const isLoading = ref(false)
 const loadError = ref('')
+const ticketRequestState = computed(() => userTickets.requestState.value)
+const hasLoadError = computed(() => Boolean(loadError.value))
+const isEndpointMissingError = computed(() => ticketRequestState.value.kind === 'endpoint-missing')
+const ticketErrorTone = computed(() => (isEndpointMissingError.value ? 'warning' : 'error'))
+const ticketErrorEyebrow = computed(() => (isEndpointMissingError.value ? 'OutSystems Integration' : 'Ticket Service'))
+const ticketErrorTitle = computed(() => {
+  if (isEndpointMissingError.value) {
+    return 'You have no tickets yet'
+  }
+
+  return 'Unable to Load Ticket List'
+})
 
 const selectedTicket = ref(null)
 const passQrDataUrl = ref('')
@@ -45,7 +57,11 @@ async function refreshTickets() {
     const remoteTickets = await userTickets.fetchUserTickets()
     purchasedTickets.value = sortByUpdatedAtDescending(remoteTickets)
   } catch (error) {
-    loadError.value = userTickets.errorMessage.value || error?.message || 'Unable to load ticket list.'
+    loadError.value =
+      userTickets.requestState.value.message ||
+      userTickets.errorMessage.value ||
+      error?.message ||
+      'Unable to load ticket list.'
     purchasedTickets.value = []
   } finally {
     isLoading.value = false
@@ -155,12 +171,30 @@ onMounted(() => {
             </span>
           </div>
 
-          <p
-            v-if="loadError"
-            class="mt-6 border-2 border-black bg-black px-4 py-3 text-xs font-black uppercase tracking-[0.14em] text-white"
+          <UiStateNotice
+            v-if="hasLoadError"
+            class="mt-6"
+            :tone="ticketErrorTone"
+            :title="ticketErrorTitle"
+            :message="loadError"
           >
-            {{ loadError }}
-          </p>
+            <template #actions>
+              <button
+                type="button"
+                class="inline-flex h-10 items-center justify-center border-2 border-black bg-white px-4 text-[10px] font-black uppercase tracking-[0.18em] text-black transition duration-150 ease-out hover:bg-black hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--swiss-accent)] focus-visible:ring-offset-2"
+                @click="refreshTickets"
+              >
+                Retry
+              </button>
+              <RouterLink
+                v-if="isEndpointMissingError"
+                to="/ticket-purchase"
+                class="inline-flex h-10 items-center justify-center border-2 border-black bg-black px-4 text-[10px] font-black uppercase tracking-[0.18em] text-white transition duration-150 ease-out hover:bg-white hover:text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--swiss-accent)] focus-visible:ring-offset-2"
+              >
+                Continue Booking
+              </RouterLink>
+            </template>
+          </UiStateNotice>
 
           <p
             v-if="isLoading"
@@ -169,7 +203,7 @@ onMounted(() => {
             Loading latest tickets...
           </p>
 
-          <div v-if="purchasedTickets.length === 0 && !isLoading" class="mt-6 border-2 border-black bg-[var(--swiss-muted)] p-5">
+          <div v-if="purchasedTickets.length === 0 && !isLoading && !hasLoadError" class="mt-6 border-2 border-black bg-[var(--swiss-muted)] p-5">
             <p class="text-xs font-black uppercase tracking-[0.16em]">No confirmed tickets yet.</p>
             <p class="mt-2 text-xs font-bold uppercase tracking-[0.08em] text-black/70">
               Complete a booking flow and your ticket will appear here.

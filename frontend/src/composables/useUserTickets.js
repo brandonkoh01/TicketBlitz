@@ -1,6 +1,107 @@
 import { ref } from 'vue'
 import { useAuthStore } from '@/stores/authStore'
 import { useApiClient } from '@/composables/useApiClient'
+import { ApiClientError } from '@/lib/apiClient'
+
+const EMPTY_RESULT_404_CODES = new Set(['TICKET_NOT_FOUND', 'USER_NOT_FOUND', 'NO_TICKETS'])
+
+function normalizeErrorCode(error) {
+  if (typeof error?.code === 'string' && error.code.trim()) {
+    return error.code.trim().toUpperCase()
+  }
+
+  if (typeof error?.payload?.code === 'string' && error.payload.code.trim()) {
+    return error.payload.code.trim().toUpperCase()
+  }
+
+  const nestedErrorCode = error?.payload?.error?.code
+  if (typeof nestedErrorCode === 'string' && nestedErrorCode.trim()) {
+    return nestedErrorCode.trim().toUpperCase()
+  }
+
+  return ''
+}
+
+function normalizeErrorText(error) {
+  const parts = [
+    error?.message,
+    error?.payload?.message,
+    typeof error?.payload?.error === 'string' ? error.payload.error : '',
+    error?.payload?.details,
+    error?.payload?.error?.message,
+  ]
+
+  return parts
+    .filter((value) => typeof value === 'string' && value.trim())
+    .map((value) => value.trim().toUpperCase())
+    .join(' | ')
+}
+
+function buildTicketErrorState(error) {
+  if (!(error instanceof ApiClientError)) {
+    return {
+      kind: 'unknown',
+      status: 0,
+      code: '',
+      message: error?.message || 'Unable to load tickets from e-ticket service.',
+    }
+  }
+
+  const status = Number(error.status || 0)
+  const code = normalizeErrorCode(error)
+  const detailText = normalizeErrorText(error)
+
+  const isNoTickets404 =
+    status === 404 &&
+    (EMPTY_RESULT_404_CODES.has(code) ||
+      detailText.includes('NO TICKET') ||
+      detailText.includes('NO ETICKET') ||
+      detailText.includes('NO E-TICKET') ||
+      detailText.includes('USER HAS NO TICKETS'))
+
+  if (isNoTickets404) {
+    return {
+      kind: 'empty',
+      status,
+      code: code || 'TICKET_NOT_FOUND',
+      message: '',
+    }
+  }
+
+  if (status === 404) {
+    return {
+      kind: 'endpoint-missing',
+      status,
+      code: code || 'ENDPOINT_NOT_FOUND',
+      message: 'Please buy a ticket to see your confirmed tickets',
+    }
+  }
+
+  if (status === 0 || status === 408) {
+    return {
+      kind: 'network',
+      status,
+      code,
+      message: 'Unable to reach TicketBlitz services. Check connectivity and try again.',
+    }
+  }
+
+  if (status >= 500) {
+    return {
+      kind: 'server',
+      status,
+      code,
+      message: 'Ticket services are temporarily unavailable. Please try again shortly.',
+    }
+  }
+
+  return {
+    kind: 'request',
+    status,
+    code,
+    message: error.message || 'Unable to load tickets from e-ticket service.',
+  }
+}
 
 function normalizeEventID(value) {
   const parsed = String(value || '').trim()
@@ -76,13 +177,31 @@ export function useUserTickets() {
   const tickets = ref([])
   const isLoading = ref(false)
   const errorMessage = ref('')
+  const requestState = ref({
+    kind: 'idle',
+    status: 0,
+    code: '',
+    message: '',
+  })
 
   async function fetchUserTickets() {
     errorMessage.value = ''
+    requestState.value = {
+      kind: 'loading',
+      status: 0,
+      code: '',
+      message: '',
+    }
 
     const userID = String(authStore.state.user?.id || '').trim()
     if (!userID) {
       tickets.value = []
+      requestState.value = {
+        kind: 'idle',
+        status: 0,
+        code: '',
+        message: '',
+      }
       return tickets.value
     }
 
@@ -99,9 +218,30 @@ export function useUserTickets() {
         .map((ticket) => normalizeTicket(ticket, eventNameByID))
         .filter(Boolean)
 
+      requestState.value = {
+        kind: 'success',
+        status: 200,
+        code: '',
+        message: '',
+      }
+
       return tickets.value
     } catch (error) {
-      errorMessage.value = error?.message || 'Unable to load tickets from e-ticket service.'
+      const normalizedError = buildTicketErrorState(error)
+
+      if (normalizedError.kind === 'empty') {
+        tickets.value = []
+        requestState.value = {
+          kind: 'success',
+          status: 200,
+          code: normalizedError.code,
+          message: '',
+        }
+        return tickets.value
+      }
+
+      errorMessage.value = normalizedError.message
+      requestState.value = normalizedError
       throw error
     } finally {
       isLoading.value = false
@@ -112,6 +252,7 @@ export function useUserTickets() {
     tickets,
     isLoading,
     errorMessage,
+    requestState,
     fetchUserTickets,
   }
 }

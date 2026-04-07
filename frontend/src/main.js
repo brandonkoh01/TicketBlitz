@@ -13,6 +13,7 @@ import CategoryPricingCard from './components/ui/CategoryPricingCard.vue'
 import UiMaterialIcon from './components/ui/UiMaterialIcon.vue'
 import UiDashboardPanel from './components/ui/UiDashboardPanel.vue'
 import UiToggleSwitch from './components/ui/UiToggleSwitch.vue'
+import UiStateNotice from './components/ui/UiStateNotice.vue'
 import AuthPageFrame from './components/auth/AuthPageFrame.vue'
 import AuthFooter from './components/auth/AuthFooter.vue'
 import AuthFormField from './components/auth/AuthFormField.vue'
@@ -34,6 +35,7 @@ app.component('CategoryPricingCard', CategoryPricingCard)
 app.component('UiMaterialIcon', UiMaterialIcon)
 app.component('UiDashboardPanel', UiDashboardPanel)
 app.component('UiToggleSwitch', UiToggleSwitch)
+app.component('UiStateNotice', UiStateNotice)
 app.component('AuthPageFrame', AuthPageFrame)
 app.component('AuthFooter', AuthFooter)
 app.component('AuthFormField', AuthFormField)
