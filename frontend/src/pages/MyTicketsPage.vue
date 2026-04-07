@@ -3,12 +3,10 @@ import { computed, onMounted, ref } from 'vue'
 import QRCode from 'qrcode'
 import { useAuthStore } from '@/stores/authStore'
 import { useRoleNavigation } from '@/composables/useRoleNavigation'
-import { useApiClient } from '@/composables/useApiClient'
-import { useScenarioFlowStore } from '@/stores/scenarioFlowStore'
+import { useUserTickets } from '@/composables/useUserTickets'
 
 const authStore = useAuthStore()
-const api = useApiClient()
-const flowStore = useScenarioFlowStore()
+const userTickets = useUserTickets()
 const isAuthenticated = computed(() => authStore.isAuthenticated.value)
 const { primaryNavItems: navItems } = useRoleNavigation()
 
@@ -39,40 +37,16 @@ function sortByUpdatedAtDescending(entries) {
   })
 }
 
-function syncFromFlowStore() {
-  const entries = Array.isArray(flowStore.state.confirmedTickets)
-    ? flowStore.state.confirmedTickets
-    : []
-  purchasedTickets.value = sortByUpdatedAtDescending(entries)
-}
-
-async function hydrateLatestTicketFromCurrentHold() {
-  const holdID = flowStore.state.reservation?.holdID
-  if (!holdID) return
-
-  const payload = await api.get(`/booking-status/${holdID}`, { includeUserHeader: false })
-  if (payload?.uiStatus !== 'CONFIRMED') return
-
-  flowStore.upsertConfirmedTicket({
-    holdID,
-    ticketID: payload?.ticketID || null,
-    seatNumber: payload?.seatNumber || null,
-    eventName: flowStore.state.reservation?.eventName || null,
-    status: payload?.uiStatus,
-    updatedAt: payload?.updatedAt || new Date().toISOString(),
-  })
-}
-
 async function refreshTickets() {
   loadError.value = ''
   isLoading.value = true
 
   try {
-    await hydrateLatestTicketFromCurrentHold()
-    syncFromFlowStore()
+    const remoteTickets = await userTickets.fetchUserTickets()
+    purchasedTickets.value = sortByUpdatedAtDescending(remoteTickets)
   } catch (error) {
-    loadError.value = error?.message || 'Unable to load ticket list.'
-    syncFromFlowStore()
+    loadError.value = userTickets.errorMessage.value || error?.message || 'Unable to load ticket list.'
+    purchasedTickets.value = []
   } finally {
     isLoading.value = false
   }

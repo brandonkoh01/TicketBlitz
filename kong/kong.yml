@@ -388,6 +388,20 @@ services:
           - POST
           - OPTIONS
         strip_path: false
+      - name: eticket-user-list
+        paths:
+          - ~/etickets/user/[^/]+$
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
+        plugins:
+          - name: key-auth
+            config:
+              key_names:
+                - x-customer-api-key
+              hide_credentials: true
+              run_on_preflight: false
 
 consumers:
   - username: customer-frontend
