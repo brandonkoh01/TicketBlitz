@@ -102,19 +102,11 @@ async function handleSignIn() {
           />
 
           <div class="space-y-2">
-            <div class="flex items-end justify-end gap-3">
-              <RouterLink
-                to="/sign-up"
-                class="text-[10px] font-black uppercase tracking-[0.14em] underline decoration-2 transition duration-150 ease-linear hover:text-[var(--swiss-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--swiss-accent)] focus-visible:ring-offset-2"
-              >
-                  Need account?
-              </RouterLink>
-            </div>
 
             <AuthPasswordField
               id="sign-in-password"
               v-model="form.password"
-              label="Security Key"
+              label="Password"
               placeholder="••••••••••••"
               autocomplete="current-password"
               required
@@ -148,12 +140,12 @@ async function handleSignIn() {
           </button>
 
           <div class="pt-2 text-center">
-            <p class="text-[10px] font-black uppercase tracking-[0.14em] text-black/45">No credentials?</p>
+            <p class="text-[10px] font-black uppercase tracking-[0.14em] text-black/45">Don't have an account?</p>
             <RouterLink
               to="/sign-up"
               class="mt-2 inline-block text-[11px] font-black uppercase tracking-[0.16em] underline decoration-2 transition duration-150 ease-linear hover:text-[var(--swiss-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--swiss-accent)] focus-visible:ring-offset-2"
             >
-              Request System Access
+              Sign Up
             </RouterLink>
           </div>
         </form>
