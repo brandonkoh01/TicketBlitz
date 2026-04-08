@@ -132,7 +132,7 @@ const footerGroups = [
           <div class="border-4 border-black bg-white p-6">
             <p class="text-xs font-black uppercase tracking-[0.2em]">Get Priority Access</p>
             <p class="mt-4 text-sm leading-relaxed">Join the waitlist to receive drop alerts, venue unlocks, and pre-sale inventory windows.</p>
-            <UiButton to="/waitlist" variant="accent" :full-width="true" class="mt-7">Join Waitlist</UiButton>
+            <UiButton to="#" variant="accent" :full-width="true" class="mt-7">Join Waitlist</UiButton>
           </div>
         </div>
       </div>

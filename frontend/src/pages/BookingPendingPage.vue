@@ -23,6 +23,12 @@ const holdExpiry = ref('')
 const clientSecret = ref('')
 const paymentMountRef = ref(null)
 const awaitingBookingResolution = ref(false)
+const isUnauthorizedHoldAccess = ref(false)
+
+const HOLD_OWNERSHIP_ERROR_PATTERNS = [
+  'holdid does not belong to userid',
+  'holdid does not belong to authenticated user',
+]
 
 const {
   isReady: paymentReady,
@@ -58,6 +64,30 @@ const polling = useBookingStatusPolling(holdID, {
 const countdown = useHoldCountdown(holdExpiry)
 const isPaymentProcessing = computed(() => paymentSubmitting.value || awaitingBookingResolution.value)
 
+function isHoldOwnershipViolationError(input) {
+  const message = String(input || '').trim().toLowerCase()
+  if (!message) return false
+
+  return HOLD_OWNERSHIP_ERROR_PATTERNS.some((pattern) => message.includes(pattern))
+}
+
+function activateUnauthorizedAccessState() {
+  isUnauthorizedHoldAccess.value = true
+  awaitingBookingResolution.value = false
+  statusLabel.value = 'ACCESS DENIED'
+  clientSecret.value = ''
+  holdExpiry.value = ''
+  localInfo.value = ''
+  localError.value = ''
+  polling.stop()
+
+  try {
+    unmountStripePayment()
+  } catch {
+    // Cleanup should never block rendering the unauthorized state.
+  }
+}
+
 watch(
   () => polling.payload.value,
   (payload) => {
@@ -70,12 +100,23 @@ watch(
   }
 )
 
+watch(
+  () => polling.errorMessage.value,
+  (message) => {
+    if (isHoldOwnershipViolationError(message)) {
+      activateUnauthorizedAccessState()
+    }
+  }
+)
+
 watch(holdID, async (nextHoldID, previousHoldID) => {
   if (!nextHoldID || nextHoldID === previousHoldID) {
     return
   }
 
+  isUnauthorizedHoldAccess.value = false
   awaitingBookingResolution.value = false
+  statusLabel.value = 'PROCESSING'
   polling.stop()
 
   try {
@@ -85,11 +126,16 @@ watch(holdID, async (nextHoldID, previousHoldID) => {
   }
 
   await hydratePendingContext()
+  if (isUnauthorizedHoldAccess.value) {
+    return
+  }
+
   await mountPaymentElement()
   polling.start()
 })
 
 async function hydratePendingContext() {
+  isUnauthorizedHoldAccess.value = false
   localError.value = ''
   localInfo.value = ''
 
@@ -120,6 +166,11 @@ async function hydratePendingContext() {
     clientSecret.value = response?.clientSecret || ''
     holdExpiry.value = response?.holdExpiry || ''
   } catch (error) {
+    if (isHoldOwnershipViolationError(error?.message)) {
+      activateUnauthorizedAccessState()
+      return
+    }
+
     localError.value = error?.message || 'Unable to load payment context for this hold.'
   }
 }
@@ -141,7 +192,7 @@ async function mountPaymentElement() {
 }
 
 async function handleConfirmPayment() {
-  if (isPaymentProcessing.value) {
+  if (isPaymentProcessing.value || isUnauthorizedHoldAccess.value) {
     return
   }
 
@@ -158,6 +209,11 @@ async function handleConfirmPayment() {
       await polling.pollOnce({ reconcilePayment: true })
     }
   } catch (error) {
+    if (isHoldOwnershipViolationError(error?.message)) {
+      activateUnauthorizedAccessState()
+      return
+    }
+
     awaitingBookingResolution.value = false
     localError.value = error?.message || paymentErrorMessage.value || 'Payment confirmation failed.'
   }
@@ -169,6 +225,10 @@ onMounted(async () => {
   }
 
   await hydratePendingContext()
+  if (isUnauthorizedHoldAccess.value) {
+    return
+  }
+
   await mountPaymentElement()
   polling.start()
 })
@@ -187,85 +247,119 @@ onUnmounted(() => {
 
 <template>
   <main class="min-h-screen bg-[var(--swiss-bg)] text-[var(--swiss-fg)]">
-    <section class="border-b-4 border-black bg-white">
-      <div class="mx-auto max-w-[1800px] px-6 py-8 md:px-10 md:py-10">
-        <SectionLabel index="10." label="Booking Pending" />
-        <h1 class="mt-8 text-[clamp(2.4rem,7vw,5.8rem)] font-black uppercase leading-[0.9] tracking-[-0.04em]">
-          Payment
-          <br>
-          Processing
-        </h1>
-      </div>
-    </section>
-
-    <section class="border-b-4 border-black bg-[var(--swiss-muted)]">
-      <div class="mx-auto grid max-w-[1800px] grid-cols-1 lg:grid-cols-12">
-        <div class="swiss-grid-pattern border-b-4 border-black p-6 md:p-10 lg:col-span-7 lg:border-b-0 lg:border-r-4 lg:p-14">
-          <p class="text-xs font-black uppercase tracking-[0.18em]">Hold ID</p>
-          <p class="mt-2 break-all border-2 border-black bg-white px-3 py-2 text-xs font-bold tracking-[0.06em]">
-            {{ holdID }}
-          </p>
-
-          <div class="mt-6 grid gap-4 md:grid-cols-3">
-            <div class="border-2 border-black bg-white p-4">
-              <p class="text-[10px] font-black uppercase tracking-[0.2em] text-black/60">Current State</p>
-              <p class="mt-2 text-lg font-black uppercase">{{ statusLabel }}</p>
-            </div>
-
-            <div class="border-2 border-black bg-white p-4">
-              <p class="text-[10px] font-black uppercase tracking-[0.2em] text-black/60">Hold Countdown</p>
-              <p class="mt-2 text-lg font-black uppercase">{{ countdown.label }}</p>
-            </div>
-
-            <div class="border-2 border-black bg-white p-4">
-              <p class="text-[10px] font-black uppercase tracking-[0.2em] text-black/60">Polling</p>
-              <p class="mt-2 text-lg font-black uppercase">{{ polling.isPolling ? 'ACTIVE' : 'PAUSED' }}</p>
-            </div>
-          </div>
-
-          <p
-            v-if="localError || paymentErrorMessage || polling.errorMessage"
-            class="mt-6 border-2 border-black bg-black px-4 py-3 text-xs font-black uppercase tracking-[0.14em] text-white"
-          >
-            {{ localError || paymentErrorMessage || polling.errorMessage }}
-          </p>
-
-          <p
-            v-if="localInfo"
-            class="mt-6 border-2 border-black bg-[var(--swiss-accent)] px-4 py-3 text-xs font-black uppercase tracking-[0.14em]"
-          >
-            {{ localInfo }}
-          </p>
+    <div :class="isUnauthorizedHoldAccess ? 'pointer-events-none select-none blur-md' : ''">
+      <section class="border-b-4 border-black bg-white">
+        <div class="mx-auto max-w-[1800px] px-6 py-8 md:px-10 md:py-10">
+          <SectionLabel index="10." label="Booking Pending" />
+          <h1 class="mt-8 text-[clamp(2.4rem,7vw,5.8rem)] font-black uppercase leading-[0.9] tracking-[-0.04em]">
+            Payment
+            <br>
+            Processing
+          </h1>
         </div>
+      </section>
 
-        <aside class="swiss-dots bg-white p-6 md:p-10 lg:col-span-5 lg:p-14">
-          <SectionLabel index="11." label="Payment Element" />
+      <section class="border-b-4 border-black bg-[var(--swiss-muted)]">
+        <div class="mx-auto grid max-w-[1800px] grid-cols-1 lg:grid-cols-12">
+          <div class="swiss-grid-pattern border-b-4 border-black p-6 md:p-10 lg:col-span-7 lg:border-b-0 lg:border-r-4 lg:p-14">
+            <p class="text-xs font-black uppercase tracking-[0.18em]">Hold ID</p>
+            <p class="mt-2 break-all border-2 border-black bg-white px-3 py-2 text-xs font-bold tracking-[0.06em]">
+              {{ holdID }}
+            </p>
 
-          <div class="mt-6 border-4 border-black bg-[var(--swiss-muted)] p-4">
-            <div ref="paymentMountRef" class="min-h-56 border-2 border-black bg-white p-4" />
+            <div class="mt-6 grid gap-4 md:grid-cols-3">
+              <div class="border-2 border-black bg-white p-4">
+                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-black/60">Current State</p>
+                <p class="mt-2 text-lg font-black uppercase">{{ statusLabel }}</p>
+              </div>
 
-            <button
-              type="button"
-              class="mt-4 inline-flex h-14 w-full items-center justify-center border-2 border-black bg-black px-6 text-xs font-black uppercase tracking-[0.24em] text-white transition duration-200 ease-out hover:bg-[var(--swiss-accent)] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
-              :disabled="!paymentReady || isPaymentProcessing"
-              @click="handleConfirmPayment"
+              <div class="border-2 border-black bg-white p-4">
+                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-black/60">Hold Countdown</p>
+                <p class="mt-2 text-lg font-black uppercase">{{ countdown.label }}</p>
+              </div>
+
+              <div class="border-2 border-black bg-white p-4">
+                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-black/60">Polling</p>
+                <p class="mt-2 text-lg font-black uppercase">{{ polling.isPolling ? 'ACTIVE' : 'PAUSED' }}</p>
+              </div>
+            </div>
+
+            <p
+              v-if="!isUnauthorizedHoldAccess && (localError || paymentErrorMessage || polling.errorMessage)"
+              class="mt-6 border-2 border-black bg-black px-4 py-3 text-xs font-black uppercase tracking-[0.14em] text-white"
             >
-              {{ isPaymentProcessing ? 'Processing Payment' : 'Confirm Payment' }}
-            </button>
+              {{ localError || paymentErrorMessage || polling.errorMessage }}
+            </p>
+
+            <p
+              v-if="localInfo"
+              class="mt-6 border-2 border-black bg-[var(--swiss-accent)] px-4 py-3 text-xs font-black uppercase tracking-[0.14em]"
+            >
+              {{ localInfo }}
+            </p>
           </div>
 
-          <p class="mt-4 text-[11px] font-bold uppercase tracking-[0.15em] text-black/70">
-            Keep this page open while booking status updates asynchronously.
-          </p>
+          <aside class="swiss-dots bg-white p-6 md:p-10 lg:col-span-5 lg:p-14">
+            <SectionLabel index="11." label="Payment Element" />
 
-          <RouterLink
-            :to="{ name: 'ticket-purchase' }"
-            class="mt-6 inline-flex h-12 w-full items-center justify-center border-2 border-black bg-white px-4 text-xs font-black uppercase tracking-[0.2em] transition duration-150 ease-out hover:bg-black hover:text-white"
-          >
-            Back To Purchase
-          </RouterLink>
-        </aside>
-      </div>
+            <div class="mt-6 border-4 border-black bg-[var(--swiss-muted)] p-4">
+              <div ref="paymentMountRef" class="min-h-56 border-2 border-black bg-white p-4" />
+
+              <button
+                type="button"
+                class="mt-4 inline-flex h-14 w-full items-center justify-center border-2 border-black bg-black px-6 text-xs font-black uppercase tracking-[0.24em] text-white transition duration-200 ease-out hover:bg-[var(--swiss-accent)] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                :disabled="!paymentReady || isPaymentProcessing || isUnauthorizedHoldAccess"
+                @click="handleConfirmPayment"
+              >
+                {{ isPaymentProcessing ? 'Processing Payment' : 'Confirm Payment' }}
+              </button>
+            </div>
+
+            <p class="mt-4 text-[11px] font-bold uppercase tracking-[0.15em] text-black/70">
+              Keep this page open while booking status updates asynchronously.
+            </p>
+
+            <RouterLink
+              :to="{ name: 'ticket-purchase' }"
+              class="mt-6 inline-flex h-12 w-full items-center justify-center border-2 border-black bg-white px-4 text-xs font-black uppercase tracking-[0.2em] transition duration-150 ease-out hover:bg-black hover:text-white"
+            >
+              Back To Purchase
+            </RouterLink>
+          </aside>
+        </div>
+      </section>
+    </div>
+
+    <section
+      v-if="isUnauthorizedHoldAccess"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="booking-pending-unauthorized-title"
+      aria-describedby="booking-pending-unauthorized-description"
+    >
+      <article class="w-full max-w-xl border-4 border-black bg-white p-6 shadow-[10px_10px_0_0_#000] md:p-8">
+        <p class="text-[10px] font-black uppercase tracking-[0.2em] text-black/70">Access Restricted</p>
+        <h2
+          id="booking-pending-unauthorized-title"
+          class="mt-3 text-[clamp(1.6rem,4vw,2.3rem)] font-black uppercase leading-[0.95] tracking-[-0.03em]"
+        >
+          You are not allowed to view this booking.
+        </h2>
+        <p
+          id="booking-pending-unauthorized-description"
+          class="mt-4 border-2 border-black bg-[var(--swiss-muted)] px-4 py-3 text-xs font-black uppercase tracking-[0.14em] text-black/75"
+        >
+          This hold belongs to another account. Return to the events page to continue.
+        </p>
+
+        <RouterLink
+          :to="{ name: 'events' }"
+          class="mt-6 inline-flex h-12 w-full items-center justify-center border-2 border-black bg-black px-4 text-xs font-black uppercase tracking-[0.2em] text-white transition duration-150 ease-out hover:bg-[var(--swiss-accent)] hover:text-black"
+        >
+          Go Back To Events
+        </RouterLink>
+      </article>
     </section>
   </main>
 </template>
