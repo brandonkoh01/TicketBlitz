@@ -3,10 +3,12 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useApiClient } from '@/composables/useApiClient'
 import { useWaitlistTracking } from '@/composables/useWaitlistTracking'
+import { useScenarioFlowStore } from '@/stores/scenarioFlowStore'
 
 const route = useRoute()
 const router = useRouter()
 const api = useApiClient()
+const flowStore = useScenarioFlowStore()
 
 const waitlistID = computed(() => String(route.params.waitlistID || '').trim())
 const isLeaving = ref(false)
@@ -39,6 +41,30 @@ function closeLeaveModal() {
   isLeaveModalOpen.value = false
 }
 
+function normalizeContextValue(value) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function buildTicketPurchaseQuery() {
+  const liveEventID = normalizeContextValue(waitlist.value?.eventID)
+  const liveSeatCategory = normalizeContextValue(waitlist.value?.seatCategory)
+  const storedEventID = normalizeContextValue(flowStore.state.waitlist?.eventID)
+  const storedSeatCategory = normalizeContextValue(flowStore.state.waitlist?.seatCategory)
+
+  const eventID = liveEventID || storedEventID
+  const seatCategory = liveSeatCategory || storedSeatCategory
+
+  const query = {}
+  if (eventID) {
+    query.eventID = eventID
+  }
+  if (seatCategory) {
+    query.seatCategory = seatCategory
+  }
+
+  return Object.keys(query).length > 0 ? query : null
+}
+
 async function confirmLeaveWaitlist() {
   if (isLeaving.value) return
 
@@ -48,7 +74,16 @@ async function confirmLeaveWaitlist() {
   try {
     await api.del(`/waitlist/leave/${waitlistID.value}`)
     isLeaveModalOpen.value = false
-    await router.replace({ name: 'ticket-purchase' })
+
+    const query = buildTicketPurchaseQuery()
+    await router.replace(
+      query
+        ? {
+            name: 'ticket-purchase',
+            query,
+          }
+        : { name: 'ticket-purchase' }
+    )
   } catch (error) {
     leaveError.value = error?.message || 'Unable to leave waitlist right now.'
   } finally {

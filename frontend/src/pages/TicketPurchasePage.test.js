@@ -1,11 +1,32 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const EVENT_ID = '10000000-0000-0000-0000-000000000301'
+const RICHARD_EVENT_ID = '10000000-0000-0000-0000-000000000501'
 const WAITLIST_ID = '12c46907-09c8-4f66-bcb2-5ac3480ef9e2'
 
 async function mountPage({
   waitlistState,
   reserveError,
+  routeQuery = {},
+  eventsPayload = [
+    {
+      event_id: EVENT_ID,
+      event_code: 'EVT-301',
+      name: 'Coldplay Live 2026',
+      status: 'ACTIVE',
+    },
+  ],
+  categoriesByEventID = {
+    [EVENT_ID]: [
+      {
+        category_id: '20000000-0000-0000-0000-000000000102',
+        category_code: 'CAT2',
+        name: 'Category 2',
+        current_price: 120,
+        currency: 'SGD',
+      },
+    ],
+  },
 }) {
   vi.resetModules()
 
@@ -13,28 +34,14 @@ async function mountPage({
   const apiGet = vi.fn(async (path) => {
     if (path === '/events') {
       return {
-        events: [
-          {
-            event_id: EVENT_ID,
-            event_code: 'EVT-301',
-            name: 'Coldplay Live 2026',
-            status: 'ACTIVE',
-          },
-        ],
+        events: eventsPayload,
       }
     }
 
-    if (path === `/event/${EVENT_ID}/categories`) {
+    if (path.startsWith('/event/') && path.endsWith('/categories')) {
+      const eventID = path.slice('/event/'.length, -'/categories'.length)
       return {
-        categories: [
-          {
-            category_id: '20000000-0000-0000-0000-000000000102',
-            category_code: 'CAT2',
-            name: 'Category 2',
-            current_price: 120,
-            currency: 'SGD',
-          },
-        ],
+        categories: categoriesByEventID[eventID] || [],
       }
     }
 
@@ -51,7 +58,7 @@ async function mountPage({
 
   vi.doMock('vue-router', () => {
     return {
-      useRoute: () => ({ params: {}, query: {} }),
+      useRoute: () => ({ params: {}, query: routeQuery }),
       useRouter: () => ({ push }),
       RouterLink: {
         name: 'RouterLink',
@@ -150,6 +157,64 @@ afterEach(() => {
 })
 
 describe('TicketPurchasePage', () => {
+  it('prefills event and seat category from query when values match loaded data', async () => {
+    const { app, container } = await mountPage({
+      reserveError: new Error('reserve should not run during prefill test'),
+      waitlistState: null,
+      routeQuery: {
+        eventID: RICHARD_EVENT_ID,
+        seatCategory: 'CAT2',
+      },
+      eventsPayload: [
+        {
+          event_id: EVENT_ID,
+          event_code: 'EVT-301',
+          name: 'Coldplay Live 2026',
+          status: 'ACTIVE',
+        },
+        {
+          event_id: RICHARD_EVENT_ID,
+          event_code: 'EVT-501',
+          name: 'Richard Boone Asia Tour 2026',
+          status: 'ACTIVE',
+        },
+      ],
+      categoriesByEventID: {
+        [EVENT_ID]: [
+          {
+            category_id: '20000000-0000-0000-0000-000000000101',
+            category_code: 'CAT1',
+            name: 'Category 1',
+            current_price: 88,
+            currency: 'SGD',
+          },
+        ],
+        [RICHARD_EVENT_ID]: [
+          {
+            category_id: '20000000-0000-0000-0000-000000000201',
+            category_code: 'CAT1',
+            name: 'Category 1',
+            current_price: 99,
+            currency: 'SGD',
+          },
+          {
+            category_id: '20000000-0000-0000-0000-000000000202',
+            category_code: 'CAT2',
+            name: 'Category 2',
+            current_price: 129,
+            currency: 'SGD',
+          },
+        ],
+      },
+    })
+
+    const selects = container.querySelectorAll('select')
+    expect(selects[0]?.value).toBe(RICHARD_EVENT_ID)
+    expect(selects[1]?.value).toBe('CAT2')
+
+    app.unmount()
+  })
+
   it('redirects to existing waitlist status on duplicate waitlist conflict using stored waitlist data', async () => {
     const duplicateError = {
       status: 409,

@@ -44,6 +44,14 @@ async function mountPage(waitlistPayload, { leaveResponse = { status: 'CANCELLED
     }),
   }))
 
+  vi.doMock('@/stores/scenarioFlowStore', () => ({
+    useScenarioFlowStore: () => ({
+      state: {
+        waitlist: null,
+      },
+    }),
+  }))
+
   const { createApp, nextTick } = await import('vue')
   const { default: WaitlistStatusPage } = await import('./WaitlistStatusPage.vue')
 
@@ -115,6 +123,7 @@ describe('WaitlistStatusPage', () => {
   it('leaves waitlist and redirects when Leave Waitlist is clicked', async () => {
     const { app, container, del, replace } = await mountPage({
       waitlistID: WAITLIST_ID,
+      eventID: '10000000-0000-0000-0000-000000000501',
       status: 'WAITING',
       position: 4,
       seatCategory: 'CAT2',
@@ -137,7 +146,130 @@ describe('WaitlistStatusPage', () => {
     await Promise.resolve()
 
     expect(del).toHaveBeenCalledWith(`/waitlist/leave/${WAITLIST_ID}`)
-    expect(replace).toHaveBeenCalledWith({ name: 'ticket-purchase' })
+    expect(replace).toHaveBeenCalledWith({
+      name: 'ticket-purchase',
+      query: {
+        eventID: '10000000-0000-0000-0000-000000000501',
+        seatCategory: 'CAT2',
+      },
+    })
+
+    app.unmount()
+  })
+
+  it('uses stored waitlist context when live poll payload is missing event details', async () => {
+    vi.resetModules()
+
+    const start = vi.fn()
+    const del = vi.fn().mockResolvedValue({ status: 'CANCELLED' })
+    const replace = vi.fn()
+
+    vi.doMock('vue-router', () => {
+      return {
+        useRoute: () => ({ params: { waitlistID: WAITLIST_ID } }),
+        useRouter: () => ({ replace }),
+        RouterLink: {
+          name: 'RouterLink',
+          props: {
+            to: {
+              type: [String, Object],
+              required: true,
+            },
+          },
+          template: '<a><slot /></a>',
+        },
+      }
+    })
+
+    vi.doMock('@/composables/useWaitlistTracking', async () => {
+      const { ref } = await import('vue')
+
+      return {
+        useWaitlistTracking: () => ({
+          waitlist: ref({
+            waitlistID: WAITLIST_ID,
+            status: 'WAITING',
+            position: 2,
+          }),
+          errorMessage: ref(''),
+          start,
+        }),
+      }
+    })
+
+    vi.doMock('@/composables/useApiClient', () => ({
+      useApiClient: () => ({
+        del,
+      }),
+    }))
+
+    vi.doMock('@/stores/scenarioFlowStore', () => ({
+      useScenarioFlowStore: () => ({
+        state: {
+          waitlist: {
+            waitlistID: WAITLIST_ID,
+            eventID: '10000000-0000-0000-0000-000000000301',
+            seatCategory: 'CAT1',
+          },
+        },
+      }),
+    }))
+
+    const { createApp, nextTick } = await import('vue')
+    const { default: WaitlistStatusPage } = await import('./WaitlistStatusPage.vue')
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+
+    const app = createApp(WaitlistStatusPage)
+    app.component('SectionLabel', {
+      props: {
+        index: { type: String, default: '' },
+        label: { type: String, default: '' },
+      },
+      template: '<div data-test="section-label" />',
+    })
+    app.component('RouterLink', {
+      props: {
+        to: {
+          type: [String, Object],
+          required: true,
+        },
+      },
+      template: '<a><slot /></a>',
+    })
+    app.component('UiButton', {
+      props: {
+        as: { type: String, default: 'button' },
+        variant: { type: String, default: 'primary' },
+        disabled: { type: Boolean, default: false },
+      },
+      emits: ['click'],
+      template: '<button :disabled="disabled" @click="$emit(\'click\', $event)"><slot /></button>',
+    })
+    app.mount(container)
+
+    await nextTick()
+
+    const leaveButton = Array.from(container.querySelectorAll('button')).find((node) =>
+      (node.textContent || '').includes('Leave Waitlist')
+    )
+    leaveButton.click()
+    await Promise.resolve()
+
+    const confirmButton = Array.from(container.querySelectorAll('button')).find((node) =>
+      (node.textContent || '').includes('Yes, Leave Waitlist')
+    )
+    confirmButton.click()
+    await Promise.resolve()
+
+    expect(replace).toHaveBeenCalledWith({
+      name: 'ticket-purchase',
+      query: {
+        eventID: '10000000-0000-0000-0000-000000000301',
+        seatCategory: 'CAT1',
+      },
+    })
 
     app.unmount()
   })
