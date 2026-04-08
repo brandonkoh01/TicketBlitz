@@ -112,7 +112,7 @@ function onRefresh() {
               Catalog
             </h1>
             <p class="mt-5 max-w-3xl text-sm uppercase leading-relaxed tracking-[0.04em] md:text-base">
-              Explore upcoming shows and monitor live Scenario 2 flash sale price movement in one place.
+              Explore upcoming shows in one place.
             </p>
           </div>
 

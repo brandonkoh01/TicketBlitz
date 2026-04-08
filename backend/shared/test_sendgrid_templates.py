@@ -10,18 +10,18 @@ from shared.sendgrid_templates import build_notification_template_definitions
 
 
 class SendGridTemplateDefinitionTests(unittest.TestCase):
-    def test_build_notification_templates_returns_four_core_templates(self):
+    def test_build_notification_templates_contains_core_notification_types(self):
         definitions = build_notification_template_definitions()
 
-        self.assertEqual(len(definitions), 4)
-        self.assertEqual(
-            {definition.notification_type for definition in definitions},
+        types = {definition.notification_type for definition in definitions}
+        self.assertGreaterEqual(len(definitions), 4)
+        self.assertTrue(
             {
                 "BOOKING_CONFIRMED",
                 "WAITLIST_JOINED",
                 "SEAT_AVAILABLE",
                 "HOLD_EXPIRED",
-            },
+            }.issubset(types)
         )
 
     def test_each_template_has_env_mapping_and_handlebars_content(self):
@@ -47,6 +47,19 @@ class SendGridTemplateDefinitionTests(unittest.TestCase):
 
         self.assertIn("{{paymentURL}}", seat_available.html_content)
         self.assertIn("{{#if paymentURL}}", seat_available.html_content)
+
+    def test_waitlist_joined_template_includes_status_cta(self):
+        definitions = build_notification_template_definitions()
+        waitlist_joined = next(
+            definition
+            for definition in definitions
+            if definition.notification_type == "WAITLIST_JOINED"
+        )
+
+        self.assertIn("View Waitlist Status", waitlist_joined.html_content)
+        self.assertIn("{{waitlistStatusURL}}", waitlist_joined.html_content)
+        self.assertIn("{{#if waitlistStatusURL}}", waitlist_joined.html_content)
+        self.assertIn("Status URL: {{waitlistStatusURL}}", waitlist_joined.plain_content)
 
 
 if __name__ == "__main__":

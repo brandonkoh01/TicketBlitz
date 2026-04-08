@@ -1,11 +1,12 @@
 <script setup>
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
 import { useRoleNavigation } from '@/composables/useRoleNavigation'
 import { useFanEventDetailScenario2 } from '@/composables/useFanEventDetailScenario2'
 
 const route = useRoute()
+const router = useRouter()
 const authStore = useAuthStore()
 const isAuthenticated = computed(() => authStore.isAuthenticated.value)
 const { primaryNavItems: navItems } = useRoleNavigation()
@@ -36,16 +37,20 @@ const footerGroups = [
   },
 ]
 
-function categoryStatusClass(status) {
-  if (status === 'SOLD_OUT') {
-    return 'border-black bg-black text-white'
-  }
-
-  return 'border-black bg-white text-black'
-}
-
 function onRefresh() {
   void refreshDetail({ silent: false })
+}
+
+async function onSelectCategory(category) {
+  if (!eventID.value || !category?.code) return
+
+  await router.push({
+    name: 'ticket-purchase',
+    query: {
+      eventID: eventID.value,
+      seatCategory: category.code,
+    },
+  })
 }
 </script>
 
@@ -181,40 +186,17 @@ function onRefresh() {
             <p class="text-xs font-black uppercase tracking-[0.22em]">Category Pricing</p>
 
             <div class="mt-5 space-y-4">
-              <article
+              <CategoryPricingCard
                 v-for="category in categoryRows"
                 :key="category.id"
-                class="border-2 border-black p-4"
-              >
-                <div class="flex items-center justify-between gap-3">
-                  <div>
-                    <p class="text-sm font-black uppercase tracking-[0.08em]">{{ category.code }}</p>
-                    <p class="mt-1 text-[11px] font-bold uppercase tracking-[0.1em] text-black/70">{{ category.name }}</p>
-                  </div>
-
-                  <span
-                    class="border-2 px-2 py-1 text-[10px] font-black uppercase tracking-[0.18em]"
-                    :class="categoryStatusClass(category.status)"
-                  >
-                    {{ category.status === 'SOLD_OUT' ? 'Sold Out' : 'Available' }}
-                  </span>
-                </div>
-
-                <div class="mt-4 border-t-2 border-black pt-3">
-                  <p class="text-[11px] font-bold uppercase tracking-[0.1em] text-black/65">Base: {{ category.basePriceLabel }}</p>
-                  <p class="mt-1 text-[11px] font-black uppercase tracking-[0.1em]">Current: {{ category.currentPriceLabel }}</p>
-                  <p
-                    v-if="category.changed"
-                    class="mt-2 text-[10px] font-black uppercase tracking-[0.14em] text-black/70"
-                  >
-                    Adjusted by flash sale or escalation
-                  </p>
-                </div>
-              </article>
+                :category="category"
+                :selectable="Boolean(eventSummary?.id && category.code)"
+                @select="onSelectCategory"
+              />
             </div>
 
             <p class="mt-6 border-t-2 border-black pt-4 text-[10px] font-black uppercase tracking-[0.16em] text-black/60">
-              Details-only mode enabled. Purchase flow remains unchanged in this iteration.
+              Select a category to continue booking with prefilled values.
             </p>
           </aside>
         </div>

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import pika
+from python_http_client.exceptions import HTTPError
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 
@@ -83,6 +84,9 @@ TEMPLATE_ENV_BY_TYPE = {
     "PRICE_ESCALATED": "SENDGRID_TEMPLATE_PRICE_ESCALATED",
     "FLASH_SALE_ENDED": "SENDGRID_TEMPLATE_FLASH_SALE_ENDED",
 }
+
+WAITLIST_STATUS_URL_TEMPLATE_ENV = "WAITLIST_STATUS_URL_TEMPLATE"
+WAITLIST_STATUS_URL_TEMPLATE_DEFAULT = "/waitlist/{waitlistID}"
 
 
 class NotificationError(Exception):
@@ -529,8 +533,34 @@ class NotificationWorker:
     def build_template_data(self, event_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         data = dict(payload)
         data.pop("waitlistEmails", None)
+
+        if event_type == "WAITLIST_JOINED":
+            waitlist_status_url = str(data.get("waitlistStatusURL") or "").strip()
+            if not waitlist_status_url:
+                waitlist_status_url = self._build_waitlist_status_url(data.get("waitlistID"))
+            if waitlist_status_url:
+                data["waitlistStatusURL"] = waitlist_status_url
+
         data["notificationType"] = event_type
         return data
+
+    def _build_waitlist_status_url(self, waitlist_id: Any) -> str:
+        waitlist_id_value = str(waitlist_id or "").strip()
+        if not waitlist_id_value:
+            return ""
+
+        template = (
+            os.getenv(
+                WAITLIST_STATUS_URL_TEMPLATE_ENV,
+                WAITLIST_STATUS_URL_TEMPLATE_DEFAULT,
+            ).strip()
+            or WAITLIST_STATUS_URL_TEMPLATE_DEFAULT
+        )
+
+        if "{waitlistID}" in template:
+            return template.replace("{waitlistID}", waitlist_id_value)
+
+        return template.rstrip("/") + "/" + waitlist_id_value
 
     def send_email(self, event_type: str, recipients: List[str], template_data: Dict[str, Any]) -> None:
         if not recipients:
@@ -569,6 +599,31 @@ class NotificationWorker:
 
         try:
             response = self._sendgrid_client.send(message)
+        except HTTPError as error:
+            status_code = int(getattr(error, "status_code", 0) or 0)
+            detail = getattr(error, "body", None) or str(error)
+
+            if status_code in {401, 403}:
+                if not self.config.is_production:
+                    logger.warning(
+                        "Non-production fallback for invalid SendGrid credentials. status=%s type=%s",
+                        status_code,
+                        event_type,
+                    )
+                    return
+
+                raise PermanentNotificationError(
+                    f"SendGrid authentication failed with status {status_code}: {detail}"
+                ) from error
+
+            if 400 <= status_code < 500 and status_code != 429:
+                raise PermanentNotificationError(
+                    f"SendGrid rejected request with status {status_code}: {detail}"
+                ) from error
+
+            raise TransientNotificationError(
+                f"SendGrid temporary failure with status {status_code}: {detail}"
+            ) from error
         except Exception as error:
             raise TransientNotificationError(
                 f"SendGrid transport error: {error}") from error

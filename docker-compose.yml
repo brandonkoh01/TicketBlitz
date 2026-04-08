@@ -249,7 +249,7 @@ services:
       USER_SERVICE_URL: ${USER_SERVICE_URL:-http://user-service:5000}
       EVENT_SERVICE_URL: ${EVENT_SERVICE_URL:-http://event-service:5000}
       INTERNAL_AUTH_HEADER: ${INTERNAL_AUTH_HEADER:-X-Internal-Token}
-      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-ticketblitz-internal-token}
       NOTIFICATION_TOPIC_ROUTING_KEY: ${NOTIFICATION_TOPIC_ROUTING_KEY:-notification.send}
     depends_on:
       payment-service:
@@ -261,7 +261,7 @@ services:
       user-service:
         condition: service_healthy
     ports:
-      - "6003:5000"
+      - "6004:5000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 10s
@@ -418,7 +418,7 @@ services:
   reservation-orchestrator:
     build:
       context: .
-      dockerfile: backend/composite/scenario-1/reservation-orchestrator/Dockerfile
+      dockerfile: backend/composite/reservation-orchestrator/Dockerfile
     container_name: ticketblitz-reservation-orchestrator
     restart: on-failure
     env_file:

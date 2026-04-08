@@ -9,9 +9,11 @@ import StatCard from './components/ui/StatCard.vue'
 import MetricCard from './components/ui/MetricCard.vue'
 import EventCard from './components/ui/EventCard.vue'
 import FooterLinkGroup from './components/ui/FooterLinkGroup.vue'
+import CategoryPricingCard from './components/ui/CategoryPricingCard.vue'
 import UiMaterialIcon from './components/ui/UiMaterialIcon.vue'
 import UiDashboardPanel from './components/ui/UiDashboardPanel.vue'
 import UiToggleSwitch from './components/ui/UiToggleSwitch.vue'
+import UiStateNotice from './components/ui/UiStateNotice.vue'
 import AuthPageFrame from './components/auth/AuthPageFrame.vue'
 import AuthFooter from './components/auth/AuthFooter.vue'
 import AuthFormField from './components/auth/AuthFormField.vue'
@@ -29,9 +31,11 @@ app.component('StatCard', StatCard)
 app.component('MetricCard', MetricCard)
 app.component('EventCard', EventCard)
 app.component('FooterLinkGroup', FooterLinkGroup)
+app.component('CategoryPricingCard', CategoryPricingCard)
 app.component('UiMaterialIcon', UiMaterialIcon)
 app.component('UiDashboardPanel', UiDashboardPanel)
 app.component('UiToggleSwitch', UiToggleSwitch)
+app.component('UiStateNotice', UiStateNotice)
 app.component('AuthPageFrame', AuthPageFrame)
 app.component('AuthFooter', AuthFooter)
 app.component('AuthFormField', AuthFormField)

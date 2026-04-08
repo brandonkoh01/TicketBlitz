@@ -3,6 +3,7 @@ import os
 import pathlib
 import sys
 import unittest
+from python_http_client.exceptions import HTTPError
 
 # Ensure shared/ can be imported by notification.py during test execution.
 SERVICE_DIR = pathlib.Path(__file__).resolve().parent
@@ -36,6 +37,16 @@ class _FakeSendGridClient:
     def send(self, message):
         self.sent.append(message)
         return self.response
+
+
+class _FakeRaisingSendGridClient:
+    def __init__(self, error):
+        self.error = error
+        self.sent = []
+
+    def send(self, message):
+        self.sent.append(message)
+        raise self.error
 
 
 class _FakeChannel:
@@ -231,6 +242,37 @@ class NotificationWorkerTests(unittest.TestCase):
                 {"eventName": "Coldplay Live"},
             )
 
+    def test_send_email_non_production_sendgrid_http_401_falls_back(self):
+        os.environ["SENDGRID_TEMPLATE_BOOKING_CONFIRMED"] = "d-template-id"
+
+        worker = notification.NotificationWorker(
+            self._config(is_production=False, api_key="test-key"))
+        worker._sendgrid_client = _FakeRaisingSendGridClient(
+            HTTPError(401, "Unauthorized", b"unauthorized", {})
+        )
+
+        worker.send_email(
+            "BOOKING_CONFIRMED",
+            ["fan@example.com"],
+            {"eventName": "Coldplay Live"},
+        )
+
+    def test_send_email_production_sendgrid_http_401_raises_permanent(self):
+        os.environ["SENDGRID_TEMPLATE_BOOKING_CONFIRMED"] = "d-template-id"
+
+        worker = notification.NotificationWorker(
+            self._config(is_production=True, api_key="test-key"))
+        worker._sendgrid_client = _FakeRaisingSendGridClient(
+            HTTPError(401, "Unauthorized", b"unauthorized", {})
+        )
+
+        with self.assertRaises(notification.PermanentNotificationError):
+            worker.send_email(
+                "BOOKING_CONFIRMED",
+                ["fan@example.com"],
+                {"eventName": "Coldplay Live"},
+            )
+
     def test_process_payload_allows_empty_waitlist_email_list(self):
         worker = notification.NotificationWorker(
             self._config(is_production=False, api_key=""))
@@ -288,6 +330,46 @@ class NotificationWorkerTests(unittest.TestCase):
                     "seatNumber": "A1",
                 }
             )
+
+    def test_build_template_data_waitlist_joined_derives_status_url(self):
+        worker = notification.NotificationWorker(self._config(is_production=False, api_key=""))
+        os.environ["WAITLIST_STATUS_URL_TEMPLATE"] = "https://ticketblitz.app/waitlist/{waitlistID}"
+
+        template_data = worker.build_template_data(
+            "WAITLIST_JOINED",
+            {
+                "type": "WAITLIST_JOINED",
+                "email": "fan@example.com",
+                "eventName": "Coldplay Live",
+                "position": 3,
+                "waitlistID": "a6f0574e-7c9f-4b12-8e56-fa95b8fbfa4a",
+            },
+        )
+
+        self.assertEqual(
+            template_data["waitlistStatusURL"],
+            "https://ticketblitz.app/waitlist/a6f0574e-7c9f-4b12-8e56-fa95b8fbfa4a",
+        )
+
+    def test_build_template_data_waitlist_joined_keeps_explicit_status_url(self):
+        worker = notification.NotificationWorker(self._config(is_production=False, api_key=""))
+
+        template_data = worker.build_template_data(
+            "WAITLIST_JOINED",
+            {
+                "type": "WAITLIST_JOINED",
+                "email": "fan@example.com",
+                "eventName": "Coldplay Live",
+                "position": 2,
+                "waitlistID": "waitlist-123",
+                "waitlistStatusURL": "https://example.com/custom/waitlist-123",
+            },
+        )
+
+        self.assertEqual(
+            template_data["waitlistStatusURL"],
+            "https://example.com/custom/waitlist-123",
+        )
 
     def test_sendgrid_live_booking_confirmed_email_delivery(self):
         self._require_sendgrid_live_test_enabled()

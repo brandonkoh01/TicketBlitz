@@ -12,6 +12,7 @@ from postgrest.exceptions import APIError as PostgrestAPIError
 
 from shared.db import db_configured, get_db
 from shared.mq import publish_json, rabbitmq_configured
+from shared.swagger_specs import get_service_swagger_spec
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -118,6 +119,44 @@ def _as_decimal(value: Any, field_name: str) -> Decimal:
 
 def _to_minor_units(amount: Decimal) -> int:
     return int((amount * 100).to_integral_value(rounding=ROUND_HALF_UP))
+
+
+def _as_minor_units(value: Any, field_name: str) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as error:
+        raise ValidationError(f"{field_name} must be an integer") from error
+
+    if parsed < 0:
+        raise ValidationError(f"{field_name} must be greater than or equal to 0")
+
+    return parsed
+
+
+def _parse_bool_query_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+
+    return False
+
+
+def _validate_payment_intent_amount_and_currency(
+    payment_intent: Dict[str, Any], transaction: Dict[str, Any]
+) -> None:
+    expected_amount = _to_minor_units(_as_decimal(transaction.get("amount"), "transaction amount"))
+    received_amount = _as_minor_units(
+        payment_intent.get("amount_received"), "payment_intent.amount_received"
+    )
+    if received_amount != expected_amount:
+        raise ConflictError("payment_intent amount does not match transaction amount")
+
+    expected_currency = _clean_currency(transaction.get("currency"))
+    received_currency = _clean_currency(payment_intent.get("currency"))
+    if received_currency != expected_currency:
+        raise ConflictError("payment_intent currency does not match transaction currency")
 
 
 def _decimal_to_str(value: Decimal) -> str:
@@ -534,6 +573,8 @@ def _handle_payment_intent_succeeded(payment_intent: Dict[str, Any]) -> Dict[str
     if not transaction:
         raise NotFoundError("No transaction found for payment intent")
 
+    _validate_payment_intent_amount_and_currency(payment_intent, transaction)
+
     update_payload = {
         "status": "SUCCEEDED",
         "failure_reason": None,
@@ -593,6 +634,66 @@ def _handle_payment_intent_failed(payment_intent: Dict[str, Any]) -> Dict[str, A
         raise NotFoundError(
             "Transaction disappeared during failed webhook processing")
     return updated
+
+
+def _reconcile_pending_transaction(transaction: Dict[str, Any]) -> Dict[str, Any]:
+    if not transaction:
+        return transaction
+
+    if str(transaction.get("status") or "").upper() != "PENDING":
+        return transaction
+
+    payment_intent_id = transaction.get("stripe_payment_intent_id")
+    if not payment_intent_id:
+        return transaction
+
+    try:
+        _require_stripe()
+    except ApiError as error:
+        logger.warning(
+            "Skipping payment reconciliation for transaction_id=%s: %s",
+            transaction.get("transaction_id"),
+            error.message,
+        )
+        return transaction
+
+    try:
+        payment_intent = stripe.PaymentIntent.retrieve(payment_intent_id)
+        payment_intent_payload = _stripe_object_to_dict(payment_intent)
+    except stripe.error.StripeError as error:
+        logger.warning(
+            "Unable to reconcile payment intent %s: %s",
+            payment_intent_id,
+            error,
+        )
+        return transaction
+
+    payment_intent_status = str(payment_intent_payload.get("status") or "").lower()
+
+    try:
+        if payment_intent_status == "succeeded":
+            _handle_payment_intent_succeeded(payment_intent_payload)
+        elif payment_intent_status in {"requires_payment_method", "canceled"}:
+            _handle_payment_intent_failed(payment_intent_payload)
+        else:
+            return transaction
+    except ApiError as error:
+        logger.warning(
+            "Payment reconciliation did not update transaction_id=%s: %s",
+            transaction.get("transaction_id"),
+            error.message,
+        )
+        return transaction
+    except Exception as error:
+        logger.exception(
+            "Unexpected reconciliation error for transaction_id=%s: %s",
+            transaction.get("transaction_id"),
+            error,
+        )
+        return transaction
+
+    refreshed = _fetch_transaction_by_transaction_id(transaction.get("transaction_id"))
+    return refreshed or transaction
 
 
 def _normalize_status(value: str) -> str:
@@ -979,641 +1080,29 @@ def _handle_api_error(error: ApiError):
 
 
 def _build_openapi_spec() -> Dict[str, Any]:
-    internal_token_header = {
-        "name": INTERNAL_AUTH_HEADER,
-        "in": "header",
-        "required": False,
-        "description": "Required when PAYMENT_INTERNAL_TOKEN is configured.",
-        "schema": {"type": "string"},
-    }
-    stripe_signature_header = {
-        "name": "Stripe-Signature",
-        "in": "header",
-        "required": True,
-        "description": "Stripe signature used for webhook verification.",
-        "schema": {"type": "string"},
-    }
-    error_response = {
-        "description": "Error response",
-        "content": {
-            "application/json": {
-                "schema": {"$ref": "#/components/schemas/ErrorResponse"}
-            }
-        },
-    }
+    spec = get_service_swagger_spec("payment-service")
+    spec["servers"] = [{"url": os.getenv("OPENAPI_SERVER_URL", "/")}]
 
-    return {
-        "openapi": "3.0.3",
-        "info": {
-            "title": "TicketBlitz Payment Service API",
-            "version": "1.0.0",
-            "description": "Payment, webhook, verification, and refund endpoints for TicketBlitz.",
-        },
-        "servers": [{"url": os.getenv("OPENAPI_SERVER_URL", "/")}],
-        "tags": [
-            {"name": "Health", "description": "Service health and readiness checks."},
-            {"name": "Payments", "description": "Payment lifecycle and state transitions."},
-            {"name": "Refunds", "description": "Refund orchestration and cancellation flow."},
-            {"name": "Webhooks", "description": "Stripe webhook ingestion and processing."},
-            {"name": "Docs", "description": "OpenAPI and Swagger documentation endpoints."},
-        ],
-        "components": {
-            "securitySchemes": {
-                "InternalTokenAuth": {
-                    "type": "apiKey",
-                    "in": "header",
-                    "name": INTERNAL_AUTH_HEADER,
-                    "description": "Used for internal endpoints when PAYMENT_INTERNAL_TOKEN is set.",
-                },
-                "StripeSignatureAuth": {
-                    "type": "apiKey",
-                    "in": "header",
-                    "name": "Stripe-Signature",
-                    "description": "Stripe webhook signature header.",
-                },
-            },
-            "schemas": {
-                "ErrorResponse": {
-                    "type": "object",
-                    "required": ["error"],
-                    "properties": {"error": {"type": "string"}},
-                },
-                "HealthResponse": {
-                    "type": "object",
-                    "properties": {
-                        "status": {"type": "string", "example": "ok"},
-                        "service": {"type": "string", "example": "payment-service"},
-                        "supabaseConfigured": {"type": "boolean"},
-                        "rabbitmqConfigured": {"type": "boolean"},
-                        "stripeConfigured": {"type": "boolean"},
-                    },
-                },
-                "PaymentInitiateRequest": {
-                    "type": "object",
-                    "required": ["holdID", "userID", "amount"],
-                    "properties": {
-                        "holdID": {"type": "string", "format": "uuid"},
-                        "userID": {"type": "string", "format": "uuid"},
-                        "amount": {"type": "number", "format": "decimal"},
-                        "idempotencyKey": {"type": "string"},
-                    },
-                },
-                "PaymentInitiateResponse": {
-                    "type": "object",
-                    "properties": {
-                        "holdID": {"type": "string", "format": "uuid"},
-                        "paymentIntentID": {"type": "string"},
-                        "clientSecret": {"type": "string"},
-                        "amount": {"type": "string", "example": "10.00"},
-                        "currency": {"type": "string", "example": "SGD"},
-                        "status": {"type": "string"},
-                        "holdExpiry": {"type": "string", "format": "date-time"},
-                        "transactionID": {"type": ["string", "null"], "format": "uuid"},
-                    },
-                },
-                "PaymentHoldResponse": {
-                    "type": "object",
-                    "properties": {
-                        "holdID": {"type": "string", "format": "uuid"},
-                        "transactionID": {"type": ["string", "null"], "format": "uuid"},
-                        "paymentIntentID": {"type": ["string", "null"]},
-                        "paymentStatus": {"type": "string"},
-                        "amount": {"type": "string"},
-                        "currency": {"type": "string"},
-                        "failureReason": {"type": ["string", "null"]},
-                        "createdAt": {"type": ["string", "null"], "format": "date-time"},
-                        "updatedAt": {"type": ["string", "null"], "format": "date-time"},
-                    },
-                },
-                "WebhookAcceptedResponse": {
-                    "type": "object",
-                    "properties": {
-                        "status": {"type": "string", "example": "accepted"},
-                        "eventType": {"type": "string"},
-                        "idempotent": {"type": "boolean"},
-                    },
-                },
-                "VerifyPaymentResponse": {
-                    "type": "object",
-                    "properties": {
-                        "bookingID": {"type": "string", "format": "uuid"},
-                        "resolvedBy": {"type": "string", "enum": ["transaction_id", "hold_id"]},
-                        "transactionID": {"type": "string", "format": "uuid"},
-                        "holdID": {"type": "string", "format": "uuid"},
-                        "userID": {"type": "string", "format": "uuid"},
-                        "eventID": {"type": "string", "format": "uuid"},
-                        "paymentStatus": {"type": "string"},
-                        "purchaseDate": {"type": "string", "format": "date-time"},
-                        "eventDate": {"type": "string", "format": "date-time"},
-                        "policyCutoffAt": {"type": "string", "format": "date-time"},
-                        "withinPolicy": {"type": "boolean"},
-                        "eligibleRefundAmount": {"type": "string"},
-                        "feePercentage": {"type": "string", "example": "10.00"},
-                    },
-                },
-                "VerifyPolicyResponse": {
-                    "type": "object",
-                    "properties": {
-                        "bookingID": {"type": "string", "format": "uuid"},
-                        "resolvedBy": {"type": "string", "enum": ["transaction_id", "hold_id"]},
-                        "transactionID": {"type": "string", "format": "uuid"},
-                        "eligible": {"type": "boolean"},
-                        "withinPolicy": {"type": "boolean"},
-                        "reason": {"type": "string"},
-                        "policyCutoffAt": {"type": "string", "format": "date-time"},
-                        "eventDate": {"type": "string", "format": "date-time"},
-                        "purchaseDate": {"type": "string", "format": "date-time"},
-                    },
-                },
-                "UpdateStatusRequest": {
-                    "type": "object",
-                    "properties": {
-                        "status": {"type": "string"},
-                        "refundAmount": {"type": "number", "format": "decimal"},
-                        "reason": {"type": "string"},
-                        "cancellationStatus": {"type": "string"},
-                    },
-                },
-                "UpdateStatusResponse": {
-                    "type": "object",
-                    "properties": {
-                        "updated": {"type": "boolean"},
-                        "bookingID": {"type": "string"},
-                        "transactionID": {"type": ["string", "null"], "format": "uuid"},
-                        "status": {"type": "string"},
-                        "refundStatus": {"type": ["string", "null"]},
-                        "refundAmount": {"type": ["string", "null"]},
-                    },
-                },
-                "PaymentCreateRequest": {
-                    "type": "object",
-                    "required": ["userID", "amount"],
-                    "properties": {
-                        "holdID": {"type": "string", "format": "uuid"},
-                        "ticketID": {"type": "string", "format": "uuid"},
-                        "userID": {"type": "string", "format": "uuid"},
-                        "amount": {"type": "number", "format": "decimal"},
-                        "idempotencyKey": {"type": "string"},
-                    },
-                },
-                "RefundRequest": {
-                    "type": "object",
-                    "properties": {
-                        "refundAmount": {"type": "number", "format": "decimal"},
-                        "reason": {"type": "string"},
-                    },
-                },
-                "RefundResponse": {
-                    "type": "object",
-                    "properties": {
-                        "status": {"type": "string", "example": "success"},
-                        "transactionID": {"type": "string", "format": "uuid"},
-                        "refundAmount": {"type": "string", "example": "90.00"},
-                        "attempts": {"type": "integer", "minimum": 0},
-                    },
-                },
-                "FailStatusRequest": {
-                    "type": "object",
-                    "properties": {
-                        "bookingID": {"type": "string", "format": "uuid"},
-                        "bookingId": {"type": "string", "format": "uuid"},
-                        "transactionID": {"type": "string", "format": "uuid"},
-                        "transactionId": {"type": "string", "format": "uuid"},
-                        "holdID": {"type": "string", "format": "uuid"},
-                        "holdId": {"type": "string", "format": "uuid"},
-                        "reason": {"type": "string"},
-                    },
-                },
-            },
-        },
-        "paths": {
-            "/health": {
-                "get": {
-                    "tags": ["Health"],
-                    "summary": "Service health check",
-                    "responses": {
-                        "200": {
-                            "description": "Service status and dependency flags",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/HealthResponse"}
-                                }
-                            },
-                        }
-                    },
-                }
-            },
-            "/openapi.json": {
-                "get": {
-                    "tags": ["Docs"],
-                    "summary": "OpenAPI specification",
-                    "responses": {
-                        "200": {
-                            "description": "OpenAPI document",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"type": "object"}
-                                }
-                            },
-                        }
-                    },
-                }
-            },
-            "/payment/initiate": {
-                "post": {
-                    "tags": ["Payments"],
-                    "summary": "Initiate payment for a seat hold",
-                    "parameters": [internal_token_header],
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {"$ref": "#/components/schemas/PaymentInitiateRequest"}
-                            }
-                        },
-                    },
-                    "responses": {
-                        "200": {
-                            "description": "Existing pending payment intent returned",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/PaymentInitiateResponse"}
-                                }
-                            },
-                        },
-                        "201": {
-                            "description": "Payment intent created",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/PaymentInitiateResponse"}
-                                }
-                            },
-                        },
-                        "400": error_response,
-                        "401": error_response,
-                        "409": error_response,
-                        "502": error_response,
-                        "503": error_response,
-                    },
-                }
-            },
-            "/payment/hold/{hold_id}": {
-                "get": {
-                    "tags": ["Payments"],
-                    "summary": "Get payment status by hold ID",
-                    "parameters": [
-                        {
-                            "name": "hold_id",
-                            "in": "path",
-                            "required": True,
-                            "schema": {"type": "string", "format": "uuid"},
-                        }
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Payment status for hold",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/PaymentHoldResponse"}
-                                }
-                            },
-                        },
-                        "404": error_response,
-                        "503": error_response,
-                    },
-                }
-            },
-            "/payment/webhook": {
-                "post": {
-                    "tags": ["Webhooks"],
-                    "summary": "Stripe webhook receiver",
-                    "description": "Verifies Stripe signature, records webhook event, and updates transactions.",
-                    "parameters": [stripe_signature_header],
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {"type": "object"}
-                            }
-                        },
-                    },
-                    "responses": {
-                        "200": {
-                            "description": "Webhook accepted",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/WebhookAcceptedResponse"}
-                                }
-                            },
-                        },
-                        "400": error_response,
-                        "503": error_response,
-                    },
-                }
-            },
-            "/payments/verify/{booking_id}": {
-                "get": {
-                    "tags": ["Payments"],
-                    "summary": "Verify booking payment and refund eligibility context",
-                    "parameters": [
-                        {
-                            "name": "booking_id",
-                            "in": "path",
-                            "required": True,
-                            "schema": {"type": "string", "format": "uuid"},
-                        }
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Booking payment verification data",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/VerifyPaymentResponse"}
-                                }
-                            },
-                        },
-                        "404": error_response,
-                        "503": error_response,
-                    },
-                }
-            },
-            "/payments/verify-policy/{booking_id}": {
-                "get": {
-                    "tags": ["Payments"],
-                    "summary": "Verify cancellation policy for booking",
-                    "parameters": [
-                        {
-                            "name": "booking_id",
-                            "in": "path",
-                            "required": True,
-                            "schema": {"type": "string", "format": "uuid"},
-                        }
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Cancellation policy evaluation",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/VerifyPolicyResponse"}
-                                }
-                            },
-                        },
-                        "404": error_response,
-                        "503": error_response,
-                    },
-                }
-            },
-            "/payments/status/{booking_id}": {
-                "put": {
-                    "tags": ["Payments"],
-                    "summary": "Update payment/refund status",
-                    "parameters": [
-                        {
-                            "name": "booking_id",
-                            "in": "path",
-                            "required": True,
-                            "schema": {"type": "string", "format": "uuid"},
-                        },
-                        internal_token_header,
-                    ],
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {"$ref": "#/components/schemas/UpdateStatusRequest"}
-                            }
-                        },
-                    },
-                    "responses": {
-                        "200": {
-                            "description": "Status update result",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/UpdateStatusResponse"}
-                                }
-                            },
-                        },
-                        "400": error_response,
-                        "401": error_response,
-                        "404": error_response,
-                    },
-                }
-            },
-            "/payments/update/{booking_id}": {
-                "put": {
-                    "tags": ["Payments"],
-                    "summary": "Alias for /payments/status/{booking_id}",
-                    "parameters": [
-                        {
-                            "name": "booking_id",
-                            "in": "path",
-                            "required": True,
-                            "schema": {"type": "string", "format": "uuid"},
-                        },
-                        internal_token_header,
-                    ],
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {"$ref": "#/components/schemas/UpdateStatusRequest"}
-                            }
-                        },
-                    },
-                    "responses": {"200": {"description": "Alias response"}, "400": error_response, "401": error_response},
-                }
-            },
-            "/payments/processing/{booking_id}": {
-                "put": {
-                    "tags": ["Payments"],
-                    "summary": "Mark booking as processing refund",
-                    "parameters": [
-                        {
-                            "name": "booking_id",
-                            "in": "path",
-                            "required": True,
-                            "schema": {"type": "string", "format": "uuid"},
-                        },
-                        internal_token_header,
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Processing status updated",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/UpdateStatusResponse"}
-                                }
-                            },
-                        },
-                        "401": error_response,
-                        "404": error_response,
-                    },
-                }
-            },
-            "/payments/success/{booking_id}": {
-                "put": {
-                    "tags": ["Payments"],
-                    "summary": "Mark booking refund as succeeded",
-                    "parameters": [
-                        {
-                            "name": "booking_id",
-                            "in": "path",
-                            "required": True,
-                            "schema": {"type": "string", "format": "uuid"},
-                        },
-                        internal_token_header,
-                    ],
-                    "requestBody": {
-                        "required": False,
-                        "content": {
-                            "application/json": {
-                                "schema": {"$ref": "#/components/schemas/RefundRequest"}
-                            }
-                        },
-                    },
-                    "responses": {
-                        "200": {
-                            "description": "Success status updated",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/UpdateStatusResponse"}
-                                }
-                            },
-                        },
-                        "401": error_response,
-                        "404": error_response,
-                    },
-                }
-            },
-            "/payments/status/fail": {
-                "put": {
-                    "tags": ["Payments"],
-                    "summary": "Mark booking refund as failed",
-                    "parameters": [internal_token_header],
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {"$ref": "#/components/schemas/FailStatusRequest"}
-                            }
-                        },
-                    },
-                    "responses": {
-                        "200": {
-                            "description": "Failure status updated",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/UpdateStatusResponse"}
-                                }
-                            },
-                        },
-                        "400": error_response,
-                        "401": error_response,
-                    },
-                }
-            },
-            "/payments/create": {
-                "post": {
-                    "tags": ["Payments"],
-                    "summary": "Alias payment creation endpoint",
-                    "parameters": [internal_token_header],
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {"$ref": "#/components/schemas/PaymentCreateRequest"}
-                            }
-                        },
-                    },
-                    "responses": {
-                        "200": {
-                            "description": "Existing payment returned",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/PaymentInitiateResponse"}
-                                }
-                            },
-                        },
-                        "201": {
-                            "description": "Payment created",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/PaymentInitiateResponse"}
-                                }
-                            },
-                        },
-                        "400": error_response,
-                        "401": error_response,
-                    },
-                }
-            },
-            "/payments/refund/{booking_id}": {
-                "post": {
-                    "tags": ["Refunds"],
-                    "summary": "Execute refund for booking",
-                    "parameters": [
-                        {
-                            "name": "booking_id",
-                            "in": "path",
-                            "required": True,
-                            "schema": {"type": "string", "format": "uuid"},
-                        },
-                        internal_token_header,
-                    ],
-                    "requestBody": {
-                        "required": False,
-                        "content": {
-                            "application/json": {
-                                "schema": {"$ref": "#/components/schemas/RefundRequest"}
-                            }
-                        },
-                    },
-                    "responses": {
-                        "200": {
-                            "description": "Refund processing result",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/RefundResponse"}
-                                }
-                            },
-                        },
-                        "400": error_response,
-                        "401": error_response,
-                        "404": error_response,
-                        "409": error_response,
-                        "502": error_response,
-                    },
-                }
-            },
-            "/payments/refund": {
-                "post": {
-                    "tags": ["Refunds"],
-                    "summary": "Alias for /payments/refund/{booking_id}",
-                    "parameters": [internal_token_header],
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {"$ref": "#/components/schemas/FailStatusRequest"}
-                            }
-                        },
-                    },
-                    "responses": {
-                        "200": {
-                            "description": "Refund processing result",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/RefundResponse"}
-                                }
-                            },
-                        },
-                        "400": error_response,
-                        "401": error_response,
-                    },
-                }
-            },
-        },
-    }
+    security_schemes = spec.get("components", {}).get("securitySchemes", {})
+    internal_token_auth = security_schemes.get("InternalTokenAuth")
+    if isinstance(internal_token_auth, dict):
+        internal_token_auth["name"] = INTERNAL_AUTH_HEADER
+
+    for path_item in spec.get("paths", {}).values():
+        if not isinstance(path_item, dict):
+            continue
+
+        for operation in path_item.values():
+            if not isinstance(operation, dict):
+                continue
+
+            for parameter in operation.get("parameters", []):
+                if not isinstance(parameter, dict):
+                    continue
+                if parameter.get("in") == "header" and parameter.get("name") == "X-Internal-Token":
+                    parameter["name"] = INTERNAL_AUTH_HEADER
+
+    return spec
 
 
 def _process_payment_initiation(
@@ -1839,6 +1328,10 @@ def create_app() -> Flask:
             transaction = _fetch_latest_transaction_for_hold(hold_uuid)
             if not transaction:
                 raise NotFoundError("No transaction found for hold")
+
+            reconcile_requested = _parse_bool_query_value(request.args.get("reconcile"))
+            if reconcile_requested:
+                transaction = _reconcile_pending_transaction(transaction)
 
             return _api_response(
                 {

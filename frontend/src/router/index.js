@@ -5,6 +5,10 @@ import EventDetailPage from '@/pages/EventDetailPage.vue'
 import OrganiserDashboardPage from '@/pages/OrganiserDashboardPage.vue'
 import TicketPurchasePage from '@/pages/TicketPurchasePage.vue'
 import MyTicketsPage from '@/pages/MyTicketsPage.vue'
+import BookingPendingPage from '@/pages/BookingPendingPage.vue'
+import BookingResultPage from '@/pages/BookingResultPage.vue'
+import WaitlistStatusPage from '@/pages/WaitlistStatusPage.vue'
+import WaitlistConfirmPage from '@/pages/WaitlistConfirmPage.vue'
 import SignInPage from '@/pages/SignInPage.vue'
 import SignUpPage from '@/pages/SignUpPage.vue'
 import { useAuthStore } from '@/stores/authStore'
@@ -62,6 +66,42 @@ const router = createRouter({
       path: '/my-tickets',
       name: 'my-tickets',
       component: MyTicketsPage,
+      meta: {
+        requiresAuth: true,
+        allowedRoles: ['fan'],
+      },
+    },
+    {
+      path: '/booking/pending/:holdID',
+      name: 'booking-pending',
+      component: BookingPendingPage,
+      meta: {
+        requiresAuth: true,
+        allowedRoles: ['fan'],
+      },
+    },
+    {
+      path: '/booking/result/:holdID',
+      name: 'booking-result',
+      component: BookingResultPage,
+      meta: {
+        requiresAuth: true,
+        allowedRoles: ['fan'],
+      },
+    },
+    {
+      path: '/waitlist/:waitlistID',
+      name: 'waitlist-status',
+      component: WaitlistStatusPage,
+      meta: {
+        requiresAuth: true,
+        allowedRoles: ['fan'],
+      },
+    },
+    {
+      path: '/waitlist/confirm/:holdID',
+      name: 'waitlist-confirm',
+      component: WaitlistConfirmPage,
       meta: {
         requiresAuth: true,
         allowedRoles: ['fan'],

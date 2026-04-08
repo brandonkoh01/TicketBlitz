@@ -11,6 +11,7 @@ import user as user_service
 
 
 USER_ID = "00000000-0000-0000-0000-000000000001"
+AUTH_USER_ID = "11111111-1111-1111-1111-111111111111"
 AUTH_HEADER_NAME = "X-Internal-Token"
 AUTH_TOKEN = "test-internal-token"
 
@@ -48,7 +49,7 @@ class FakeUserRepository:
         if self.get_error is not None:
             raise self.get_error
 
-        if self._user and self._user.get("user_id") == user_id:
+        if self._user and (self._user.get("user_id") == user_id or self._user.get("auth_user_id") == user_id):
             return self._user
         return None
 
@@ -154,6 +155,7 @@ class UserServiceTestCase(unittest.TestCase):
         repo = FakeUserRepository(
             user={
                 "user_id": USER_ID,
+                "auth_user_id": AUTH_USER_ID,
                 "full_name": "Brandon",
                 "email": "brandon@ticketblitz.com",
                 "phone": "+6591110001",
@@ -173,6 +175,29 @@ class UserServiceTestCase(unittest.TestCase):
         self.assertEqual(payload["name"], "Brandon")
         self.assertEqual(payload["email"], "brandon@ticketblitz.com")
         self.assertEqual(set(payload.keys()), {"userID", "name", "email"})
+
+    @patch.object(user_service, "db_configured", return_value=True)
+    def test_get_user_supports_auth_user_id_lookup(self, _mock_db_configured):
+        repo = FakeUserRepository(
+            user={
+                "user_id": USER_ID,
+                "auth_user_id": AUTH_USER_ID,
+                "full_name": "Brandon",
+                "email": "brandon@ticketblitz.com",
+                "phone": "+6591110001",
+                "metadata": {"tier": "VIP"},
+                "created_at": "2026-04-01T10:18:13.30049+00:00",
+                "updated_at": "2026-04-01T10:18:13.30049+00:00",
+                "deleted_at": None,
+            }
+        )
+        client = self._build_client(repo)
+
+        response = client.get(f"/user/{AUTH_USER_ID}", headers=self._auth_headers())
+        self.assertEqual(response.status_code, 200)
+
+        payload = response.get_json()
+        self.assertEqual(payload["userID"], USER_ID)
 
     @patch.object(user_service, "db_configured", return_value=True)
     def test_get_user_rejects_invalid_uuid(self, _mock_db_configured):

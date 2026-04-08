@@ -1,9 +1,12 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import QRCode from 'qrcode'
 import { useAuthStore } from '@/stores/authStore'
 import { useRoleNavigation } from '@/composables/useRoleNavigation'
+import { useUserTickets } from '@/composables/useUserTickets'
 
 const authStore = useAuthStore()
+const userTickets = useUserTickets()
 const isAuthenticated = computed(() => authStore.isAuthenticated.value)
 const { primaryNavItems: navItems } = useRoleNavigation()
 
@@ -18,30 +21,92 @@ const footerGroups = [
   },
 ]
 
-const purchasedTickets = [
-  {
-    eventName: 'Midnight Pulse Live',
-    dateTime: 'Fri, Dec 12 2026 - 8:30 PM',
-    location: 'Nova Dome Arena, Singapore',
-    ticketId: 'TB-2026-PLH-009871',
-  },
-  {
-    eventName: 'Neon Horizon Festival',
-    dateTime: 'Sat, Jan 09 2027 - 7:00 PM',
-    location: 'Skyline Open Grounds, Kuala Lumpur',
-    ticketId: 'TB-2027-PLH-010234',
-  },
-]
+const purchasedTickets = ref([])
+const isLoading = ref(false)
+const loadError = ref('')
+const ticketRequestState = computed(() => userTickets.requestState.value)
+const hasLoadError = computed(() => Boolean(loadError.value))
+const isEndpointMissingError = computed(() => ticketRequestState.value.kind === 'endpoint-missing')
+const ticketErrorTone = computed(() => (isEndpointMissingError.value ? 'warning' : 'error'))
+const ticketErrorEyebrow = computed(() => (isEndpointMissingError.value ? 'OutSystems Integration' : 'Ticket Service'))
+const ticketErrorTitle = computed(() => {
+  if (isEndpointMissingError.value) {
+    return 'You have no tickets yet'
+  }
+
+  return 'Unable to Load Ticket List'
+})
 
 const selectedTicket = ref(null)
+const passQrDataUrl = ref('')
+const passQrError = ref('')
+
+function sortByUpdatedAtDescending(entries) {
+  return [...entries].sort((a, b) => {
+    const left = new Date(a.updatedAt || 0).getTime()
+    const right = new Date(b.updatedAt || 0).getTime()
+    return right - left
+  })
+}
+
+async function refreshTickets() {
+  loadError.value = ''
+  isLoading.value = true
+
+  try {
+    const remoteTickets = await userTickets.fetchUserTickets()
+    purchasedTickets.value = sortByUpdatedAtDescending(remoteTickets)
+  } catch (error) {
+    loadError.value =
+      userTickets.requestState.value.message ||
+      userTickets.errorMessage.value ||
+      error?.message ||
+      'Unable to load ticket list.'
+    purchasedTickets.value = []
+  } finally {
+    isLoading.value = false
+  }
+}
 
 function openPass(ticket) {
   selectedTicket.value = ticket
+  generatePassQr(ticket)
 }
 
 function closePass() {
   selectedTicket.value = null
+  passQrDataUrl.value = ''
+  passQrError.value = ''
 }
+
+async function generatePassQr(ticket) {
+  passQrDataUrl.value = ''
+  passQrError.value = ''
+
+  const qrValue = ticket?.ticketID
+  if (!qrValue) {
+    passQrError.value = 'QR unavailable'
+    return
+  }
+
+  try {
+    passQrDataUrl.value = await QRCode.toDataURL(qrValue, {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 256,
+      color: {
+        dark: '#000000',
+        light: '#FFFFFF',
+      },
+    })
+  } catch (error) {
+    passQrError.value = 'Unable to render QR'
+  }
+}
+
+onMounted(() => {
+  refreshTickets()
+})
 </script>
 
 <template>
@@ -102,22 +167,68 @@ function closePass() {
           <div class="flex flex-col gap-4 border-b-2 border-black pb-5 md:flex-row md:items-center md:justify-between">
             <p class="text-[11px] font-black uppercase tracking-[0.2em] text-black/65">Confirmed Tickets</p>
             <span class="inline-flex items-center border-2 border-black bg-[var(--swiss-accent)] px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em]">
-              {{ purchasedTickets.length }} Purchased
+              {{ purchasedTickets.length }} Confirmed
             </span>
+          </div>
+
+          <UiStateNotice
+            v-if="hasLoadError"
+            class="mt-6"
+            :tone="ticketErrorTone"
+            :title="ticketErrorTitle"
+            :message="loadError"
+          >
+            <template #actions>
+              <button
+                type="button"
+                class="inline-flex h-10 items-center justify-center border-2 border-black bg-white px-4 text-[10px] font-black uppercase tracking-[0.18em] text-black transition duration-150 ease-out hover:bg-black hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--swiss-accent)] focus-visible:ring-offset-2"
+                @click="refreshTickets"
+              >
+                Retry
+              </button>
+              <RouterLink
+                v-if="isEndpointMissingError"
+                to="/ticket-purchase"
+                class="inline-flex h-10 items-center justify-center border-2 border-black bg-black px-4 text-[10px] font-black uppercase tracking-[0.18em] text-white transition duration-150 ease-out hover:bg-white hover:text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--swiss-accent)] focus-visible:ring-offset-2"
+              >
+                Continue Booking
+              </RouterLink>
+            </template>
+          </UiStateNotice>
+
+          <p
+            v-if="isLoading"
+            class="mt-6 border-2 border-black bg-[var(--swiss-muted)] px-4 py-3 text-xs font-black uppercase tracking-[0.14em]"
+          >
+            Loading latest tickets...
+          </p>
+
+          <div v-if="purchasedTickets.length === 0 && !isLoading && !hasLoadError" class="mt-6 border-2 border-black bg-[var(--swiss-muted)] p-5">
+            <p class="text-xs font-black uppercase tracking-[0.16em]">No confirmed tickets yet.</p>
+            <p class="mt-2 text-xs font-bold uppercase tracking-[0.08em] text-black/70">
+              Complete a booking flow and your ticket will appear here.
+            </p>
+            <RouterLink
+              to="/ticket-purchase"
+              class="mt-4 inline-flex h-10 items-center justify-center border-2 border-black bg-white px-4 text-[10px] font-black uppercase tracking-[0.18em] transition duration-150 ease-out hover:bg-black hover:text-white"
+            >
+              Start New Booking
+            </RouterLink>
           </div>
 
           <div class="mt-6 hidden border-2 border-black bg-[var(--swiss-muted)] px-4 py-3 md:grid md:grid-cols-12 md:gap-4">
             <p class="md:col-span-3 text-[10px] font-black uppercase tracking-[0.18em] text-black/60">Event</p>
-            <p class="md:col-span-3 text-[10px] font-black uppercase tracking-[0.18em] text-black/60">Date &amp; Time</p>
-            <p class="md:col-span-3 text-[10px] font-black uppercase tracking-[0.18em] text-black/60">Location</p>
-            <p class="md:col-span-2 text-[10px] font-black uppercase tracking-[0.18em] text-black/60">Ticket ID</p>
+            <p class="md:col-span-2 text-[10px] font-black uppercase tracking-[0.18em] text-black/60">Status</p>
+            <p class="md:col-span-2 text-[10px] font-black uppercase tracking-[0.18em] text-black/60">Seat</p>
+            <p class="md:col-span-3 text-[10px] font-black uppercase tracking-[0.18em] text-black/60">Ticket ID</p>
+            <p class="md:col-span-1 text-[10px] font-black uppercase tracking-[0.18em] text-black/60">Hold ID</p>
             <p class="md:col-span-1 text-right text-[10px] font-black uppercase tracking-[0.18em] text-black/60">Pass</p>
           </div>
 
-          <div class="mt-4 space-y-4">
+          <div class="mt-4 space-y-4" v-if="purchasedTickets.length > 0">
             <article
               v-for="ticket in purchasedTickets"
-              :key="ticket.ticketId"
+              :key="ticket.holdID"
               class="border-2 border-black bg-white p-4"
             >
               <div class="grid gap-4 md:grid-cols-12 md:items-center">
@@ -126,19 +237,24 @@ function closePass() {
                   <p class="text-sm font-black uppercase tracking-[0.05em]">{{ ticket.eventName }}</p>
                 </div>
 
-                <div class="md:col-span-3">
-                  <p class="text-[10px] font-black uppercase tracking-[0.18em] text-black/60 md:hidden">Date &amp; Time</p>
-                  <p class="text-xs font-bold uppercase tracking-[0.06em]">{{ ticket.dateTime }}</p>
-                </div>
-
-                <div class="md:col-span-3">
-                  <p class="text-[10px] font-black uppercase tracking-[0.18em] text-black/60 md:hidden">Location</p>
-                  <p class="text-xs font-bold uppercase tracking-[0.06em]">{{ ticket.location }}</p>
+                <div class="md:col-span-2">
+                  <p class="text-[10px] font-black uppercase tracking-[0.18em] text-black/60 md:hidden">Status</p>
+                  <p class="text-xs font-bold uppercase tracking-[0.06em]">{{ ticket.status }}</p>
                 </div>
 
                 <div class="md:col-span-2">
+                  <p class="text-[10px] font-black uppercase tracking-[0.18em] text-black/60 md:hidden">Seat</p>
+                  <p class="text-xs font-bold uppercase tracking-[0.06em]">{{ ticket.seatNumber || 'N/A' }}</p>
+                </div>
+
+                <div class="md:col-span-3">
                   <p class="text-[10px] font-black uppercase tracking-[0.18em] text-black/60 md:hidden">Ticket ID</p>
-                  <p class="text-xs font-black uppercase tracking-[0.11em]">{{ ticket.ticketId }}</p>
+                  <p class="text-xs font-black uppercase tracking-[0.11em]">{{ ticket.ticketID || 'N/A' }}</p>
+                </div>
+
+                <div class="md:col-span-1">
+                  <p class="text-[10px] font-black uppercase tracking-[0.18em] text-black/60 md:hidden">Hold ID</p>
+                  <p class="truncate text-xs font-black uppercase tracking-[0.11em]">{{ ticket.holdID }}</p>
                 </div>
 
                 <div class="md:col-span-1 md:text-right">
@@ -179,31 +295,49 @@ function closePass() {
 
         <div class="mt-4 grid gap-3 sm:grid-cols-2">
           <div class="border-2 border-black bg-[var(--swiss-muted)] p-3">
-            <p class="text-[10px] font-black uppercase tracking-[0.2em] text-black/60">Date &amp; Time</p>
-            <p class="mt-2 text-xs font-black uppercase tracking-[0.08em]">{{ selectedTicket.dateTime }}</p>
+            <p class="text-[10px] font-black uppercase tracking-[0.2em] text-black/60">Ticket Status</p>
+            <p class="mt-2 text-xs font-black uppercase tracking-[0.08em]">{{ selectedTicket.status }}</p>
           </div>
           <div class="border-2 border-black bg-[var(--swiss-muted)] p-3">
-            <p class="text-[10px] font-black uppercase tracking-[0.2em] text-black/60">Location</p>
-            <p class="mt-2 text-xs font-black uppercase tracking-[0.08em]">{{ selectedTicket.location }}</p>
+            <p class="text-[10px] font-black uppercase tracking-[0.2em] text-black/60">Seat Number</p>
+            <p class="mt-2 text-xs font-black uppercase tracking-[0.08em]">{{ selectedTicket.seatNumber || 'N/A' }}</p>
           </div>
           <div class="border-2 border-black bg-[var(--swiss-muted)] p-3 sm:col-span-2">
             <p class="text-[10px] font-black uppercase tracking-[0.2em] text-black/60">Ticket ID</p>
-            <p class="mt-2 text-xs font-black uppercase tracking-[0.12em]">{{ selectedTicket.ticketId }}</p>
+            <p class="mt-2 text-xs font-black uppercase tracking-[0.12em]">{{ selectedTicket.ticketID || 'N/A' }}</p>
+          </div>
+          <div class="border-2 border-black bg-[var(--swiss-muted)] p-3 sm:col-span-2">
+            <p class="text-[10px] font-black uppercase tracking-[0.2em] text-black/60">Hold ID</p>
+            <p class="mt-2 break-all text-xs font-black uppercase tracking-[0.12em]">{{ selectedTicket.holdID }}</p>
           </div>
         </div>
 
         <div class="mt-4 border-2 border-black bg-[var(--swiss-accent)] p-3">
           <div class="border-2 border-black bg-white p-3">
-            <div class="swiss-grid-pattern mx-auto h-24 w-24 border-2 border-black bg-[var(--swiss-muted)] md:h-28 md:w-28" />
-            <p class="mt-3 text-center text-[10px] font-black uppercase tracking-[0.2em] text-black/65">QR placeholder</p>
+            <div class="flex flex-col items-center">
+              <img
+                v-if="passQrDataUrl"
+                :src="passQrDataUrl"
+                alt="Ticket QR code"
+                class="h-24 w-24 border-2 border-black bg-white object-contain md:h-28 md:w-28"
+              >
+              <div
+                v-else
+                class="swiss-grid-pattern h-24 w-24 border-2 border-black bg-[var(--swiss-muted)] md:h-28 md:w-28"
+              />
+              <p class="mt-3 text-center text-[10px] font-black uppercase tracking-[0.2em] text-black/65">
+                {{ passQrDataUrl ? 'Scan at entry' : passQrError || 'QR unavailable' }}
+              </p>
+            </div>
           </div>
         </div>
 
         <button
           type="button"
           class="mt-4 inline-flex h-10 w-full items-center justify-center border-2 border-black bg-white px-4 text-xs font-black uppercase tracking-[0.2em] transition duration-150 ease-out hover:bg-black hover:text-white"
+          @click="closePass"
         >
-          Cancel Ticket
+          Close
         </button>
       </div>
     </section>
