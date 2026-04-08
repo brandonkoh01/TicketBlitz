@@ -285,10 +285,10 @@ SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 # ── RabbitMQ ─────────────────────────────────────────────────
 RABBITMQ_USER=ticketblitz
-RABBITMQ_PASSWORD=change_me_before_demo
-RABBITMQ_URL=amqp://ticketblitz:change_me_before_demo@rabbitmq:5672/
+RABBITMQ_PASSWORD=123
+RABBITMQ_URL=amqp://ticketblitz:123@rabbitmq:5672/
 # ↑ Uses Docker DNS "rabbitmq". For local venv outside Docker:
-#   RABBITMQ_URL=amqp://ticketblitz:change_me_before_demo@localhost:5672/
+#   RABBITMQ_URL=amqp://ticketblitz:123@localhost:5672/
 
 # ── Stripe ───────────────────────────────────────────────────
 # Dashboard → Developers → API keys
@@ -382,7 +382,7 @@ When running outside Docker, the internal Docker DNS hostnames (`rabbitmq`, `use
 ```bash
 export SUPABASE_URL="https://your-project-ref.supabase.co"
 export SUPABASE_SERVICE_KEY="eyJ..."
-export RABBITMQ_URL="amqp://ticketblitz:change_me_before_demo@localhost:5672/"
+export RABBITMQ_URL="amqp://ticketblitz:123@localhost:5672/"
 export REQUIRE_INTERNAL_AUTH=1
 export INTERNAL_SERVICE_TOKEN="ticketblitz-internal-token"
 export PORT=5002
@@ -392,7 +392,7 @@ export PORT=5002
 ```powershell
 $env:SUPABASE_URL="https://your-project-ref.supabase.co"
 $env:SUPABASE_SERVICE_KEY="eyJ..."
-$env:RABBITMQ_URL="amqp://ticketblitz:change_me_before_demo@localhost:5672/"
+$env:RABBITMQ_URL="amqp://ticketblitz:123@localhost:5672/"
 $env:REQUIRE_INTERNAL_AUTH="1"
 $env:INTERNAL_SERVICE_TOKEN="ticketblitz-internal-token"
 $env:PORT=5002
@@ -1033,7 +1033,7 @@ docker compose ps rabbitmq
 ### 11.2 — Create exchanges via the Management UI
 
 Go to: **http://localhost:15672**  
-Login: username `ticketblitz` / password `change_me_before_demo`
+Login: username `ticketblitz` / password `123`
 
 Create both exchanges:
 
@@ -1048,12 +1048,12 @@ Steps per exchange: **Exchanges** tab → **Add a new exchange** → fill name +
 
 **macOS:**
 ```bash
-curl -u ticketblitz:change_me_before_demo \
+curl -u ticketblitz:123 \
   -X PUT http://localhost:15672/api/exchanges/%2F/ticketblitz \
   -H "Content-Type: application/json" \
   -d '{"type":"topic","durable":true}'
 
-curl -u ticketblitz:change_me_before_demo \
+curl -u ticketblitz:123 \
   -X PUT http://localhost:15672/api/exchanges/%2F/ticketblitz.price \
   -H "Content-Type: application/json" \
   -d '{"type":"fanout","durable":true}'
@@ -1063,7 +1063,7 @@ curl -u ticketblitz:change_me_before_demo \
 ```powershell
 $headers = @{
   Authorization = "Basic " + [Convert]::ToBase64String(
-    [Text.Encoding]::ASCII.GetBytes("ticketblitz:change_me_before_demo"))
+    [Text.Encoding]::ASCII.GetBytes("ticketblitz:123"))
   "Content-Type" = "application/json"
 }
 
@@ -1297,7 +1297,7 @@ curl -i -X PUT http://localhost:8000/event/<eventID>/status \
 |---|---|---|
 | Fan Booking UI | http://localhost:3000 | — |
 | Organiser Dashboard UI | http://localhost:3001 | — |
-| RabbitMQ Management | http://localhost:15672 | ticketblitz / change_me_before_demo |
+| RabbitMQ Management | http://localhost:15672 | ticketblitz / 123 |
 | Kong Admin API | http://localhost:8001 | — |
 
 ### 13.4 — Scenario 1 end-to-end smoke test
