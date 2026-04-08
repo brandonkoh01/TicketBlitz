@@ -33,7 +33,7 @@ const {
   unmount: unmountStripePayment,
 } = useStripePaymentElement()
 
-const polling = useBookingStatusPolling(holdID.value, {
+const polling = useBookingStatusPolling(holdID, {
   onTerminal: (payload) => {
     const status = payload?.uiStatus || 'PROCESSING'
     if (status === 'CONFIRMED') {
@@ -69,6 +69,25 @@ watch(
     }
   }
 )
+
+watch(holdID, async (nextHoldID, previousHoldID) => {
+  if (!nextHoldID || nextHoldID === previousHoldID) {
+    return
+  }
+
+  awaitingBookingResolution.value = false
+  polling.stop()
+
+  try {
+    unmountStripePayment()
+  } catch {
+    // Cleanup should never block route transitions.
+  }
+
+  await hydratePendingContext()
+  await mountPaymentElement()
+  polling.start()
+})
 
 async function hydratePendingContext() {
   localError.value = ''
@@ -157,7 +176,12 @@ onMounted(async () => {
 onUnmounted(() => {
   awaitingBookingResolution.value = false
   polling.stop()
-  unmountStripePayment()
+
+  try {
+    unmountStripePayment()
+  } catch {
+    // Cleanup should never block route transitions.
+  }
 })
 </script>
 

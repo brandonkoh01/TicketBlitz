@@ -3,6 +3,7 @@ import logging
 import os
 import signal
 import time
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -57,15 +58,23 @@ REQUIRED_FIELDS_BY_TYPE = {
     "REFUND_ERROR": ["email", "bookingID", "errorDetail", "nextSteps"],
     "TICKET_AVAILABLE_PUBLIC": ["email", "bookingID", "eventName"],
     "TICKET_CONFIRMATION": ["email", "bookingID", "ticketID", "seatNumber", "eventName"],
-    "FLASH_SALE_LAUNCHED": ["eventID", "flashSaleID", "updatedPrices", "waitlistEmails"],
+    "FLASH_SALE_LAUNCHED": [
+        "eventID",
+        "eventName",
+        "flashSaleID",
+        "discountPercentage",
+        "updatedPrices",
+        "waitlistEmails",
+    ],
     "PRICE_ESCALATED": [
         "eventID",
+        "eventName",
         "flashSaleID",
         "soldOutCategory",
         "updatedPrices",
         "waitlistEmails",
     ],
-    "FLASH_SALE_ENDED": ["eventID", "flashSaleID", "revertedPrices", "waitlistEmails"],
+    "FLASH_SALE_ENDED": ["eventID", "eventName", "flashSaleID", "revertedPrices", "waitlistEmails"],
 }
 
 TEMPLATE_ENV_BY_TYPE = {
@@ -120,6 +129,33 @@ def is_production_env() -> bool:
         if value and value.lower() in {"prod", "production"}:
             return True
     return False
+
+
+def _format_discount_percentage(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if text.endswith("%"):
+        return text
+    return f"{text}%"
+
+
+def _format_sgt_datetime(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "TBC"
+
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        logger.warning("Unable to parse expiresAt for display formatting: %s", text)
+        return text
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+
+    sgt = parsed.astimezone(timezone(timedelta(hours=8)))
+    return sgt.strftime("%d/%m/%y %I:%M %p SGT")
 
 
 @dataclass(frozen=True)
@@ -540,6 +576,12 @@ class NotificationWorker:
                 waitlist_status_url = self._build_waitlist_status_url(data.get("waitlistID"))
             if waitlist_status_url:
                 data["waitlistStatusURL"] = waitlist_status_url
+
+        if event_type == "FLASH_SALE_LAUNCHED":
+            data["discountPercentage"] = _format_discount_percentage(
+                data.get("discountPercentage")
+            )
+            data["expiresAtDisplay"] = _format_sgt_datetime(data.get("expiresAt"))
 
         data["notificationType"] = event_type
         return data

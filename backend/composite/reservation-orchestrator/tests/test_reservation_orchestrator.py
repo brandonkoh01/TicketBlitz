@@ -258,6 +258,16 @@ class CanonicalUserDownstreamClient:
         return {"status": "CANCELLED", "waitlistID": waitlist_id}
 
 
+class VariantUserDownstreamClient(CanonicalUserDownstreamClient):
+    def __init__(self, user_payload):
+        super().__init__()
+        self._user_payload = user_payload
+
+    def get_user(self, user_id, correlation_id):
+        self.last_get_user_id = user_id
+        return self._user_payload
+
+
 class ReservationOrchestratorServiceTestCase(unittest.TestCase):
     def test_reserve_raises_not_found_when_event_missing(self):
         config = type("Config", (), {"HTTP_MAX_RETRIES": 0})
@@ -308,6 +318,100 @@ class ReservationOrchestratorServiceTestCase(unittest.TestCase):
         self.assertEqual(response["status"], "CANCELLED")
         self.assertEqual(response["userID"], client.DOMAIN_USER_ID)
         self.assertEqual(client.last_cancel_waitlist_user_id, client.DOMAIN_USER_ID)
+
+    def test_reserve_accepts_user_id_fallback_key(self):
+        config = type("Config", (), {"HTTP_MAX_RETRIES": 0})
+        client = VariantUserDownstreamClient(
+            {
+                "user_id": CanonicalUserDownstreamClient.DOMAIN_USER_ID,
+                "email": "fan@example.com",
+            }
+        )
+        service = reservation_app.ReservationOrchestrator(config, client)
+
+        response = service.reserve(
+            {
+                "userID": CanonicalUserDownstreamClient.AUTH_USER_ID,
+                "eventID": "10000000-0000-0000-0000-000000000301",
+                "seatCategory": "CAT1",
+                "qty": 1,
+            },
+            "20000000-0000-0000-0000-000000000001",
+        )
+
+        self.assertEqual(response["status"], "PAYMENT_PENDING")
+        self.assertEqual(client.last_hold_user_id, CanonicalUserDownstreamClient.DOMAIN_USER_ID)
+
+    def test_reserve_accepts_nested_user_payload(self):
+        config = type("Config", (), {"HTTP_MAX_RETRIES": 0})
+        client = VariantUserDownstreamClient(
+            {
+                "user": {
+                    "userID": CanonicalUserDownstreamClient.DOMAIN_USER_ID,
+                    "email": "fan@example.com",
+                }
+            }
+        )
+        service = reservation_app.ReservationOrchestrator(config, client)
+
+        response = service.reserve(
+            {
+                "userID": CanonicalUserDownstreamClient.AUTH_USER_ID,
+                "eventID": "10000000-0000-0000-0000-000000000301",
+                "seatCategory": "CAT1",
+                "qty": 1,
+            },
+            "20000000-0000-0000-0000-000000000001",
+        )
+
+        self.assertEqual(response["status"], "PAYMENT_PENDING")
+        self.assertEqual(client.last_hold_user_id, CanonicalUserDownstreamClient.DOMAIN_USER_ID)
+
+    def test_reserve_accepts_nested_data_payload(self):
+        config = type("Config", (), {"HTTP_MAX_RETRIES": 0})
+        client = VariantUserDownstreamClient(
+            {
+                "data": {
+                    "userID": CanonicalUserDownstreamClient.DOMAIN_USER_ID,
+                    "email": "fan@example.com",
+                }
+            }
+        )
+        service = reservation_app.ReservationOrchestrator(config, client)
+
+        response = service.reserve(
+            {
+                "userID": CanonicalUserDownstreamClient.AUTH_USER_ID,
+                "eventID": "10000000-0000-0000-0000-000000000301",
+                "seatCategory": "CAT1",
+                "qty": 1,
+            },
+            "20000000-0000-0000-0000-000000000001",
+        )
+
+        self.assertEqual(response["status"], "PAYMENT_PENDING")
+        self.assertEqual(client.last_hold_user_id, CanonicalUserDownstreamClient.DOMAIN_USER_ID)
+
+    def test_reserve_raises_external_service_error_when_user_id_missing(self):
+        config = type("Config", (), {"HTTP_MAX_RETRIES": 0})
+        client = VariantUserDownstreamClient({"email": "fan@example.com"})
+        service = reservation_app.ReservationOrchestrator(config, client)
+
+        with self.assertRaises(reservation_app.ExternalServiceError) as context:
+            service.reserve(
+                {
+                    "userID": CanonicalUserDownstreamClient.AUTH_USER_ID,
+                    "eventID": "10000000-0000-0000-0000-000000000301",
+                    "seatCategory": "CAT1",
+                    "qty": 1,
+                },
+                "20000000-0000-0000-0000-000000000001",
+            )
+
+        self.assertEqual(context.exception.message, "user-service response missing userID")
+        self.assertIsInstance(context.exception.details, dict)
+        self.assertEqual(context.exception.details.get("receivedType"), "dict")
+        self.assertIn("email", context.exception.details.get("topLevelKeys", []))
 
 
 if __name__ == "__main__":

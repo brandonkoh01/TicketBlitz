@@ -92,6 +92,10 @@ def _parse_positive_int(value: Any, field_name: str, maximum: int) -> int:
     return parsed
 
 
+def _format_percentage_for_display(value: Decimal) -> str:
+    return f"{value.quantize(Decimal('0.01'))}%"
+
+
 def _request_json(
     method: str,
     service_name: str,
@@ -186,6 +190,33 @@ def _safe_waitlist_emails(config: Config, event_id: str) -> List[str]:
     return list(unique.keys())
 
 
+def _safe_event_name(config: Config, event_id: str) -> str:
+    try:
+        body = _request_json(
+            "GET",
+            "event-service",
+            config.EVENT_SERVICE_URL,
+            f"/event/{event_id}",
+            expected_statuses=[200],
+            timeout_seconds=config.HTTP_TIMEOUT_SECONDS,
+        )
+    except DownstreamError as error:
+        logger.warning(
+            "Unable to load event name for event=%s: status=%s message=%s",
+            event_id,
+            error.status_code,
+            error.message,
+        )
+        return "your event"
+
+    event_name = str(body.get("name") or "").strip()
+    if event_name:
+        return event_name
+
+    logger.warning("Event name missing for event=%s. Falling back to generic label.", event_id)
+    return "your event"
+
+
 def _publish_price_broadcast(payload: Dict[str, Any]) -> bool:
     if not rabbitmq_configured():
         logger.warning("RabbitMQ is not configured; skipped fanout publish")
@@ -261,6 +292,8 @@ def create_app() -> Flask:
         *,
         allow_non_active: bool,
     ) -> Dict[str, Any]:
+        event_name = _safe_event_name(config, event_id)
+
         pricing_snapshot = _request_json(
             "GET",
             "pricing-service",
@@ -366,6 +399,7 @@ def create_app() -> Flask:
             {
                 "type": "FLASH_SALE_ENDED",
                 "eventID": event_id,
+                "eventName": event_name,
                 "flashSaleID": flash_sale_id,
                 "revertedPrices": reverted_prices,
                 "waitlistEmails": waitlist_emails,
@@ -376,6 +410,7 @@ def create_app() -> Flask:
         return {
             "status": "success",
             "eventID": event_id,
+            "eventName": event_name,
             "flashSaleID": flash_sale_id,
             "revertedPrices": reverted_prices,
             "waitlistCount": len(waitlist_emails),
@@ -412,8 +447,11 @@ def create_app() -> Flask:
             return _json_error(str(error), 400)
 
         correlation_id = str(payload.get("correlationID") or uuid.uuid4())
+        discount_display = _format_percentage_for_display(discount_percentage)
 
         try:
+            event_name = _safe_event_name(config, event_id)
+
             categories_snapshot = _request_json(
                 "GET",
                 "event-service",
@@ -493,7 +531,9 @@ def create_app() -> Flask:
             broadcast_payload = {
                 "type": "FLASH_SALE_LAUNCHED",
                 "eventID": event_id,
+                "eventName": event_name,
                 "flashSaleID": flash_sale_id,
+                "discountPercentage": discount_display,
                 "updatedPrices": updated_prices,
                 "waitlistEmails": waitlist_emails,
                 "expiresAt": expires_at,
@@ -517,7 +557,9 @@ def create_app() -> Flask:
                 {
                     "status": "success",
                     "eventID": event_id,
+                    "eventName": event_name,
                     "flashSaleID": flash_sale_id,
+                    "discountPercentage": discount_display,
                     "updatedPrices": updated_prices,
                     "expiresAt": expires_at,
                     "waitlistCount": len(waitlist_emails),

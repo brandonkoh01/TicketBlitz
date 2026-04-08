@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useApiClient } from '@/composables/useApiClient'
 import { useScenarioFlowStore } from '@/stores/scenarioFlowStore'
@@ -67,9 +67,9 @@ async function fetchStatus() {
   }
 }
 
-onMounted(() => {
+watch(holdID, () => {
   fetchStatus()
-})
+}, { immediate: true })
 </script>
 
 <template>

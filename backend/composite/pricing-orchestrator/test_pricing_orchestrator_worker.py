@@ -60,6 +60,9 @@ class PricingOrchestratorWorkerTests(unittest.TestCase):
         }
 
         def fake_request_json(method, service_name, base_url, path, **kwargs):
+            if method == "GET" and path == "/event/evt-1":
+                return {"event_id": "evt-1", "name": "Coldplay Live 2026"}
+
             if method == "GET" and path == "/pricing/evt-1/flash-sale/active":
                 return {"flashSaleID": "fs-1"}
 
@@ -110,6 +113,7 @@ class PricingOrchestratorWorkerTests(unittest.TestCase):
         published_payload = publish_mock.call_args[0][0]
         self.assertEqual(published_payload["type"], "PRICE_ESCALATED")
         self.assertEqual(published_payload["eventID"], "evt-1")
+        self.assertEqual(published_payload["eventName"], "Coldplay Live 2026")
         self.assertEqual(published_payload["soldOutCategory"], "CAT1")
         self.assertEqual(published_payload["waitlistEmails"], ["fan@example.com"])
 

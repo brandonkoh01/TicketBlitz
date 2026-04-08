@@ -584,12 +584,66 @@ class ReservationOrchestrator:
         self.config = config
         self.client = client
 
+    @staticmethod
+    def _extract_user_id_from_payload(payload: Any) -> Optional[str]:
+        def _as_non_empty_string(value: Any) -> Optional[str]:
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+            return None
+
+        if not isinstance(payload, dict):
+            return None
+
+        for candidate in (payload.get("userID"), payload.get("user_id")):
+            normalized = _as_non_empty_string(candidate)
+            if normalized:
+                return normalized
+
+        nested_user = payload.get("user")
+        if isinstance(nested_user, dict):
+            for candidate in (nested_user.get("userID"), nested_user.get("user_id")):
+                normalized = _as_non_empty_string(candidate)
+                if normalized:
+                    return normalized
+
+        nested_data = payload.get("data")
+        if isinstance(nested_data, dict):
+            for candidate in (nested_data.get("userID"), nested_data.get("user_id")):
+                normalized = _as_non_empty_string(candidate)
+                if normalized:
+                    return normalized
+        elif isinstance(nested_data, list) and nested_data:
+            first_item = nested_data[0]
+            if isinstance(first_item, dict):
+                for candidate in (first_item.get("userID"), first_item.get("user_id")):
+                    normalized = _as_non_empty_string(candidate)
+                    if normalized:
+                        return normalized
+
+        return None
+
     def _resolve_domain_user(self, requested_user_id: str, correlation_id: str) -> tuple[str, dict[str, Any]]:
         user = self.client.get_user(requested_user_id, correlation_id)
 
-        user_id = user.get("userID") if isinstance(user, dict) else None
-        if not isinstance(user_id, str):
-            raise ExternalServiceError("user-service response missing userID")
+        user_id = self._extract_user_id_from_payload(user)
+        if not user_id:
+            details: dict[str, Any] = {
+                "receivedType": type(user).__name__,
+            }
+            if isinstance(user, dict):
+                details["topLevelKeys"] = sorted(user.keys())
+
+                nested_user = user.get("user")
+                if isinstance(nested_user, dict):
+                    details["userKeys"] = sorted(nested_user.keys())
+
+                nested_data = user.get("data")
+                if isinstance(nested_data, dict):
+                    details["dataKeys"] = sorted(nested_data.keys())
+                elif isinstance(nested_data, list) and nested_data and isinstance(nested_data[0], dict):
+                    details["dataItemKeys"] = sorted(nested_data[0].keys())
+
+            raise ExternalServiceError("user-service response missing userID", details=details)
 
         domain_user_id = _parse_uuid(user_id, "user.userID")
         return domain_user_id, user

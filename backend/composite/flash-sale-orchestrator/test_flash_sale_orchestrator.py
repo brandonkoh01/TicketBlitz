@@ -39,6 +39,72 @@ class FlashSaleOrchestratorTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("eventID", response.get_json()["error"])
 
+    def test_launch_flash_sale_publishes_event_name_in_broadcast(self):
+        event_id = "10000000-0000-0000-0000-000000000301"
+        flash_sale_id = "10000000-0000-0000-0000-000000000401"
+
+        def fake_request_json(method, service_name, base_url, path, **kwargs):
+            if method == "GET" and path == f"/event/{event_id}":
+                return {"event_id": event_id, "name": "Coldplay Live 2026"}
+            if method == "GET" and path == f"/event/{event_id}/categories":
+                return {
+                    "event_id": event_id,
+                    "categories": [
+                        {
+                            "category_id": "20000000-0000-0000-0000-000000000101",
+                            "category_code": "CAT1",
+                            "current_price": "100.00",
+                            "is_active": True,
+                        }
+                    ],
+                }
+            if method == "POST" and path == "/pricing/flash-sale/configure":
+                return {
+                    "flashSaleID": flash_sale_id,
+                    "updatedPrices": [
+                        {
+                            "categoryID": "20000000-0000-0000-0000-000000000101",
+                            "newPrice": "70.00",
+                            "category": "CAT1",
+                            "currency": "SGD",
+                        }
+                    ],
+                    "expiresAt": "2026-04-08T16:00:00Z",
+                }
+            if method == "PUT" and path in {
+                f"/event/{event_id}/status",
+                f"/event/{event_id}/categories/prices",
+                f"/inventory/{event_id}/flash-sale",
+            }:
+                return {"status": "ok"}
+
+            raise AssertionError(f"Unexpected request: {method} {service_name} {path}")
+
+        with patch.object(orchestrator_module, "_request_json", side_effect=fake_request_json), patch.object(
+            orchestrator_module,
+            "_safe_waitlist_emails",
+            return_value=["fan@example.com"],
+        ), patch.object(orchestrator_module, "_publish_price_broadcast", return_value=True) as publish_mock:
+            response = self.client.post(
+                "/flash-sale/launch",
+                json={
+                    "eventID": event_id,
+                    "discountPercentage": "30",
+                    "durationMinutes": 30,
+                    "escalationPercentage": "20",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body["eventName"], "Coldplay Live 2026")
+        self.assertEqual(body["discountPercentage"], "30.00%")
+
+        publish_payload = publish_mock.call_args[0][0]
+        self.assertEqual(publish_payload["type"], "FLASH_SALE_LAUNCHED")
+        self.assertEqual(publish_payload["eventName"], "Coldplay Live 2026")
+        self.assertEqual(publish_payload["discountPercentage"], "30.00%")
+
     def test_status_returns_null_pricing_when_no_active_sale(self):
         event_id = "10000000-0000-0000-0000-000000000301"
 
@@ -100,6 +166,8 @@ class FlashSaleOrchestratorTests(unittest.TestCase):
 
         def fake_request_json(method, service_name, base_url, path, **kwargs):
             call_order.append(f"{method} {service_name} {path}")
+            if method == "GET" and path == f"/event/{event_id}":
+                return {"event_id": event_id, "name": "Coldplay Live 2026"}
             if method == "GET" and path == f"/pricing/{event_id}/history":
                 return {
                     "priceChanges": [
@@ -135,7 +203,7 @@ class FlashSaleOrchestratorTests(unittest.TestCase):
             orchestrator_module,
             "_safe_waitlist_emails",
             return_value=[],
-        ), patch.object(orchestrator_module, "_publish_price_broadcast", return_value=True):
+        ), patch.object(orchestrator_module, "_publish_price_broadcast", return_value=True) as publish_mock:
             response = self.client.post(
                 "/flash-sale/end",
                 json={
@@ -154,6 +222,10 @@ class FlashSaleOrchestratorTests(unittest.TestCase):
             call_order.index(f"PUT inventory-service /inventory/{event_id}/flash-sale"),
             pricing_end_index,
         )
+        body = response.get_json()
+        self.assertEqual(body["eventName"], "Coldplay Live 2026")
+        published_payload = publish_mock.call_args[0][0]
+        self.assertEqual(published_payload["eventName"], "Coldplay Live 2026")
 
     def test_end_flash_sale_reverts_to_base_price_for_sold_out_categories(self):
         event_id = "10000000-0000-0000-0000-000000000301"
@@ -164,6 +236,8 @@ class FlashSaleOrchestratorTests(unittest.TestCase):
         category_update_payload = {}
 
         def fake_request_json(method, service_name, base_url, path, **kwargs):
+            if method == "GET" and path == f"/event/{event_id}":
+                return {"event_id": event_id, "name": "Coldplay Live 2026"}
             if method == "GET" and path == f"/pricing/{event_id}":
                 return {
                     "categories": [
@@ -220,6 +294,7 @@ class FlashSaleOrchestratorTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.get_json()
         self.assertEqual(body["status"], "success")
+        self.assertEqual(body["eventName"], "Coldplay Live 2026")
 
         reverted_by_category = {
             row["categoryID"]: row
@@ -261,6 +336,8 @@ class FlashSaleOrchestratorTests(unittest.TestCase):
                 }
             if method == "GET" and path == f"/pricing/{event_id}/history":
                 return {"priceChanges": []}
+            if method == "GET" and path == f"/event/{event_id}":
+                return {"event_id": event_id, "name": "Coldplay Live 2026"}
             if method == "GET" and path == f"/pricing/{event_id}":
                 return {"categories": []}
             if method == "PUT" and path in {
@@ -319,6 +396,8 @@ class FlashSaleOrchestratorTests(unittest.TestCase):
                 }
             if method == "GET" and path == f"/pricing/{event_id}/history":
                 return {"priceChanges": []}
+            if method == "GET" and path == f"/event/{event_id}":
+                return {"event_id": event_id, "name": "Coldplay Live 2026"}
             if method == "GET" and path == f"/pricing/{event_id}":
                 return {"categories": []}
             if method == "PUT" and path == f"/event/{event_id}/status":
