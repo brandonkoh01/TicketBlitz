@@ -87,6 +87,67 @@ function fallbackEventLabel(value) {
   return normalized || 'your selected event'
 }
 
+function normalizeCapacityMetrics(category) {
+  const availableRaw =
+    category?.availableSeats ??
+    category?.available_seats ??
+    category?.available
+  const soldRaw =
+    category?.soldSeats ??
+    category?.sold_seats ??
+    category?.sold
+  const totalRaw =
+    category?.totalSeats ??
+    category?.total_seats
+
+  let availableSeats = toCount(availableRaw)
+  let soldSeats = toCount(soldRaw)
+
+  const hasAvailable = availableSeats !== null
+  const hasSold = soldSeats !== null
+
+  if (!hasAvailable) availableSeats = 0
+  if (!hasSold) soldSeats = 0
+
+  let totalSeats = toCount(totalRaw)
+  if (totalSeats === null) {
+    const inferredTotal = availableSeats + soldSeats
+    totalSeats = inferredTotal > 0 ? inferredTotal : 0
+  }
+
+  if (!hasAvailable && hasSold && totalSeats > 0) {
+    availableSeats = Math.max(totalSeats - soldSeats, 0)
+  }
+
+  if (!hasSold && hasAvailable && totalSeats > 0) {
+    soldSeats = Math.max(totalSeats - availableSeats, 0)
+  }
+
+  const observedTotal = availableSeats + soldSeats
+  if (observedTotal > totalSeats) {
+    totalSeats = observedTotal
+  }
+
+  if (!hasSold && category?.status === 'SOLD_OUT' && totalSeats > 0) {
+    soldSeats = totalSeats
+    availableSeats = 0
+  }
+
+  const clampedAvailable = Math.max(Math.min(availableSeats, totalSeats), 0)
+  const clampedSold = Math.max(Math.min(soldSeats, totalSeats), 0)
+
+  const soldPercent = totalSeats > 0
+    ? Math.round((clampedSold / totalSeats) * 100)
+    : (category?.status === 'SOLD_OUT' ? 100 : 0)
+
+  return {
+    availableSeats: clampedAvailable,
+    soldSeats: clampedSold,
+    totalSeats,
+    soldPercent,
+  }
+}
+
 export function useOrganiserDashboardScenario2() {
   const events = ref([])
   const selectedEventID = ref(import.meta.env.VITE_SCENARIO2_DEFAULT_EVENT_ID || '')
@@ -141,16 +202,16 @@ export function useOrganiserDashboardScenario2() {
     unsupportedMessage.value = `${actionLabel} is not available in the current backend scope.`
   }
 
-  function mapCategoryProgress(category, isChanged) {
+  function mapCategoryProgressClass(category, isChanged) {
     if (category.status === 'SOLD_OUT') {
-      return 'w-full bg-rose-300'
+      return 'bg-rose-300'
     }
 
     if (isChanged) {
-      return 'w-full bg-[#ffd900]'
+      return 'bg-[#ffd900]'
     }
 
-    return 'w-full bg-slate-300'
+    return 'bg-slate-300'
   }
 
   function recordCategoryChanges(categories) {
@@ -309,13 +370,18 @@ export function useOrganiserDashboardScenario2() {
 
     return categories.map((category) => {
       const changed = changedCategoryIDs.value.includes(category.categoryID)
+      const { availableSeats, soldSeats, totalSeats, soldPercent } = normalizeCapacityMetrics(category)
 
       return {
         id: category.categoryID,
         name: category.category || category.name,
         subtitle: category.name,
-        range: category.status === 'SOLD_OUT' ? 'Sold Out' : 'Available',
-        progressClass: mapCategoryProgress(category, changed),
+        range: totalSeats > 0 ? `${availableSeats} left / ${totalSeats} seats` : `${availableSeats} left`,
+        progressClass: mapCategoryProgressClass(category, changed),
+        progressPercent: soldPercent,
+        availableSeats,
+        soldSeats,
+        totalSeats,
         price: toMoney(category.currentPrice, category.currency),
         status: category.status === 'SOLD_OUT' ? 'sold_out' : flashSaleIsActive.value ? 'active' : 'pending',
         isChanged: changed,

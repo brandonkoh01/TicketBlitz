@@ -282,6 +282,7 @@ class PricingServiceTests(unittest.TestCase):
                 "current_price": "100.00",
                 "currency": "SGD",
                 "is_active": True,
+                "total_seats": 10,
             },
             {
                 "category_id": cat2_id,
@@ -291,6 +292,7 @@ class PricingServiceTests(unittest.TestCase):
                 "current_price": "120.00",
                 "currency": "SGD",
                 "is_active": True,
+                "total_seats": 20,
             },
         ]
 
@@ -298,7 +300,7 @@ class PricingServiceTests(unittest.TestCase):
             patch.object(pricing_module, "_fetch_event", return_value={"event_id": event_id, "status": "ACTIVE"}), \
             patch.object(pricing_module, "_fetch_categories_for_event", return_value=categories), \
             patch.object(pricing_module, "_find_active_flash_sale", return_value=None), \
-            patch.object(pricing_module, "_available_counts_by_category", return_value={cat2_id: 2}):
+            patch.object(pricing_module, "_seat_counts_by_category", return_value={cat2_id: {"AVAILABLE": 2, "SOLD": 18}}):
             response = self.client.get(f"/pricing/{event_id}")
 
         self.assertEqual(response.status_code, 200)
@@ -306,6 +308,100 @@ class PricingServiceTests(unittest.TestCase):
         returned_categories = {entry["category"]: entry for entry in body["categories"]}
         self.assertEqual(returned_categories["CAT1"]["status"], "SOLD_OUT")
         self.assertEqual(returned_categories["CAT2"]["status"], "AVAILABLE")
+        self.assertEqual(returned_categories["CAT1"]["availableSeats"], 0)
+        self.assertEqual(returned_categories["CAT1"]["soldSeats"], 10)
+        self.assertEqual(returned_categories["CAT1"]["totalSeats"], 10)
+        self.assertEqual(returned_categories["CAT2"]["availableSeats"], 2)
+        self.assertEqual(returned_categories["CAT2"]["soldSeats"], 18)
+        self.assertEqual(returned_categories["CAT2"]["totalSeats"], 20)
+
+    def test_get_effective_pricing_exposes_remaining_and_sold_counts(self):
+        event_id = "00000000-0000-0000-0000-000000000001"
+        cat1_id = "00000000-0000-0000-0000-000000000010"
+        cat2_id = "00000000-0000-0000-0000-000000000011"
+
+        categories = [
+            {
+                "category_id": cat1_id,
+                "category_code": "CAT1",
+                "name": "Category 1",
+                "base_price": "100.00",
+                "current_price": "100.00",
+                "currency": "SGD",
+                "is_active": True,
+                "total_seats": 25,
+            },
+            {
+                "category_id": cat2_id,
+                "category_code": "CAT2",
+                "name": "Category 2",
+                "base_price": "120.00",
+                "current_price": "120.00",
+                "currency": "SGD",
+                "is_active": True,
+                "total_seats": 30,
+            },
+        ]
+
+        with patch.object(pricing_module, "db_configured", return_value=True), \
+            patch.object(pricing_module, "_fetch_event", return_value={"event_id": event_id, "status": "ACTIVE"}), \
+            patch.object(pricing_module, "_fetch_categories_for_event", return_value=categories), \
+            patch.object(pricing_module, "_find_active_flash_sale", return_value=None), \
+            patch.object(
+                pricing_module,
+                "_seat_counts_by_category",
+                return_value={
+                    cat1_id: {"AVAILABLE": 0, "SOLD": 25},
+                    cat2_id: {"AVAILABLE": 8, "SOLD": 22},
+                },
+            ):
+            response = self.client.get(f"/pricing/{event_id}")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        returned_categories = {entry["category"]: entry for entry in body["categories"]}
+
+        self.assertEqual(returned_categories["CAT1"]["status"], "SOLD_OUT")
+        self.assertEqual(returned_categories["CAT1"]["availableSeats"], 0)
+        self.assertEqual(returned_categories["CAT1"]["soldSeats"], 25)
+        self.assertEqual(returned_categories["CAT1"]["totalSeats"], 25)
+
+        self.assertEqual(returned_categories["CAT2"]["status"], "AVAILABLE")
+        self.assertEqual(returned_categories["CAT2"]["availableSeats"], 8)
+        self.assertEqual(returned_categories["CAT2"]["soldSeats"], 22)
+        self.assertEqual(returned_categories["CAT2"]["totalSeats"], 30)
+
+    def test_get_effective_pricing_infers_sold_when_sold_out_with_total_only(self):
+        event_id = "00000000-0000-0000-0000-000000000001"
+        cat1_id = "00000000-0000-0000-0000-000000000010"
+
+        categories = [
+            {
+                "category_id": cat1_id,
+                "category_code": "CAT1",
+                "name": "Category 1",
+                "base_price": "100.00",
+                "current_price": "100.00",
+                "currency": "SGD",
+                "is_active": True,
+                "total_seats": 12,
+            },
+        ]
+
+        with patch.object(pricing_module, "db_configured", return_value=True), \
+            patch.object(pricing_module, "_fetch_event", return_value={"event_id": event_id, "status": "ACTIVE"}), \
+            patch.object(pricing_module, "_fetch_categories_for_event", return_value=categories), \
+            patch.object(pricing_module, "_find_active_flash_sale", return_value=None), \
+            patch.object(pricing_module, "_seat_counts_by_category", return_value={}):
+            response = self.client.get(f"/pricing/{event_id}")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        returned_categories = {entry["category"]: entry for entry in body["categories"]}
+        self.assertEqual(returned_categories["CAT1"]["status"], "SOLD_OUT")
+        self.assertEqual(returned_categories["CAT1"]["availableSeats"], 0)
+        self.assertEqual(returned_categories["CAT1"]["soldSeats"], 12)
+        self.assertEqual(returned_categories["CAT1"]["totalSeats"], 12)
 
 
 if __name__ == "__main__":

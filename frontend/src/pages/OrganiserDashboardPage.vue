@@ -7,9 +7,9 @@ const authStore = useAuthStore()
 const isAuthenticated = computed(() => authStore.isAuthenticated.value)
 
 const sideNavLinks = [
-  { icon: 'dashboard', label: 'Dashboard', active: true },
-  { icon: 'event', label: 'Events', active: false },
-  { icon: 'trending_up', label: 'Sales Analytics', active: false },
+  { icon: 'dashboard', label: 'Dashboard', active: true, to: null },
+  { icon: 'event', label: 'Events', active: false, to: '/events' },
+  { icon: 'trending_up', label: 'Sales Analytics', active: false, to: null },
 ]
 
 const alertRows = [
@@ -123,10 +123,12 @@ function onRefreshEvents() {
         <aside class="w-64 border-r border-slate-200 hidden lg:flex flex-col bg-white">
           <div class="p-6">
             <nav class="space-y-1">
-              <a
+              <component
                 v-for="item in sideNavLinks"
                 :key="item.label"
-                href="#"
+                :is="item.to ? 'RouterLink' : 'a'"
+                :to="item.to || undefined"
+                :href="item.to ? undefined : '#'"
                 class="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors"
                   :class="item.active
                   ? 'bg-[#ffd900] text-slate-900 font-semibold'
@@ -134,7 +136,7 @@ function onRefreshEvents() {
               >
                 <UiMaterialIcon :name="item.icon" :class="item.active ? 'text-slate-900' : ''" />
                 <span>{{ item.label }}</span>
-              </a>
+              </component>
             </nav>
           </div>
 
@@ -202,7 +204,7 @@ function onRefreshEvents() {
           <div class="mb-10 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
             <div class="space-y-2">
               <nav class="mb-4 flex gap-2 text-xs font-medium text-slate-400">
-                <a class="hover:text-[#ffd900]" href="#">Events</a>
+                <RouterLink class="hover:text-[#ffd900]" to="/events">Events</RouterLink>
                 <span>/</span>
                 <a class="hover:text-[#ffd900]" href="#">Live Event Configuration</a>
                 <span>/</span>
@@ -265,7 +267,6 @@ function onRefreshEvents() {
                         <th class="px-6 py-4 font-black">Capacity Range</th>
                         <th class="px-6 py-4 font-black">Price ($)</th>
                         <th class="px-6 py-4 font-black">Status</th>
-                        <th class="px-6 py-4 font-black text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100">
@@ -283,9 +284,14 @@ function onRefreshEvents() {
                           <div class="flex items-center gap-3">
                             <span class="text-sm font-mono font-medium">{{ row.range }}</span>
                             <div class="h-1.5 w-24 bg-slate-100 rounded-full overflow-hidden">
-                              <div class="h-full" :class="row.progressClass" />
+                              <div
+                                class="h-full rounded-full transition-all duration-500"
+                                :class="row.progressClass"
+                                :style="{ width: `${row.progressPercent}%` }"
+                              />
                             </div>
                           </div>
+                          <p class="mt-1 text-[10px] uppercase tracking-widest text-slate-400">Sold {{ row.soldSeats }}</p>
                         </td>
                         <td class="px-6 py-5 font-mono text-sm font-bold">{{ row.price }}</td>
                         <td class="px-6 py-5">
@@ -308,16 +314,6 @@ function onRefreshEvents() {
                           >
                             Pending
                           </span>
-                        </td>
-                        <td class="px-6 py-5 text-right">
-                          <button
-                            class="cursor-not-allowed text-slate-300"
-                            type="button"
-                            disabled
-                            :title="unsupportedControlNote"
-                          >
-                            <UiMaterialIcon name="edit" class="text-xl" />
-                          </button>
                         </td>
                       </tr>
                     </tbody>

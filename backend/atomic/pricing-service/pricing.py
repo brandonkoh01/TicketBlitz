@@ -95,7 +95,7 @@ def _fetch_categories_for_event(event_id: str) -> List[Dict[str, Any]]:
         .table("seat_categories")
         .select(
             "category_id,event_id,category_code,name,base_price,current_price,currency,"
-            "is_active,sort_order,deleted_at"
+            "is_active,sort_order,total_seats,deleted_at"
         )
         .eq("event_id", event_id)
         .order("sort_order")
@@ -104,7 +104,7 @@ def _fetch_categories_for_event(event_id: str) -> List[Dict[str, Any]]:
     return [row for row in (result.data or []) if row.get("deleted_at") is None]
 
 
-def _available_counts_by_category(event_id: str) -> Dict[str, int]:
+def _seat_counts_by_category(event_id: str) -> Dict[str, Dict[str, int]]:
     try:
         result = (
             get_db()
@@ -117,17 +117,28 @@ def _available_counts_by_category(event_id: str) -> Dict[str, int]:
         logger.warning("Unable to compute seat availability snapshot for pricing")
         return {}
 
-    counts: Dict[str, int] = {}
+    counts: Dict[str, Dict[str, int]] = {}
     for row in result.data or []:
-        category_id = row.get("category_id")
+        category_id_raw = row.get("category_id")
+        category_id = str(category_id_raw) if category_id_raw is not None else ""
         if not category_id:
             continue
-        if row.get("status") == "AVAILABLE":
-            counts[category_id] = counts.get(category_id, 0) + 1
-        else:
-            counts.setdefault(category_id, 0)
+
+        status = str(row.get("status") or "UNKNOWN").upper()
+        bucket = counts.setdefault(category_id, {"AVAILABLE": 0, "SOLD": 0})
+
+        if status in bucket:
+            bucket[status] += 1
 
     return counts
+
+
+def _coerce_non_negative_int(value: Any) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(parsed, 0)
 
 
 def _find_active_flash_sale(event_id: str, flash_sale_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -675,7 +686,7 @@ def create_app() -> Flask:
         try:
             categories = _fetch_categories_for_event(parsed_event_id)
             active_sale = _find_active_flash_sale(parsed_event_id)
-            available_counts = _available_counts_by_category(parsed_event_id)
+            seat_counts = _seat_counts_by_category(parsed_event_id)
         except Exception as error:
             logger.exception("Failed to load pricing snapshot for %s: %s", parsed_event_id, error)
             return _json_error("Failed to load pricing snapshot", 500)
@@ -683,8 +694,23 @@ def create_app() -> Flask:
         category_rows: List[Dict[str, Any]] = []
         for category in categories:
             category_id = category.get("category_id")
-            available = available_counts.get(category_id)
-            sold_out = (available or 0) <= 0
+            normalized_category_id = str(category_id) if category_id is not None else ""
+            category_counts = seat_counts.get(normalized_category_id, {"AVAILABLE": 0, "SOLD": 0})
+
+            available_seats = _coerce_non_negative_int(category_counts.get("AVAILABLE"))
+            sold_seats = _coerce_non_negative_int(category_counts.get("SOLD"))
+
+            observed_total = available_seats + sold_seats
+            total_seats = _coerce_non_negative_int(category.get("total_seats"))
+            if total_seats <= 0:
+                total_seats = observed_total
+            else:
+                total_seats = max(total_seats, observed_total)
+
+            sold_out = available_seats <= 0
+
+            if sold_out and sold_seats <= 0 and total_seats > 0:
+                sold_seats = total_seats
 
             category_rows.append(
                 {
@@ -694,6 +720,9 @@ def create_app() -> Flask:
                     "basePrice": _to_money_str(category.get("base_price")),
                     "currentPrice": _to_money_str(category.get("current_price")),
                     "currency": category.get("currency", "SGD"),
+                    "totalSeats": total_seats,
+                    "availableSeats": available_seats,
+                    "soldSeats": sold_seats,
                     "status": "SOLD_OUT" if sold_out else "AVAILABLE",
                     "isActive": bool(category.get("is_active", True)),
                 }
