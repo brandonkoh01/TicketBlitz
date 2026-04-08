@@ -136,6 +136,58 @@ class PaymentRefactorTests(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
         process_mock.assert_not_called()
 
+    def test_handle_payment_intent_succeeded_rejects_amount_mismatch(self):
+        transaction = {
+            "transaction_id": str(uuid.uuid4()),
+            "hold_id": str(uuid.uuid4()),
+            "event_id": str(uuid.uuid4()),
+            "user_id": str(uuid.uuid4()),
+            "amount": "160.00",
+            "currency": "SGD",
+            "stripe_payment_intent_id": "pi_test_amount_mismatch",
+            "stripe_charge_id": None,
+        }
+        payment_intent = {
+            "id": "pi_test_amount_mismatch",
+            "status": "succeeded",
+            "amount_received": 0,
+            "currency": "sgd",
+            "latest_charge": "ch_test_amount_mismatch",
+        }
+
+        with patch("payment._fetch_transaction_by_intent", return_value=transaction):
+            with patch("payment._update_transaction") as update_mock:
+                with self.assertRaises(payment.ConflictError):
+                    payment._handle_payment_intent_succeeded(payment_intent)
+
+        update_mock.assert_not_called()
+
+    def test_handle_payment_intent_succeeded_rejects_currency_mismatch(self):
+        transaction = {
+            "transaction_id": str(uuid.uuid4()),
+            "hold_id": str(uuid.uuid4()),
+            "event_id": str(uuid.uuid4()),
+            "user_id": str(uuid.uuid4()),
+            "amount": "160.00",
+            "currency": "SGD",
+            "stripe_payment_intent_id": "pi_test_currency_mismatch",
+            "stripe_charge_id": None,
+        }
+        payment_intent = {
+            "id": "pi_test_currency_mismatch",
+            "status": "succeeded",
+            "amount_received": 16000,
+            "currency": "usd",
+            "latest_charge": "ch_test_currency_mismatch",
+        }
+
+        with patch("payment._fetch_transaction_by_intent", return_value=transaction):
+            with patch("payment._update_transaction") as update_mock:
+                with self.assertRaises(payment.ConflictError):
+                    payment._handle_payment_intent_succeeded(payment_intent)
+
+        update_mock.assert_not_called()
+
     def test_publish_booking_confirmed_includes_waitlist_id_when_present(self):
         transaction = {
             "hold_id": str(uuid.uuid4()),
@@ -176,6 +228,38 @@ class PaymentRefactorTests(unittest.TestCase):
         payload = publish_json.call_args.args[1]
         self.assertIn("waitlistID", payload)
         self.assertIsNone(payload["waitlistID"])
+
+    def test_payment_hold_with_reconcile_query_reconciles_pending_transaction(self):
+        app = payment.create_app()
+        hold_id = str(uuid.uuid4())
+        transaction_id = str(uuid.uuid4())
+
+        pending = {
+            "transaction_id": transaction_id,
+            "hold_id": hold_id,
+            "stripe_payment_intent_id": "pi_test_reconcile",
+            "status": "PENDING",
+            "amount": "10.00",
+            "currency": "SGD",
+            "failure_reason": None,
+            "created_at": "2026-04-01T00:00:00+00:00",
+            "updated_at": "2026-04-01T00:00:00+00:00",
+        }
+        succeeded = {
+            **pending,
+            "status": "SUCCEEDED",
+            "updated_at": "2026-04-01T00:00:05+00:00",
+        }
+
+        with patch("payment._require_supabase"):
+            with patch("payment._fetch_latest_transaction_for_hold", return_value=pending):
+                with patch("payment._reconcile_pending_transaction", return_value=succeeded) as reconcile_mock:
+                    with app.test_client() as client:
+                        response = client.get(f"/payment/hold/{hold_id}?reconcile=true")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["paymentStatus"], "SUCCEEDED")
+        reconcile_mock.assert_called_once_with(pending)
 
 
 if __name__ == "__main__":

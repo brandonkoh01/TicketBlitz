@@ -51,6 +51,10 @@ def build_notification_template_definitions() -> List[EmailTemplateDefinition]:
                     ("Waitlist ID", token("waitlistID")),
                 ]
             )
+            + conditional(
+                cta_button(label="View Waitlist Status", url_field="waitlistStatusURL"),
+                field="waitlistStatusURL",
+            )
         )
     )
 
@@ -214,6 +218,7 @@ def build_notification_template_definitions() -> List[EmailTemplateDefinition]:
                     "Event: {{eventName}}",
                     "Position: {{position}}",
                     "Waitlist ID: {{waitlistID}}",
+                    "Status URL: {{waitlistStatusURL}}",
                 ],
             ),
         ),

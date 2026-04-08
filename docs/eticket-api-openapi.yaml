@@ -1,0 +1,833 @@
+openapi: 3.0.3
+info:
+  title: TicketBlitz E-Ticket API
+  version: 1.0.0
+  description: |
+    Swagger-style API contract for the OutSystems E-Ticket service.
+
+    This specification documents all supported E-Ticket endpoints, including
+    required inputs and response payloads.
+
+    Important: This API uses a single OutBody structure per endpoint for both
+    success and error statuses. Error statuses return the same endpoint schema
+    with fallback/empty values.
+servers:
+  - url: https://your-outsystems-host/api/v1
+    description: Replace with your deployed OutSystems base URL
+tags:
+  - name: E-Ticket
+    description: Ticket generation, validation, status updates, transfer/reissue, and user ticket listing
+security:
+  - InternalApiKeyAuth: []
+paths:
+  /eticket/generate:
+    post:
+      tags: [E-Ticket]
+      summary: Generate an e-ticket
+      description: |
+        Creates a new VALID ticket from confirmed hold details.
+        If a ticket already exists for the same holdID, returns an idempotent replay response.
+      operationId: generateETicket
+      parameters:
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateETicketRequest'
+            examples:
+              generateRequest:
+                value:
+                  holdID: H-001
+                  transactionID: TXN-90001
+                  userID: U-001
+                  eventID: E-100
+                  seatID: S-42
+                  seatNumber: D12
+                  correlationID: corr-123
+                  metadata: booking-channel=web
+      responses:
+        '201':
+          description: Ticket created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateETicketResponse'
+              examples:
+                created:
+                  value:
+                    ticketID: TKT-9989
+                    holdID: H-001
+                    status: VALID
+                    issuedAt: '2026-04-07T12:00:00Z'
+                    seatNumber: D12
+        '200':
+          description: Idempotent replay (ticket already exists for holdID)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateETicketResponse'
+              examples:
+                replay:
+                  value:
+                    ticketID: TKT-9989
+                    holdID: H-001
+                    status: VALID
+                    issuedAt: '2026-04-07T12:00:00Z'
+                    seatNumber: D12
+        '400':
+          description: Invalid request payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateETicketResponse'
+              examples:
+                invalidRequest:
+                  value:
+                    ticketID: ''
+                    holdID: H-001
+                    status: INVALID_REQUEST
+                    issuedAt: '0001-01-01T00:00:00Z'
+                    seatNumber: D12
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateETicketResponse'
+              examples:
+                unauthorized:
+                  value:
+                    ticketID: ''
+                    holdID: H-001
+                    status: UNAUTHORIZED
+                    issuedAt: '0001-01-01T00:00:00Z'
+                    seatNumber: ''
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateETicketResponse'
+              examples:
+                internalError:
+                  value:
+                    ticketID: ''
+                    holdID: H-001
+                    status: ERROR
+                    issuedAt: '0001-01-01T00:00:00Z'
+                    seatNumber: D12
+
+  /eticket/hold/{holdID}:
+    get:
+      tags: [E-Ticket]
+      summary: Get ticket by holdID
+      operationId: getETicketByHold
+      parameters:
+        - $ref: '#/components/parameters/HoldIdPath'
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      responses:
+        '200':
+          description: Ticket found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetETicketByHoldResponse'
+              examples:
+                found:
+                  value:
+                    ticketID: TKT-9989
+                    holdID: H-001
+                    userID: U-001
+                    eventID: E-100
+                    seatID: S-42
+                    seatNumber: D12
+                    status: VALID
+                    issuedAt: '2026-04-07T12:00:00Z'
+        '400':
+          description: Invalid holdID input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetETicketByHoldResponse'
+              examples:
+                invalidRequest:
+                  value:
+                    ticketID: ''
+                    holdID: H-001
+                    userID: ''
+                    eventID: ''
+                    seatID: ''
+                    seatNumber: ''
+                    status: INVALID_REQUEST
+                    issuedAt: '0001-01-01T00:00:00Z'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetETicketByHoldResponse'
+              examples:
+                unauthorized:
+                  value:
+                    ticketID: ''
+                    holdID: H-001
+                    userID: ''
+                    eventID: ''
+                    seatID: ''
+                    seatNumber: ''
+                    status: UNAUTHORIZED
+                    issuedAt: '0001-01-01T00:00:00Z'
+        '404':
+          description: Ticket not found for holdID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetETicketByHoldResponse'
+              examples:
+                notFound:
+                  value:
+                    ticketID: ''
+                    holdID: H-001
+                    userID: ''
+                    eventID: ''
+                    seatID: ''
+                    seatNumber: ''
+                    status: NOT_FOUND
+                    issuedAt: '0001-01-01T00:00:00Z'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetETicketByHoldResponse'
+              examples:
+                internalError:
+                  value:
+                    ticketID: ''
+                    holdID: H-001
+                    userID: ''
+                    eventID: ''
+                    seatID: ''
+                    seatNumber: ''
+                    status: ERROR
+                    issuedAt: '0001-01-01T00:00:00Z'
+
+  /eticket/validate:
+    get:
+      tags: [E-Ticket]
+      summary: Validate ticket ownership
+      description: Validates ticket ownership and ticket state for cancellation/transfer checks.
+      operationId: validateTicketOwnership
+      parameters:
+        - $ref: '#/components/parameters/TicketIdQuery'
+        - $ref: '#/components/parameters/UserIdQuery'
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      responses:
+        '200':
+          description: Validation success (owner and state are valid)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidateTicketResponse'
+              examples:
+                valid:
+                  value:
+                    valid: true
+                    reason: OK
+                    status: VALID
+        '400':
+          description: Invalid query input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidateTicketResponse'
+              examples:
+                invalidRequest:
+                  value:
+                    valid: false
+                    reason: INVALID_REQUEST
+                    status: UNKNOWN
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidateTicketResponse'
+              examples:
+                unauthorized:
+                  value:
+                    valid: false
+                    reason: UNAUTHORIZED
+                    status: UNKNOWN
+        '403':
+          description: Owner mismatch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidateTicketResponse'
+              examples:
+                ownerMismatch:
+                  value:
+                    valid: false
+                    reason: OWNER_MISMATCH
+                    status: VALID
+        '404':
+          description: Ticket not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidateTicketResponse'
+              examples:
+                ticketMissing:
+                  value:
+                    valid: false
+                    reason: TICKET_NOT_FOUND
+                    status: UNKNOWN
+        '409':
+          description: Ticket state conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidateTicketResponse'
+              examples:
+                invalidState:
+                  value:
+                    valid: false
+                    reason: CANCELLED
+                    status: CANCELLED
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidateTicketResponse'
+              examples:
+                internalError:
+                  value:
+                    valid: false
+                    reason: INTERNAL_ERROR
+                    status: UNKNOWN
+
+  /etickets/status/{ticketID}:
+    put:
+      tags: [E-Ticket]
+      summary: Update ticket status
+      description: |
+        Transitions ticket status using explicit state rules.
+        Allowed transitions include:
+        - VALID -> USED
+        - VALID -> CANCELLED
+        - VALID -> CANCELLATION_IN_PROGRESS
+        - CANCELLATION_IN_PROGRESS -> CANCELLED
+      operationId: updateTicketStatus
+      parameters:
+        - $ref: '#/components/parameters/TicketIdPath'
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTicketStatusRequest'
+            examples:
+              markCancellationInProgress:
+                value:
+                  status: CANCELLATION_IN_PROGRESS
+                  correlationID: corr-123
+      responses:
+        '200':
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateTicketStatusResponse'
+              examples:
+                updated:
+                  value:
+                    ticketID: TKT-9988
+                    oldStatus: VALID
+                    newStatus: CANCELLATION_IN_PROGRESS
+                    updatedAt: '2026-04-07T12:15:00Z'
+        '400':
+          description: Invalid request or status value
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateTicketStatusResponse'
+              examples:
+                invalidRequest:
+                  value:
+                    ticketID: TKT-9988
+                    oldStatus: UNKNOWN
+                    newStatus: INVALID_REQUEST
+                    updatedAt: '0001-01-01T00:00:00Z'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateTicketStatusResponse'
+              examples:
+                unauthorized:
+                  value:
+                    ticketID: TKT-9988
+                    oldStatus: UNKNOWN
+                    newStatus: UNAUTHORIZED
+                    updatedAt: '0001-01-01T00:00:00Z'
+        '404':
+          description: Ticket not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateTicketStatusResponse'
+              examples:
+                notFound:
+                  value:
+                    ticketID: TKT-9999
+                    oldStatus: NOT_FOUND
+                    newStatus: CANCELLED
+                    updatedAt: '0001-01-01T00:00:00Z'
+        '409':
+          description: Invalid transition conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateTicketStatusResponse'
+              examples:
+                conflict:
+                  value:
+                    ticketID: TKT-9988
+                    oldStatus: USED
+                    newStatus: VALID
+                    updatedAt: '0001-01-01T00:00:00Z'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateTicketStatusResponse'
+              examples:
+                internalError:
+                  value:
+                    ticketID: TKT-9988
+                    oldStatus: UNKNOWN
+                    newStatus: ERROR
+                    updatedAt: '0001-01-01T00:00:00Z'
+
+  /etickets/update:
+    post:
+      tags: [E-Ticket]
+      summary: Update tickets (cancel or transfer/reissue)
+      description: |
+        Executes one of the supported operations:
+        - CANCEL_ONLY
+        - TRANSFER_AND_REISSUE
+      operationId: updateETickets
+      parameters:
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateETicketsRequest'
+            examples:
+              cancelOnly:
+                value:
+                  oldTicketID: TKT-9988
+                  operation: CANCEL_ONLY
+                  correlationID: corr-123
+              transferAndReissue:
+                value:
+                  oldTicketID: TKT-9988
+                  newOwnerUserID: U-077
+                  newHoldID: H-002
+                  newSeatID: S-43
+                  newSeatNumber: D13
+                  operation: TRANSFER_AND_REISSUE
+                  correlationID: corr-456
+                  newTransactionID: TXN-90002
+      responses:
+        '200':
+          description: Operation completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateETicketsResponse'
+              examples:
+                cancelSuccess:
+                  value:
+                    operation: CANCEL_ONLY
+                    oldTicketStatus: CANCELLED
+                    newTicketID: ''
+                transferSuccess:
+                  value:
+                    operation: TRANSFER_AND_REISSUE
+                    oldTicketStatus: CANCELLED
+                    newTicketID: TKT-9989
+        '400':
+          description: Invalid request or operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateETicketsResponse'
+              examples:
+                invalidRequest:
+                  value:
+                    operation: TRANSFER_AND_REISSUE
+                    oldTicketStatus: UNKNOWN
+                    newTicketID: ''
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateETicketsResponse'
+              examples:
+                unauthorized:
+                  value:
+                    operation: TRANSFER_AND_REISSUE
+                    oldTicketStatus: UNKNOWN
+                    newTicketID: ''
+        '404':
+          description: Old ticket not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateETicketsResponse'
+              examples:
+                notFound:
+                  value:
+                    operation: TRANSFER_AND_REISSUE
+                    oldTicketStatus: NOT_FOUND
+                    newTicketID: ''
+        '409':
+          description: Business conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateETicketsResponse'
+              examples:
+                holdAlreadyAssigned:
+                  value:
+                    operation: TRANSFER_AND_REISSUE
+                    oldTicketStatus: VALID
+                    newTicketID: ''
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateETicketsResponse'
+              examples:
+                internalError:
+                  value:
+                    operation: TRANSFER_AND_REISSUE
+                    oldTicketStatus: UNKNOWN
+                    newTicketID: ''
+
+  /etickets/user/{userID}:
+    get:
+      tags: [E-Ticket]
+      summary: Get all tickets for a user
+      description: Returns all tickets owned by the provided userID.
+      operationId: getETicketsByUser
+      parameters:
+        - $ref: '#/components/parameters/UserIdPath'
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      responses:
+        '200':
+          description: Tickets retrieved (including empty result)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetETicketsByUserResponse'
+              examples:
+                hasTickets:
+                  value:
+                    userID: U-001
+                    tickets:
+                      - ticketID: TKT-9989
+                        holdID: H-001
+                        userID: U-001
+                        eventID: E-100
+                        seatID: S-42
+                        seatNumber: D12
+                        status: VALID
+                        issuedAt: '2026-04-07T12:00:00Z'
+                    count: 1
+                noTickets:
+                  value:
+                    userID: U-404
+                    tickets: []
+                    count: 0
+        '400':
+          description: Invalid userID input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetETicketsByUserResponse'
+              examples:
+                invalidRequest:
+                  value:
+                    userID: ''
+                    tickets: []
+                    count: 0
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetETicketsByUserResponse'
+              examples:
+                unauthorized:
+                  value:
+                    userID: U-001
+                    tickets: []
+                    count: 0
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetETicketsByUserResponse'
+              examples:
+                internalError:
+                  value:
+                    userID: U-001
+                    tickets: []
+                    count: 0
+
+components:
+  securitySchemes:
+    InternalApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Internal-Api-Key
+
+  parameters:
+    CorrelationIdHeader:
+      name: X-Correlation-ID
+      in: header
+      required: false
+      schema:
+        type: string
+      description: Optional correlation ID for request tracing.
+    HoldIdPath:
+      name: holdID
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Hold identifier.
+    TicketIdPath:
+      name: ticketID
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Ticket identifier.
+    UserIdPath:
+      name: userID
+      in: path
+      required: true
+      schema:
+        type: string
+      description: User identifier.
+    TicketIdQuery:
+      name: ticketID
+      in: query
+      required: true
+      schema:
+        type: string
+      description: Ticket identifier.
+    UserIdQuery:
+      name: userID
+      in: query
+      required: true
+      schema:
+        type: string
+      description: User identifier.
+
+  schemas:
+    GenerateETicketRequest:
+      type: object
+      required: [holdID, userID, eventID, seatID, seatNumber]
+      properties:
+        holdID:
+          type: string
+        transactionID:
+          type: string
+          nullable: true
+        userID:
+          type: string
+        eventID:
+          type: string
+        seatID:
+          type: string
+        seatNumber:
+          type: string
+        correlationID:
+          type: string
+          nullable: true
+        metadata:
+          type: string
+          nullable: true
+
+    GenerateETicketResponse:
+      type: object
+      required: [ticketID, holdID, status, issuedAt, seatNumber]
+      properties:
+        ticketID:
+          type: string
+        holdID:
+          type: string
+        status:
+          $ref: '#/components/schemas/ETicketStatus'
+        issuedAt:
+          type: string
+          format: date-time
+        seatNumber:
+          type: string
+
+    GetETicketByHoldResponse:
+      type: object
+      required: [ticketID, holdID, userID, eventID, seatID, seatNumber, status, issuedAt]
+      properties:
+        ticketID:
+          type: string
+        holdID:
+          type: string
+        userID:
+          type: string
+        eventID:
+          type: string
+        seatID:
+          type: string
+        seatNumber:
+          type: string
+        status:
+          type: string
+        issuedAt:
+          type: string
+          format: date-time
+
+    ValidateTicketResponse:
+      type: object
+      required: [valid, reason, status]
+      properties:
+        valid:
+          type: boolean
+        reason:
+          type: string
+          description: OK, OWNER_MISMATCH, TICKET_NOT_FOUND, or business-state reason.
+        status:
+          type: string
+          description: Ticket state (for example VALID, CANCELLED, UNKNOWN).
+
+    UpdateTicketStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/ETicketStatus'
+        correlationID:
+          type: string
+          nullable: true
+
+    UpdateTicketStatusResponse:
+      type: object
+      required: [ticketID, oldStatus, newStatus, updatedAt]
+      properties:
+        ticketID:
+          type: string
+        oldStatus:
+          type: string
+        newStatus:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+
+    UpdateETicketsRequest:
+      type: object
+      required: [oldTicketID, operation]
+      properties:
+        oldTicketID:
+          type: string
+        newOwnerUserID:
+          type: string
+          nullable: true
+        newHoldID:
+          type: string
+          nullable: true
+        newSeatID:
+          type: string
+          nullable: true
+        newSeatNumber:
+          type: string
+          nullable: true
+        operation:
+          type: string
+          enum: [CANCEL_ONLY, TRANSFER_AND_REISSUE]
+        correlationID:
+          type: string
+          nullable: true
+        newTransactionID:
+          type: string
+          nullable: true
+
+    UpdateETicketsResponse:
+      type: object
+      required: [operation, oldTicketStatus, newTicketID]
+      properties:
+        operation:
+          type: string
+          enum: [CANCEL_ONLY, TRANSFER_AND_REISSUE]
+        oldTicketStatus:
+          type: string
+        newTicketID:
+          type: string
+          nullable: true
+
+    ETicketListItem:
+      type: object
+      required: [ticketID, holdID, userID, eventID, seatID, seatNumber, status, issuedAt]
+      properties:
+        ticketID:
+          type: string
+        holdID:
+          type: string
+        userID:
+          type: string
+        eventID:
+          type: string
+        seatID:
+          type: string
+        seatNumber:
+          type: string
+        status:
+          type: string
+        issuedAt:
+          type: string
+          format: date-time
+
+    GetETicketsByUserResponse:
+      type: object
+      required: [userID, tickets, count]
+      properties:
+        userID:
+          type: string
+        tickets:
+          type: array
+          items:
+            $ref: '#/components/schemas/ETicketListItem'
+        count:
+          type: integer
+          minimum: 0
+
+    ETicketStatus:
+      type: string
+      enum: [VALID, USED, CANCELLED, CANCELLATION_IN_PROGRESS]

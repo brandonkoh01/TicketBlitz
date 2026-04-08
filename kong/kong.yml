@@ -66,6 +66,13 @@ services:
           - GET
           - OPTIONS
         strip_path: false
+      - name: waitlist-leave
+        paths:
+          - /waitlist/leave
+        methods:
+          - DELETE
+          - OPTIONS
+        strip_path: false
     plugins:
       - name: key-auth
         config:
@@ -381,8 +388,27 @@ services:
           - POST
           - OPTIONS
         strip_path: false
+      - name: eticket-user-list
+        paths:
+          - ~/etickets/user/[^/]+$
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
+        plugins:
+          - name: key-auth
+            config:
+              key_names:
+                - x-customer-api-key
+              hide_credentials: true
+              run_on_preflight: false
 
 consumers:
+  - username: customer-frontend
+    custom_id: customer-frontend
+    keyauth_credentials:
+      - key: ticketblitz-customer-dev-key
+
   - username: organiser-dashboard
     custom_id: organiser-dashboard
     keyauth_credentials:

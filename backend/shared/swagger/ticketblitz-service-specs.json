@@ -1,0 +1,5017 @@
+{
+  "booking-status-service": {
+    "components": {
+      "schemas": {
+        "BookingStatusResponse": {
+          "properties": {
+            "amount": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "confirmedAt": {
+              "format": "date-time",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "currency": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "dependencyStatus": {
+              "type": "object"
+            },
+            "expiredAt": {
+              "format": "date-time",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "failureReason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "fromWaitlist": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "holdExpiry": {
+              "format": "date-time",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "holdID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "holdStatus": {
+              "type": "string"
+            },
+            "issuedAt": {
+              "format": "date-time",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "paymentIntentID": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "paymentStatus": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "releasedAt": {
+              "format": "date-time",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "seatNumber": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "ticketID": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "ticketStatus": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "transactionID": {
+              "format": "uuid",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "uiStatus": {
+              "enum": [
+                "PROCESSING",
+                "CONFIRMED",
+                "FAILED_PAYMENT",
+                "EXPIRED"
+              ],
+              "type": "string"
+            },
+            "updatedAt": {
+              "format": "date-time",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "holdID",
+            "uiStatus",
+            "holdStatus"
+          ],
+          "type": "object"
+        },
+        "ErrorResponse": {
+          "properties": {
+            "details": {},
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "type": "object"
+        },
+        "HealthResponse": {
+          "properties": {
+            "dependencies": {
+              "type": "object"
+            },
+            "service": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "service"
+          ],
+          "type": "object"
+        }
+      }
+    },
+    "info": {
+      "description": "Composite read endpoint for booking status polling.",
+      "title": "TicketBlitz Booking Status Service API",
+      "version": "1.0.0"
+    },
+    "openapi": "3.0.3",
+    "paths": {
+      "/booking-status/{hold_id}": {
+        "get": {
+          "parameters": [
+            {
+              "description": "Seat hold ID",
+              "in": "path",
+              "name": "hold_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/BookingStatusResponse"
+                  }
+                }
+              },
+              "description": "Booking status response"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Invalid hold ID"
+            },
+            "404": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Hold not found"
+            },
+            "503": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Dependency unavailable"
+            }
+          },
+          "summary": "Resolve booking status by hold ID"
+        }
+      },
+      "/health": {
+        "get": {
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HealthResponse"
+                  }
+                }
+              },
+              "description": "Service health"
+            }
+          },
+          "summary": "Health check"
+        }
+      }
+    },
+    "servers": [
+      {
+        "url": "http://localhost:5000"
+      }
+    ]
+  },
+  "cancellation-orchestrator": {
+    "info": {
+      "description": "Scenario 3 cancellation and reallocation orchestration endpoints.",
+      "title": "TicketBlitz Cancellation Orchestrator API",
+      "version": "1.0.0"
+    },
+    "openapi": "3.0.3",
+    "paths": {
+      "/bookings/cancel/{booking_id}": {
+        "post": {
+          "parameters": [
+            {
+              "in": "path",
+              "name": "booking_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "correlationID": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "userID": {
+                      "format": "uuid",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "userID"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "description": "Cancellation completed"
+            },
+            "202": {
+              "description": "Reallocation payment pending"
+            }
+          },
+          "summary": "Alias endpoint for Kong-facing cancellation path"
+        }
+      },
+      "/health": {
+        "get": {
+          "responses": {
+            "200": {
+              "description": "Service health"
+            }
+          },
+          "summary": "Health check"
+        }
+      },
+      "/orchestrator/cancellation": {
+        "post": {
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "bookingID": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "correlationID": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "userID": {
+                      "format": "uuid",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "bookingID",
+                    "userID"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "description": "Cancellation completed"
+            },
+            "202": {
+              "description": "Reallocation payment pending"
+            },
+            "409": {
+              "description": "Policy denied or conflict"
+            },
+            "502": {
+              "description": "Refund failed with compensation"
+            }
+          },
+          "summary": "Start cancellation and refund orchestration"
+        }
+      },
+      "/orchestrator/cancellation/reallocation/confirm": {
+        "post": {
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "bookingID": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "correlationID": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "newHoldID": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "newUserID": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "waitlistID": {
+                      "format": "uuid",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "bookingID",
+                    "newHoldID",
+                    "waitlistID"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "description": "Reallocation confirmed"
+            },
+            "409": {
+              "description": "Payment not completed"
+            }
+          },
+          "summary": "Finalize waitlist reallocation after new payment"
+        }
+      }
+    },
+    "servers": [
+      {
+        "url": "http://localhost:5000"
+      }
+    ]
+  },
+  "event-service": {
+    "basePath": "/",
+    "definitions": {},
+    "info": {
+      "description": "Read and organiser update endpoints for event metadata and pricing.",
+      "title": "TicketBlitz Event Service API",
+      "version": "1.0.0"
+    },
+    "paths": {
+      "/event/{event_id}": {
+        "get": {
+          "parameters": [
+            {
+              "format": "uuid",
+              "in": "path",
+              "name": "event_id",
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Event record."
+            },
+            "400": {
+              "description": "Invalid event identifier."
+            },
+            "404": {
+              "description": "Event not found."
+            }
+          },
+          "summary": "Get one event by ID.",
+          "tags": [
+            "Events"
+          ]
+        }
+      },
+      "/event/{event_id}/categories": {
+        "get": {
+          "parameters": [
+            {
+              "format": "uuid",
+              "in": "path",
+              "name": "event_id",
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Event category pricing snapshot."
+            },
+            "404": {
+              "description": "Event not found."
+            }
+          },
+          "summary": "List categories for an event.",
+          "tags": [
+            "Categories"
+          ]
+        }
+      },
+      "/event/{event_id}/categories/prices": {
+        "put": {
+          "parameters": [
+            {
+              "format": "uuid",
+              "in": "path",
+              "name": "event_id",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "in": "body",
+              "name": "body",
+              "required": true,
+              "schema": {
+                "properties": {
+                  "changed_by": {
+                    "type": "string"
+                  },
+                  "context": {
+                    "type": "object"
+                  },
+                  "flash_sale_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "reason": {
+                    "enum": [
+                      "FLASH_SALE",
+                      "ESCALATION",
+                      "REVERT",
+                      "MANUAL_ADJUSTMENT"
+                    ],
+                    "type": "string"
+                  },
+                  "updates": {
+                    "items": {
+                      "properties": {
+                        "category_id": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "new_price": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "category_id",
+                        "new_price"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "reason",
+                  "updates"
+                ],
+                "type": "object"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Category prices updated."
+            },
+            "404": {
+              "description": "One or more categories not found for event."
+            },
+            "409": {
+              "description": "Event is in terminal state."
+            },
+            "500": {
+              "description": "Update failed and rollback attempted."
+            },
+            "503": {
+              "description": "RabbitMQ unavailable; update rolled back."
+            }
+          },
+          "security": [
+            {
+              "OrganiserApiKey": []
+            }
+          ],
+          "summary": "Update event category prices in batch.",
+          "tags": [
+            "Categories"
+          ]
+        }
+      },
+      "/event/{event_id}/flash-sale/status": {
+        "get": {
+          "parameters": [
+            {
+              "format": "uuid",
+              "in": "path",
+              "name": "event_id",
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Flash sale and inventory state details."
+            },
+            "404": {
+              "description": "Event not found."
+            }
+          },
+          "summary": "Get active flash sale status for an event.",
+          "tags": [
+            "Flash Sale"
+          ]
+        }
+      },
+      "/event/{event_id}/price-history": {
+        "get": {
+          "parameters": [
+            {
+              "format": "uuid",
+              "in": "path",
+              "name": "event_id",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "default": 50,
+              "in": "query",
+              "maximum": 200,
+              "minimum": 1,
+              "name": "limit",
+              "required": false,
+              "type": "integer"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Price change records ordered by changed_at descending."
+            },
+            "422": {
+              "description": "Limit outside allowed range."
+            }
+          },
+          "summary": "Get event price change history.",
+          "tags": [
+            "Categories"
+          ]
+        }
+      },
+      "/event/{event_id}/status": {
+        "put": {
+          "parameters": [
+            {
+              "format": "uuid",
+              "in": "path",
+              "name": "event_id",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "in": "body",
+              "name": "body",
+              "required": true,
+              "schema": {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "SCHEDULED",
+                      "ACTIVE",
+                      "FLASH_SALE_ACTIVE",
+                      "CANCELLED",
+                      "COMPLETED"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "status"
+                ],
+                "type": "object"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Event status updated."
+            },
+            "409": {
+              "description": "Invalid transition or terminal-state mutation."
+            },
+            "500": {
+              "description": "Update failed and rollback attempted."
+            },
+            "503": {
+              "description": "RabbitMQ unavailable; update rolled back."
+            }
+          },
+          "security": [
+            {
+              "OrganiserApiKey": []
+            }
+          ],
+          "summary": "Update event lifecycle status.",
+          "tags": [
+            "Events"
+          ]
+        }
+      },
+      "/events": {
+        "get": {
+          "responses": {
+            "200": {
+              "description": "List of events ordered by date."
+            },
+            "503": {
+              "description": "Database is not configured."
+            }
+          },
+          "summary": "List active events.",
+          "tags": [
+            "Events"
+          ]
+        }
+      },
+      "/health": {
+        "get": {
+          "responses": {
+            "200": {
+              "description": "Service health status and dependency configuration flags."
+            }
+          },
+          "summary": "Service health probe.",
+          "tags": [
+            "Health"
+          ]
+        }
+      }
+    },
+    "schemes": [
+      "http"
+    ],
+    "securityDefinitions": {
+      "OrganiserApiKey": {
+        "description": "Required for mutating organiser endpoints routed via Kong.",
+        "in": "header",
+        "name": "x-organiser-api-key",
+        "type": "apiKey"
+      }
+    },
+    "swagger": "2.0"
+  },
+  "inventory-service": {
+    "basePath": "/",
+    "definitions": {
+      "ErrorResponse": {
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "ExpireHoldsResponse": {
+        "properties": {
+          "count": {
+            "example": 0,
+            "type": "integer"
+          },
+          "expiredHolds": {
+            "items": {
+              "properties": {
+                "eventID": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "holdID": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "seatCategory": {
+                  "example": "CAT1",
+                  "type": "string"
+                },
+                "seatID": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "userID": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "publishFailureHoldIDs": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "publishFailures": {
+            "example": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "FlashSaleStateResponse": {
+        "properties": {
+          "eventID": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "flashSaleActive": {
+            "type": "boolean"
+          },
+          "flashSaleID": {
+            "format": "uuid",
+            "type": "string",
+            "x-nullable": true
+          }
+        },
+        "type": "object"
+      },
+      "HealthResponse": {
+        "properties": {
+          "rabbitmqConfigured": {
+            "type": "boolean"
+          },
+          "service": {
+            "example": "inventory-service",
+            "type": "string"
+          },
+          "status": {
+            "example": "ok",
+            "type": "string"
+          },
+          "supabaseConfigured": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "HoldResponse": {
+        "properties": {
+          "amount": {
+            "example": 160.0,
+            "type": "number"
+          },
+          "categoryID": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "currency": {
+            "example": "SGD",
+            "type": "string"
+          },
+          "eventID": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "fromWaitlist": {
+            "type": "boolean"
+          },
+          "holdExpiry": {
+            "example": "2026-04-02T12:00:00+00:00",
+            "type": "string"
+          },
+          "holdID": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "holdStatus": {
+            "example": "HELD",
+            "type": "string"
+          },
+          "seatCategory": {
+            "example": "CAT1",
+            "type": "string"
+          },
+          "seatID": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "seatNumber": {
+            "example": "D12",
+            "type": "string"
+          },
+          "seatStatus": {
+            "example": "HELD",
+            "type": "string"
+          },
+          "userID": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "InventoryAvailability": {
+        "properties": {
+          "available": {
+            "example": 1,
+            "type": "integer"
+          },
+          "eventID": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "seatCategory": {
+            "example": "CAT1",
+            "type": "string"
+          },
+          "status": {
+            "example": "AVAILABLE",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "SeatStatusResponse": {
+        "properties": {
+          "eventID": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "seatCategory": {
+            "example": "CAT1",
+            "type": "string"
+          },
+          "seatID": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "seatNumber": {
+            "example": "D12",
+            "type": "string"
+          },
+          "status": {
+            "example": "AVAILABLE",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "info": {
+      "description": "Inventory and hold lifecycle APIs for TicketBlitz.",
+      "title": "TicketBlitz Inventory Service API",
+      "version": "1.0.0"
+    },
+    "paths": {
+      "/health": {
+        "get": {
+          "responses": {
+            "200": {
+              "description": "Service is reachable",
+              "schema": {
+                "$ref": "#/definitions/HealthResponse"
+              }
+            }
+          },
+          "summary": "Inventory service health check",
+          "tags": [
+            "System"
+          ]
+        }
+      },
+      "/inventory/hold": {
+        "post": {
+          "parameters": [
+            {
+              "in": "body",
+              "name": "body",
+              "required": true,
+              "schema": {
+                "properties": {
+                  "eventID": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "fromWaitlist": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "idempotencyKey": {
+                    "type": "string"
+                  },
+                  "qty": {
+                    "default": 1,
+                    "type": "integer"
+                  },
+                  "seatCategory": {
+                    "type": "string"
+                  },
+                  "userID": {
+                    "format": "uuid",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "eventID",
+                  "userID",
+                  "seatCategory"
+                ],
+                "type": "object"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Idempotent replay result",
+              "schema": {
+                "$ref": "#/definitions/HoldResponse"
+              }
+            },
+            "201": {
+              "description": "Hold created",
+              "schema": {
+                "$ref": "#/definitions/HoldResponse"
+              }
+            },
+            "400": {
+              "description": "Invalid payload",
+              "schema": {
+                "$ref": "#/definitions/ErrorResponse"
+              }
+            },
+            "404": {
+              "description": "Category not found",
+              "schema": {
+                "$ref": "#/definitions/ErrorResponse"
+              }
+            },
+            "409": {
+              "description": "Seat unavailable or hold conflict",
+              "schema": {
+                "$ref": "#/definitions/ErrorResponse"
+              }
+            },
+            "503": {
+              "description": "Database unavailable",
+              "schema": {
+                "$ref": "#/definitions/ErrorResponse"
+              }
+            }
+          },
+          "summary": "Create a seat hold",
+          "tags": [
+            "Inventory"
+          ]
+        }
+      },
+      "/inventory/hold/{hold_id}": {
+        "get": {
+          "parameters": [
+            {
+              "format": "uuid",
+              "in": "path",
+              "name": "hold_id",
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Hold found",
+              "schema": {
+                "$ref": "#/definitions/HoldResponse"
+              }
+            },
+            "400": {
+              "description": "Invalid hold ID",
+              "schema": {
+                "$ref": "#/definitions/ErrorResponse"
+              }
+            },
+            "404": {
+              "description": "Hold not found",
+              "schema": {
+                "$ref": "#/definitions/ErrorResponse"
+              }
+            }
+          },
+          "summary": "Get hold details by hold ID",
+          "tags": [
+            "Inventory"
+          ]
+        }
+      },
+      "/inventory/hold/{hold_id}/confirm": {
+        "put": {
+          "parameters": [
+            {
+              "format": "uuid",
+              "in": "path",
+              "name": "hold_id",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "in": "body",
+              "name": "body",
+              "required": false,
+              "schema": {
+                "properties": {
+                  "correlationID": {
+                    "format": "uuid",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Hold confirmed or already confirmed",
+              "schema": {
+                "$ref": "#/definitions/HoldResponse"
+              }
+            },
+            "400": {
+              "description": "Invalid payload",
+              "schema": {
+                "$ref": "#/definitions/ErrorResponse"
+              }
+            },
+            "404": {
+              "description": "Hold not found",
+              "schema": {
+                "$ref": "#/definitions/ErrorResponse"
+              }
+            },
+            "409": {
+              "description": "Hold cannot be confirmed in current state",
+              "schema": {
+                "$ref": "#/definitions/ErrorResponse"
+              }
+            }
+          },
+          "summary": "Confirm an existing HELD seat hold",
+          "tags": [
+            "Inventory"
+          ]
+        }
+      },
+      "/inventory/hold/{hold_id}/release": {
+        "put": {
+          "parameters": [
+            {
+              "format": "uuid",
+              "in": "path",
+              "name": "hold_id",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "in": "body",
+              "name": "body",
+              "required": false,
+              "schema": {
+                "properties": {
+                  "reason": {
+                    "enum": [
+                      "PAYMENT_TIMEOUT",
+                      "CANCELLATION",
+                      "MANUAL_RELEASE",
+                      "SYSTEM_CLEANUP"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Hold released",
+              "schema": {
+                "$ref": "#/definitions/HoldResponse"
+              }
+            },
+            "400": {
+              "description": "Invalid payload",
+              "schema": {
+                "$ref": "#/definitions/ErrorResponse"
+              }
+            },
+            "404": {
+              "description": "Hold not found",
+              "schema": {
+                "$ref": "#/definitions/ErrorResponse"
+              }
+            },
+            "409": {
+              "description": "Hold cannot be released in current state",
+              "schema": {
+                "$ref": "#/definitions/ErrorResponse"
+              }
+            }
+          },
+          "summary": "Release a HELD seat hold",
+          "tags": [
+            "Inventory"
+          ]
+        }
+      },
+      "/inventory/maintenance/expire-holds": {
+        "post": {
+          "responses": {
+            "200": {
+              "description": "Expire-holds batch executed",
+              "schema": {
+                "$ref": "#/definitions/ExpireHoldsResponse"
+              }
+            },
+            "503": {
+              "description": "Database unavailable",
+              "schema": {
+                "$ref": "#/definitions/ErrorResponse"
+              }
+            }
+          },
+          "summary": "Expire stale HELD holds and emit release events",
+          "tags": [
+            "Inventory"
+          ]
+        }
+      },
+      "/inventory/seat/{seat_id}/status": {
+        "put": {
+          "parameters": [
+            {
+              "format": "uuid",
+              "in": "path",
+              "name": "seat_id",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "in": "body",
+              "name": "body",
+              "required": true,
+              "schema": {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "AVAILABLE",
+                      "PENDING_WAITLIST",
+                      "HELD",
+                      "SOLD"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "status"
+                ],
+                "type": "object"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Seat status updated",
+              "schema": {
+                "$ref": "#/definitions/SeatStatusResponse"
+              }
+            },
+            "400": {
+              "description": "Invalid payload",
+              "schema": {
+                "$ref": "#/definitions/ErrorResponse"
+              }
+            },
+            "404": {
+              "description": "Seat not found",
+              "schema": {
+                "$ref": "#/definitions/ErrorResponse"
+              }
+            },
+            "409": {
+              "description": "Invalid status transition",
+              "schema": {
+                "$ref": "#/definitions/ErrorResponse"
+              }
+            }
+          },
+          "summary": "Update a seat status",
+          "tags": [
+            "Inventory"
+          ]
+        }
+      },
+      "/inventory/{event_id}/flash-sale": {
+        "put": {
+          "parameters": [
+            {
+              "description": "Event ID",
+              "format": "uuid",
+              "in": "path",
+              "name": "event_id",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "in": "body",
+              "name": "body",
+              "required": true,
+              "schema": {
+                "properties": {
+                  "active": {
+                    "type": "boolean"
+                  },
+                  "flashSaleID": {
+                    "format": "uuid",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "active"
+                ],
+                "type": "object"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Flash-sale state updated",
+              "schema": {
+                "$ref": "#/definitions/FlashSaleStateResponse"
+              }
+            },
+            "400": {
+              "description": "Invalid payload",
+              "schema": {
+                "$ref": "#/definitions/ErrorResponse"
+              }
+            },
+            "503": {
+              "description": "Database unavailable",
+              "schema": {
+                "$ref": "#/definitions/ErrorResponse"
+              }
+            }
+          },
+          "summary": "Toggle flash-sale inventory state for an event",
+          "tags": [
+            "Inventory"
+          ]
+        }
+      },
+      "/inventory/{event_id}/{seat_category}": {
+        "get": {
+          "parameters": [
+            {
+              "description": "Event ID",
+              "format": "uuid",
+              "in": "path",
+              "name": "event_id",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "Seat category code (for example CAT1 or PEN)",
+              "in": "path",
+              "name": "seat_category",
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Availability returned",
+              "schema": {
+                "$ref": "#/definitions/InventoryAvailability"
+              }
+            },
+            "400": {
+              "description": "Invalid path parameters",
+              "schema": {
+                "$ref": "#/definitions/ErrorResponse"
+              }
+            },
+            "404": {
+              "description": "Category not found",
+              "schema": {
+                "$ref": "#/definitions/ErrorResponse"
+              }
+            },
+            "503": {
+              "description": "Database unavailable",
+              "schema": {
+                "$ref": "#/definitions/ErrorResponse"
+              }
+            }
+          },
+          "summary": "Get available seats for an event and category",
+          "tags": [
+            "Inventory"
+          ]
+        }
+      }
+    },
+    "schemes": [
+      "http"
+    ],
+    "swagger": "2.0",
+    "tags": [
+      {
+        "description": "Inventory and hold operations",
+        "name": "Inventory"
+      },
+      {
+        "description": "Service health and diagnostics",
+        "name": "System"
+      }
+    ]
+  },
+  "payment-service": {
+    "components": {
+      "schemas": {
+        "ErrorResponse": {
+          "properties": {
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "type": "object"
+        },
+        "FailStatusRequest": {
+          "properties": {
+            "bookingID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "bookingId": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "holdID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "holdId": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "transactionID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "transactionId": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "HealthResponse": {
+          "properties": {
+            "rabbitmqConfigured": {
+              "type": "boolean"
+            },
+            "service": {
+              "example": "payment-service",
+              "type": "string"
+            },
+            "status": {
+              "example": "ok",
+              "type": "string"
+            },
+            "stripeConfigured": {
+              "type": "boolean"
+            },
+            "supabaseConfigured": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "PaymentCreateRequest": {
+          "properties": {
+            "amount": {
+              "format": "decimal",
+              "type": "number"
+            },
+            "holdID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "idempotencyKey": {
+              "type": "string"
+            },
+            "ticketID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "userID": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "userID",
+            "amount"
+          ],
+          "type": "object"
+        },
+        "PaymentHoldResponse": {
+          "properties": {
+            "amount": {
+              "type": "string"
+            },
+            "createdAt": {
+              "format": "date-time",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "currency": {
+              "type": "string"
+            },
+            "failureReason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "holdID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "paymentIntentID": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "paymentStatus": {
+              "type": "string"
+            },
+            "transactionID": {
+              "format": "uuid",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "updatedAt": {
+              "format": "date-time",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "PaymentInitiateRequest": {
+          "properties": {
+            "amount": {
+              "format": "decimal",
+              "type": "number"
+            },
+            "holdID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "idempotencyKey": {
+              "type": "string"
+            },
+            "userID": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "holdID",
+            "userID",
+            "amount"
+          ],
+          "type": "object"
+        },
+        "PaymentInitiateResponse": {
+          "properties": {
+            "amount": {
+              "example": "10.00",
+              "type": "string"
+            },
+            "clientSecret": {
+              "type": "string"
+            },
+            "currency": {
+              "example": "SGD",
+              "type": "string"
+            },
+            "holdExpiry": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "holdID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "paymentIntentID": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "transactionID": {
+              "format": "uuid",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "RefundRequest": {
+          "properties": {
+            "reason": {
+              "type": "string"
+            },
+            "refundAmount": {
+              "format": "decimal",
+              "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "RefundResponse": {
+          "properties": {
+            "attempts": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "refundAmount": {
+              "example": "90.00",
+              "type": "string"
+            },
+            "status": {
+              "example": "success",
+              "type": "string"
+            },
+            "transactionID": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "UpdateStatusRequest": {
+          "properties": {
+            "cancellationStatus": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "refundAmount": {
+              "format": "decimal",
+              "type": "number"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "UpdateStatusResponse": {
+          "properties": {
+            "bookingID": {
+              "type": "string"
+            },
+            "refundAmount": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "refundStatus": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "status": {
+              "type": "string"
+            },
+            "transactionID": {
+              "format": "uuid",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "updated": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "VerifyPaymentResponse": {
+          "properties": {
+            "bookingID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "eligibleRefundAmount": {
+              "type": "string"
+            },
+            "eventDate": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "eventID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "feePercentage": {
+              "example": "10.00",
+              "type": "string"
+            },
+            "holdID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "paymentStatus": {
+              "type": "string"
+            },
+            "policyCutoffAt": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "purchaseDate": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "resolvedBy": {
+              "enum": [
+                "transaction_id",
+                "hold_id"
+              ],
+              "type": "string"
+            },
+            "transactionID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "userID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "withinPolicy": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "VerifyPolicyResponse": {
+          "properties": {
+            "bookingID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "eligible": {
+              "type": "boolean"
+            },
+            "eventDate": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "policyCutoffAt": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "purchaseDate": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "resolvedBy": {
+              "enum": [
+                "transaction_id",
+                "hold_id"
+              ],
+              "type": "string"
+            },
+            "transactionID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "withinPolicy": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "WebhookAcceptedResponse": {
+          "properties": {
+            "eventType": {
+              "type": "string"
+            },
+            "idempotent": {
+              "type": "boolean"
+            },
+            "status": {
+              "example": "accepted",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "securitySchemes": {
+        "InternalTokenAuth": {
+          "description": "Used for internal endpoints when PAYMENT_INTERNAL_TOKEN is set.",
+          "in": "header",
+          "name": "X-Internal-Token",
+          "type": "apiKey"
+        },
+        "StripeSignatureAuth": {
+          "description": "Stripe webhook signature header.",
+          "in": "header",
+          "name": "Stripe-Signature",
+          "type": "apiKey"
+        }
+      }
+    },
+    "info": {
+      "description": "Payment, webhook, verification, and refund endpoints for TicketBlitz.",
+      "title": "TicketBlitz Payment Service API",
+      "version": "1.0.0"
+    },
+    "openapi": "3.0.3",
+    "paths": {
+      "/health": {
+        "get": {
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HealthResponse"
+                  }
+                }
+              },
+              "description": "Service status and dependency flags"
+            }
+          },
+          "summary": "Service health check",
+          "tags": [
+            "Health"
+          ]
+        }
+      },
+      "/openapi.json": {
+        "get": {
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object"
+                  }
+                }
+              },
+              "description": "OpenAPI document"
+            }
+          },
+          "summary": "OpenAPI specification",
+          "tags": [
+            "Docs"
+          ]
+        }
+      },
+      "/payment/hold/{hold_id}": {
+        "get": {
+          "parameters": [
+            {
+              "in": "path",
+              "name": "hold_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/PaymentHoldResponse"
+                  }
+                }
+              },
+              "description": "Payment status for hold"
+            },
+            "404": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            },
+            "503": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            }
+          },
+          "summary": "Get payment status by hold ID",
+          "tags": [
+            "Payments"
+          ]
+        }
+      },
+      "/payment/initiate": {
+        "post": {
+          "parameters": [
+            {
+              "description": "Required when PAYMENT_INTERNAL_TOKEN is configured.",
+              "in": "header",
+              "name": "X-Internal-Token",
+              "required": false,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentInitiateRequest"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/PaymentInitiateResponse"
+                  }
+                }
+              },
+              "description": "Existing pending payment intent returned"
+            },
+            "201": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/PaymentInitiateResponse"
+                  }
+                }
+              },
+              "description": "Payment intent created"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            },
+            "409": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            },
+            "502": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            },
+            "503": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            }
+          },
+          "summary": "Initiate payment for a seat hold",
+          "tags": [
+            "Payments"
+          ]
+        }
+      },
+      "/payment/webhook": {
+        "post": {
+          "description": "Verifies Stripe signature, records webhook event, and updates transactions.",
+          "parameters": [
+            {
+              "description": "Stripe signature used for webhook verification.",
+              "in": "header",
+              "name": "Stripe-Signature",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/WebhookAcceptedResponse"
+                  }
+                }
+              },
+              "description": "Webhook accepted"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            },
+            "503": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            }
+          },
+          "summary": "Stripe webhook receiver",
+          "tags": [
+            "Webhooks"
+          ]
+        }
+      },
+      "/payments/create": {
+        "post": {
+          "parameters": [
+            {
+              "description": "Required when PAYMENT_INTERNAL_TOKEN is configured.",
+              "in": "header",
+              "name": "X-Internal-Token",
+              "required": false,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentCreateRequest"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/PaymentInitiateResponse"
+                  }
+                }
+              },
+              "description": "Existing payment returned"
+            },
+            "201": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/PaymentInitiateResponse"
+                  }
+                }
+              },
+              "description": "Payment created"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            }
+          },
+          "summary": "Alias payment creation endpoint",
+          "tags": [
+            "Payments"
+          ]
+        }
+      },
+      "/payments/processing/{booking_id}": {
+        "put": {
+          "parameters": [
+            {
+              "in": "path",
+              "name": "booking_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            {
+              "description": "Required when PAYMENT_INTERNAL_TOKEN is configured.",
+              "in": "header",
+              "name": "X-Internal-Token",
+              "required": false,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/UpdateStatusResponse"
+                  }
+                }
+              },
+              "description": "Processing status updated"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            },
+            "404": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            }
+          },
+          "summary": "Mark booking as processing refund",
+          "tags": [
+            "Payments"
+          ]
+        }
+      },
+      "/payments/refund": {
+        "post": {
+          "parameters": [
+            {
+              "description": "Required when PAYMENT_INTERNAL_TOKEN is configured.",
+              "in": "header",
+              "name": "X-Internal-Token",
+              "required": false,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FailStatusRequest"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/RefundResponse"
+                  }
+                }
+              },
+              "description": "Refund processing result"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            }
+          },
+          "summary": "Alias for /payments/refund/{booking_id}",
+          "tags": [
+            "Refunds"
+          ]
+        }
+      },
+      "/payments/refund/{booking_id}": {
+        "post": {
+          "parameters": [
+            {
+              "in": "path",
+              "name": "booking_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            {
+              "description": "Required when PAYMENT_INTERNAL_TOKEN is configured.",
+              "in": "header",
+              "name": "X-Internal-Token",
+              "required": false,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefundRequest"
+                }
+              }
+            },
+            "required": false
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/RefundResponse"
+                  }
+                }
+              },
+              "description": "Refund processing result"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            },
+            "404": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            },
+            "409": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            },
+            "502": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            }
+          },
+          "summary": "Execute refund for booking",
+          "tags": [
+            "Refunds"
+          ]
+        }
+      },
+      "/payments/status/fail": {
+        "put": {
+          "parameters": [
+            {
+              "description": "Required when PAYMENT_INTERNAL_TOKEN is configured.",
+              "in": "header",
+              "name": "X-Internal-Token",
+              "required": false,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FailStatusRequest"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/UpdateStatusResponse"
+                  }
+                }
+              },
+              "description": "Failure status updated"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            }
+          },
+          "summary": "Mark booking refund as failed",
+          "tags": [
+            "Payments"
+          ]
+        }
+      },
+      "/payments/status/{booking_id}": {
+        "put": {
+          "parameters": [
+            {
+              "in": "path",
+              "name": "booking_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            {
+              "description": "Required when PAYMENT_INTERNAL_TOKEN is configured.",
+              "in": "header",
+              "name": "X-Internal-Token",
+              "required": false,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateStatusRequest"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/UpdateStatusResponse"
+                  }
+                }
+              },
+              "description": "Status update result"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            },
+            "404": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            }
+          },
+          "summary": "Update payment/refund status",
+          "tags": [
+            "Payments"
+          ]
+        }
+      },
+      "/payments/success/{booking_id}": {
+        "put": {
+          "parameters": [
+            {
+              "in": "path",
+              "name": "booking_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            {
+              "description": "Required when PAYMENT_INTERNAL_TOKEN is configured.",
+              "in": "header",
+              "name": "X-Internal-Token",
+              "required": false,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefundRequest"
+                }
+              }
+            },
+            "required": false
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/UpdateStatusResponse"
+                  }
+                }
+              },
+              "description": "Success status updated"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            },
+            "404": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            }
+          },
+          "summary": "Mark booking refund as succeeded",
+          "tags": [
+            "Payments"
+          ]
+        }
+      },
+      "/payments/update/{booking_id}": {
+        "put": {
+          "parameters": [
+            {
+              "in": "path",
+              "name": "booking_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            {
+              "description": "Required when PAYMENT_INTERNAL_TOKEN is configured.",
+              "in": "header",
+              "name": "X-Internal-Token",
+              "required": false,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateStatusRequest"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "description": "Alias response"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            }
+          },
+          "summary": "Alias for /payments/status/{booking_id}",
+          "tags": [
+            "Payments"
+          ]
+        }
+      },
+      "/payments/verify-policy/{booking_id}": {
+        "get": {
+          "parameters": [
+            {
+              "in": "path",
+              "name": "booking_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/VerifyPolicyResponse"
+                  }
+                }
+              },
+              "description": "Cancellation policy evaluation"
+            },
+            "404": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            },
+            "503": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            }
+          },
+          "summary": "Verify cancellation policy for booking",
+          "tags": [
+            "Payments"
+          ]
+        }
+      },
+      "/payments/verify/{booking_id}": {
+        "get": {
+          "parameters": [
+            {
+              "in": "path",
+              "name": "booking_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/VerifyPaymentResponse"
+                  }
+                }
+              },
+              "description": "Booking payment verification data"
+            },
+            "404": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            },
+            "503": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Error response"
+            }
+          },
+          "summary": "Verify booking payment and refund eligibility context",
+          "tags": [
+            "Payments"
+          ]
+        }
+      }
+    },
+    "servers": [
+      {
+        "url": "/"
+      }
+    ],
+    "tags": [
+      {
+        "description": "Service health and readiness checks.",
+        "name": "Health"
+      },
+      {
+        "description": "Payment lifecycle and state transitions.",
+        "name": "Payments"
+      },
+      {
+        "description": "Refund orchestration and cancellation flow.",
+        "name": "Refunds"
+      },
+      {
+        "description": "Stripe webhook ingestion and processing.",
+        "name": "Webhooks"
+      },
+      {
+        "description": "OpenAPI and Swagger documentation endpoints.",
+        "name": "Docs"
+      }
+    ]
+  },
+  "reservation-orchestrator": {
+    "components": {
+      "parameters": {
+        "EventIdPath": {
+          "in": "path",
+          "name": "event_id",
+          "required": true,
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "EventIdQuery": {
+          "in": "query",
+          "name": "eventID",
+          "required": false,
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "SeatCategoryPath": {
+          "in": "path",
+          "name": "seat_category",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        "UserIdPath": {
+          "in": "path",
+          "name": "user_id",
+          "required": true,
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      },
+      "responses": {
+        "BadRequest": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          },
+          "description": "Bad request"
+        },
+        "InternalServerError": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          },
+          "description": "Internal server error"
+        },
+        "NotFound": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          },
+          "description": "Resource not found"
+        },
+        "ServiceUnavailable": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          },
+          "description": "Dependent service unavailable"
+        }
+      },
+      "schemas": {
+        "ErrorResponse": {
+          "properties": {
+            "error": {
+              "example": "Not found",
+              "type": "string"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "type": "object"
+        },
+        "HealthResponse": {
+          "additionalProperties": true,
+          "properties": {
+            "service": {
+              "example": "event-service",
+              "type": "string"
+            },
+            "status": {
+              "example": "ok",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "service"
+          ],
+          "type": "object"
+        },
+        "ReserveConfirmRequest": {
+          "properties": {
+            "correlationID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "holdID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "userID": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "holdID",
+            "userID"
+          ],
+          "type": "object"
+        },
+        "ReserveRequest": {
+          "properties": {
+            "correlationID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "eventID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "qty": {
+              "default": 1,
+              "type": "integer"
+            },
+            "seatCategory": {
+              "type": "string"
+            },
+            "userID": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "userID",
+            "eventID",
+            "seatCategory"
+          ],
+          "type": "object"
+        },
+        "ReserveResponse": {
+          "additionalProperties": true,
+          "properties": {
+            "clientSecret": {
+              "type": "string"
+            },
+            "correlationID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "holdID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "paymentIntentID": {
+              "type": "string"
+            },
+            "position": {
+              "type": "integer"
+            },
+            "returnURL": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "waitlistID": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "WaitlistConfirmResponse": {
+          "additionalProperties": true,
+          "properties": {
+            "correlationID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "eticket": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "hold": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "payment": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "uiStatus": {
+              "type": "string"
+            },
+            "waitlist": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "type": "object"
+        }
+      }
+    },
+    "info": {
+      "description": "Composite endpoints for reservation, waitlist confirmation, and payment setup.",
+      "title": "TicketBlitz Reservation Orchestrator API",
+      "version": "1.0.0"
+    },
+    "openapi": "3.0.3",
+    "paths": {
+      "/health": {
+        "get": {
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HealthResponse"
+                  }
+                }
+              },
+              "description": "Healthy service response"
+            }
+          },
+          "summary": "Service health status",
+          "tags": [
+            "System"
+          ]
+        }
+      },
+      "/reserve": {
+        "post": {
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReserveRequest"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ReserveResponse"
+                  }
+                }
+              },
+              "description": "Reservation outcome"
+            },
+            "400": {
+              "$ref": "#/components/responses/BadRequest"
+            },
+            "404": {
+              "$ref": "#/components/responses/NotFound"
+            },
+            "409": {
+              "$ref": "#/components/responses/BadRequest"
+            },
+            "502": {
+              "$ref": "#/components/responses/ServiceUnavailable"
+            },
+            "503": {
+              "$ref": "#/components/responses/ServiceUnavailable"
+            }
+          },
+          "summary": "Reserve a ticket or join waitlist",
+          "tags": [
+            "Reservation"
+          ]
+        }
+      },
+      "/reserve/confirm": {
+        "post": {
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReserveConfirmRequest"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ReserveResponse"
+                  }
+                }
+              },
+              "description": "Payment or confirmation state"
+            },
+            "400": {
+              "$ref": "#/components/responses/BadRequest"
+            },
+            "404": {
+              "$ref": "#/components/responses/NotFound"
+            },
+            "409": {
+              "$ref": "#/components/responses/BadRequest"
+            },
+            "502": {
+              "$ref": "#/components/responses/ServiceUnavailable"
+            },
+            "503": {
+              "$ref": "#/components/responses/ServiceUnavailable"
+            }
+          },
+          "summary": "Resume or confirm payment flow for a hold",
+          "tags": [
+            "Reservation"
+          ]
+        }
+      },
+      "/waitlist/confirm/{hold_id}": {
+        "get": {
+          "parameters": [
+            {
+              "in": "path",
+              "name": "hold_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/WaitlistConfirmResponse"
+                  }
+                }
+              },
+              "description": "Waitlist confirmation context"
+            },
+            "400": {
+              "$ref": "#/components/responses/BadRequest"
+            },
+            "404": {
+              "$ref": "#/components/responses/NotFound"
+            },
+            "502": {
+              "$ref": "#/components/responses/ServiceUnavailable"
+            },
+            "503": {
+              "$ref": "#/components/responses/ServiceUnavailable"
+            }
+          },
+          "summary": "Load waitlist confirmation state by hold ID",
+          "tags": [
+            "Reservation"
+          ]
+        }
+      }
+    },
+    "servers": [
+      {
+        "description": "reservation-orchestrator root",
+        "url": "/"
+      }
+    ]
+  },
+  "user-service": {
+    "components": {
+      "schemas": {
+        "CreateUserRequest": {
+          "properties": {
+            "email": {
+              "format": "email",
+              "type": "string"
+            },
+            "metadata": {
+              "type": "object"
+            },
+            "name": {
+              "maxLength": 100,
+              "type": "string"
+            },
+            "phone": {
+              "maxLength": 20,
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "email"
+          ],
+          "type": "object"
+        },
+        "ErrorResponse": {
+          "properties": {
+            "details": {
+              "type": "string"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "type": "object"
+        },
+        "HealthResponse": {
+          "properties": {
+            "service": {
+              "example": "user-service",
+              "type": "string"
+            },
+            "status": {
+              "example": "ok",
+              "type": "string"
+            },
+            "supabaseConfigured": {
+              "example": true,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "status",
+            "service",
+            "supabaseConfigured"
+          ],
+          "type": "object"
+        },
+        "UpdateUserRequest": {
+          "minProperties": 1,
+          "properties": {
+            "email": {
+              "format": "email",
+              "type": "string"
+            },
+            "metadata": {
+              "type": "object"
+            },
+            "name": {
+              "maxLength": 100,
+              "type": "string"
+            },
+            "phone": {
+              "maxLength": 20,
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "UserContract": {
+          "properties": {
+            "email": {
+              "format": "email",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "userID": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "userID",
+            "name",
+            "email"
+          ],
+          "type": "object"
+        },
+        "UserDetail": {
+          "allOf": [
+            {
+              "$ref": "#/components/schemas/UserContract"
+            },
+            {
+              "properties": {
+                "createdAt": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "deletedAt": {
+                  "format": "date-time",
+                  "nullable": true,
+                  "type": "string"
+                },
+                "metadata": {
+                  "type": "object"
+                },
+                "phone": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "format": "date-time",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          ]
+        },
+        "UsersListResponse": {
+          "properties": {
+            "pagination": {
+              "properties": {
+                "page": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "pageSize": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "total": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "totalPages": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "page",
+                "pageSize",
+                "total",
+                "totalPages"
+              ],
+              "type": "object"
+            },
+            "users": {
+              "items": {
+                "$ref": "#/components/schemas/UserDetail"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "users",
+            "pagination"
+          ],
+          "type": "object"
+        }
+      },
+      "securitySchemes": {
+        "InternalToken": {
+          "description": "Internal service token required for protected endpoints.",
+          "in": "header",
+          "name": "X-Internal-Token",
+          "type": "apiKey"
+        }
+      }
+    },
+    "info": {
+      "description": "User profile retrieval and management endpoints for TicketBlitz services.",
+      "title": "TicketBlitz User Service API",
+      "version": "1.0.0"
+    },
+    "openapi": "3.0.3",
+    "paths": {
+      "/health": {
+        "get": {
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HealthResponse"
+                  }
+                }
+              },
+              "description": "Healthy service response"
+            }
+          },
+          "summary": "Service health status",
+          "tags": [
+            "System"
+          ]
+        }
+      },
+      "/user/{user_id}": {
+        "get": {
+          "parameters": [
+            {
+              "in": "path",
+              "name": "user_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "includeDeleted",
+              "required": false,
+              "schema": {
+                "default": false,
+                "type": "boolean"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/UserContract"
+                  }
+                }
+              },
+              "description": "User contract response"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Invalid request"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Unauthorized"
+            },
+            "404": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "User not found"
+            }
+          },
+          "security": [
+            {
+              "InternalToken": []
+            }
+          ],
+          "summary": "Get one user by UUID",
+          "tags": [
+            "Users"
+          ]
+        },
+        "put": {
+          "parameters": [
+            {
+              "in": "path",
+              "name": "user_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateUserRequest"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/UserDetail"
+                  }
+                }
+              },
+              "description": "Updated user"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Invalid request"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Unauthorized"
+            },
+            "404": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "User not found"
+            }
+          },
+          "security": [
+            {
+              "InternalToken": []
+            }
+          ],
+          "summary": "Update one user",
+          "tags": [
+            "Users"
+          ]
+        }
+      },
+      "/users": {
+        "get": {
+          "parameters": [
+            {
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "default": 1,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            {
+              "in": "query",
+              "name": "pageSize",
+              "schema": {
+                "default": 20,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            {
+              "in": "query",
+              "name": "search",
+              "schema": {
+                "maxLength": 120,
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "includeDeleted",
+              "schema": {
+                "default": false,
+                "type": "boolean"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/UsersListResponse"
+                  }
+                }
+              },
+              "description": "List response"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Invalid request"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Unauthorized"
+            }
+          },
+          "security": [
+            {
+              "InternalToken": []
+            }
+          ],
+          "summary": "List users with pagination",
+          "tags": [
+            "Users"
+          ]
+        },
+        "post": {
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateUserRequest"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "201": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/UserDetail"
+                  }
+                }
+              },
+              "description": "Created user"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Invalid request"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Unauthorized"
+            },
+            "409": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Conflict"
+            }
+          },
+          "security": [
+            {
+              "InternalToken": []
+            }
+          ],
+          "summary": "Create user",
+          "tags": [
+            "Users"
+          ]
+        }
+      }
+    },
+    "servers": [
+      {
+        "url": "http://localhost:5000"
+      }
+    ]
+  },
+  "waitlist-service": {
+    "components": {
+      "schemas": {
+        "DequeueResponse": {
+          "properties": {
+            "holdID": {
+              "format": "uuid",
+              "nullable": true,
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "WAITING",
+                "HOLD_OFFERED",
+                "CONFIRMED",
+                "EXPIRED",
+                "CANCELLED"
+              ],
+              "type": "string"
+            },
+            "userID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "waitlistID": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "waitlistID",
+            "userID",
+            "status",
+            "holdID"
+          ],
+          "type": "object"
+        },
+        "ErrorResponse": {
+          "properties": {
+            "details": {
+              "type": "string"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "type": "object"
+        },
+        "HealthResponse": {
+          "properties": {
+            "service": {
+              "example": "waitlist-service",
+              "type": "string"
+            },
+            "status": {
+              "example": "ok",
+              "type": "string"
+            },
+            "supabaseConfigured": {
+              "example": true,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "status",
+            "service",
+            "supabaseConfigured"
+          ],
+          "type": "object"
+        },
+        "HoldTransitionRequest": {
+          "properties": {
+            "holdID": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "JoinWaitlistRequest": {
+          "properties": {
+            "eventID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "metadata": {
+              "type": "object"
+            },
+            "priorityScore": {
+              "default": 0,
+              "type": "number"
+            },
+            "qty": {
+              "default": 1,
+              "description": "Only qty=1 is currently supported.",
+              "enum": [
+                1
+              ],
+              "type": "integer"
+            },
+            "seatCategory": {
+              "maxLength": 50,
+              "type": "string"
+            },
+            "source": {
+              "default": "PUBLIC",
+              "type": "string"
+            },
+            "userID": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "userID",
+            "eventID",
+            "seatCategory"
+          ],
+          "type": "object"
+        },
+        "JoinWaitlistResponse": {
+          "properties": {
+            "entry": {
+              "$ref": "#/components/schemas/WaitlistEntry"
+            },
+            "position": {
+              "nullable": true,
+              "type": "integer"
+            },
+            "status": {
+              "type": "string"
+            },
+            "waitlistID": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "waitlistID",
+            "position",
+            "status",
+            "entry"
+          ],
+          "type": "object"
+        },
+        "TransitionResponse": {
+          "properties": {
+            "holdID": {
+              "format": "uuid",
+              "nullable": true,
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "WAITING",
+                "HOLD_OFFERED",
+                "CONFIRMED",
+                "EXPIRED",
+                "CANCELLED"
+              ],
+              "type": "string"
+            },
+            "waitlistID": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "waitlistID",
+            "status",
+            "holdID"
+          ],
+          "type": "object"
+        },
+        "WaitlistEntry": {
+          "properties": {
+            "categoryID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "confirmedAt": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            },
+            "email": {
+              "format": "email",
+              "nullable": true,
+              "type": "string"
+            },
+            "eventID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "expiredAt": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            },
+            "holdID": {
+              "format": "uuid",
+              "nullable": true,
+              "type": "string"
+            },
+            "joinedAt": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            },
+            "metadata": {
+              "type": "object"
+            },
+            "offeredAt": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            },
+            "position": {
+              "nullable": true,
+              "type": "integer"
+            },
+            "priorityScore": {
+              "type": "number"
+            },
+            "seatCategory": {
+              "nullable": true,
+              "type": "string"
+            },
+            "source": {
+              "nullable": true,
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "WAITING",
+                "HOLD_OFFERED",
+                "CONFIRMED",
+                "EXPIRED",
+                "CANCELLED"
+              ],
+              "type": "string"
+            },
+            "userID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "waitlistID": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "waitlistID",
+            "eventID",
+            "categoryID",
+            "userID",
+            "status",
+            "metadata"
+          ],
+          "type": "object"
+        },
+        "WaitlistListResponse": {
+          "properties": {
+            "count": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "entries": {
+              "items": {
+                "$ref": "#/components/schemas/WaitlistEntry"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "entries",
+            "count"
+          ],
+          "type": "object"
+        },
+        "WaitlistStatusResponse": {
+          "properties": {
+            "categoryID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "count": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "entries": {
+              "items": {
+                "$ref": "#/components/schemas/WaitlistEntry"
+              },
+              "type": "array"
+            },
+            "eventID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "hasWaitlist": {
+              "type": "boolean"
+            },
+            "holdID": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "nextUser": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/WaitlistEntry"
+                }
+              ],
+              "nullable": true
+            },
+            "seatCategory": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          "required": [
+            "holdID",
+            "eventID",
+            "categoryID",
+            "hasWaitlist",
+            "count",
+            "nextUser",
+            "entries"
+          ],
+          "type": "object"
+        }
+      },
+      "securitySchemes": {
+        "InternalToken": {
+          "description": "Internal service token required for protected endpoints.",
+          "in": "header",
+          "name": "X-Internal-Token",
+          "type": "apiKey"
+        }
+      }
+    },
+    "info": {
+      "description": "Waitlist management endpoints for queue operations and hold lifecycle transitions.",
+      "title": "TicketBlitz Waitlist Service API",
+      "version": "1.0.0"
+    },
+    "openapi": "3.0.3",
+    "paths": {
+      "/health": {
+        "get": {
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HealthResponse"
+                  }
+                }
+              },
+              "description": "Healthy service response"
+            }
+          },
+          "summary": "Service health status",
+          "tags": [
+            "System"
+          ]
+        }
+      },
+      "/waitlist": {
+        "get": {
+          "parameters": [
+            {
+              "in": "query",
+              "name": "eventID",
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "userID",
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "status",
+              "schema": {
+                "enum": [
+                  "WAITING",
+                  "HOLD_OFFERED",
+                  "CONFIRMED",
+                  "EXPIRED",
+                  "CANCELLED"
+                ],
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "seatCategory",
+              "schema": {
+                "maxLength": 50,
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "includeEmail",
+              "schema": {
+                "default": false,
+                "type": "boolean"
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "schema": {
+                "default": 50,
+                "maximum": 200,
+                "minimum": 1,
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/WaitlistListResponse"
+                  }
+                }
+              },
+              "description": "Waitlist entries response"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Invalid request"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Unauthorized"
+            },
+            "404": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Not found"
+            },
+            "503": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Supabase unavailable"
+            }
+          },
+          "security": [
+            {
+              "InternalToken": []
+            }
+          ],
+          "summary": "List waitlist entries",
+          "tags": [
+            "Waitlist"
+          ]
+        }
+      },
+      "/waitlist/by-hold/{hold_id}": {
+        "get": {
+          "parameters": [
+            {
+              "in": "path",
+              "name": "hold_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/WaitlistEntry"
+                  }
+                }
+              },
+              "description": "Waitlist entry"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Invalid request"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Unauthorized"
+            },
+            "404": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Entry not found"
+            },
+            "503": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Supabase unavailable"
+            }
+          },
+          "security": [
+            {
+              "InternalToken": []
+            }
+          ],
+          "summary": "Get waitlist entry by hold ID",
+          "tags": [
+            "Waitlist"
+          ]
+        }
+      },
+      "/waitlist/join": {
+        "post": {
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinWaitlistRequest"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "201": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/JoinWaitlistResponse"
+                  }
+                }
+              },
+              "description": "Created waitlist entry"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Invalid request"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Unauthorized"
+            },
+            "404": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Seat category not found"
+            },
+            "409": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Conflict"
+            },
+            "503": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Supabase unavailable"
+            }
+          },
+          "security": [
+            {
+              "InternalToken": []
+            }
+          ],
+          "summary": "Join waitlist",
+          "tags": [
+            "Waitlist"
+          ]
+        }
+      },
+      "/waitlist/next": {
+        "get": {
+          "parameters": [
+            {
+              "in": "query",
+              "name": "eventID",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "seatCategory",
+              "required": true,
+              "schema": {
+                "maxLength": 50,
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/WaitlistEntry"
+                  }
+                }
+              },
+              "description": "Next waitlist entry"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Invalid request"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Unauthorized"
+            },
+            "404": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "No matching waitlist user"
+            },
+            "503": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Supabase unavailable"
+            }
+          },
+          "security": [
+            {
+              "InternalToken": []
+            }
+          ],
+          "summary": "Get next waiting user for event and seat category",
+          "tags": [
+            "Waitlist"
+          ]
+        }
+      },
+      "/waitlist/status/{hold_id}": {
+        "get": {
+          "parameters": [
+            {
+              "in": "path",
+              "name": "hold_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "required": false,
+              "schema": {
+                "default": 50,
+                "maximum": 200,
+                "minimum": 1,
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/WaitlistStatusResponse"
+                  }
+                }
+              },
+              "description": "Waitlist summary"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Invalid request"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Unauthorized"
+            },
+            "404": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Hold not found"
+            },
+            "503": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Supabase unavailable"
+            }
+          },
+          "security": [
+            {
+              "InternalToken": []
+            }
+          ],
+          "summary": "Get waitlist summary for a hold context",
+          "tags": [
+            "Waitlist"
+          ]
+        }
+      },
+      "/waitlist/users/{user_id}": {
+        "delete": {
+          "parameters": [
+            {
+              "in": "path",
+              "name": "user_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "holdID",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/DequeueResponse"
+                  }
+                }
+              },
+              "description": "Dequeued user"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Invalid request"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Unauthorized"
+            },
+            "404": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Not found"
+            },
+            "503": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Supabase unavailable"
+            }
+          },
+          "security": [
+            {
+              "InternalToken": []
+            }
+          ],
+          "summary": "Dequeue a user from waitlist in hold context",
+          "tags": [
+            "Waitlist"
+          ]
+        }
+      },
+      "/waitlist/{waitlist_id}": {
+        "get": {
+          "description": "Reads a single waitlist entry. Runtime auth is enforced when includeEmail=true.",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "waitlist_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            {
+              "description": "When true, the response includes email and requires a valid internal token.",
+              "in": "query",
+              "name": "includeEmail",
+              "required": false,
+              "schema": {
+                "default": false,
+                "type": "boolean"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/WaitlistEntry"
+                  }
+                }
+              },
+              "description": "Waitlist entry"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Invalid request"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Unauthorized"
+            },
+            "404": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Entry not found"
+            },
+            "503": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Supabase unavailable"
+            }
+          },
+          "security": [
+            {
+              "InternalToken": []
+            }
+          ],
+          "summary": "Get one waitlist entry",
+          "tags": [
+            "Waitlist"
+          ]
+        }
+      },
+      "/waitlist/{waitlist_id}/confirm": {
+        "put": {
+          "parameters": [
+            {
+              "in": "path",
+              "name": "waitlist_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HoldTransitionRequest"
+                }
+              }
+            },
+            "required": false
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/TransitionResponse"
+                  }
+                }
+              },
+              "description": "Updated waitlist state"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Invalid request"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Unauthorized"
+            },
+            "404": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Entry not found"
+            },
+            "409": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Invalid status transition or conflicting hold"
+            },
+            "503": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Supabase unavailable"
+            }
+          },
+          "security": [
+            {
+              "InternalToken": []
+            }
+          ],
+          "summary": "Transition HOLD_OFFERED to CONFIRMED",
+          "tags": [
+            "Waitlist"
+          ]
+        }
+      },
+      "/waitlist/{waitlist_id}/expire": {
+        "put": {
+          "parameters": [
+            {
+              "in": "path",
+              "name": "waitlist_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HoldTransitionRequest"
+                }
+              }
+            },
+            "required": false
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/TransitionResponse"
+                  }
+                }
+              },
+              "description": "Updated waitlist state"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Invalid request"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Unauthorized"
+            },
+            "404": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Entry not found"
+            },
+            "409": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Invalid status transition or conflicting hold"
+            },
+            "503": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Supabase unavailable"
+            }
+          },
+          "security": [
+            {
+              "InternalToken": []
+            }
+          ],
+          "summary": "Transition HOLD_OFFERED to EXPIRED",
+          "tags": [
+            "Waitlist"
+          ]
+        }
+      },
+      "/waitlist/{waitlist_id}/offer": {
+        "put": {
+          "parameters": [
+            {
+              "in": "path",
+              "name": "waitlist_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/HoldTransitionRequest"
+                    },
+                    {
+                      "required": [
+                        "holdID"
+                      ]
+                    }
+                  ]
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/TransitionResponse"
+                  }
+                }
+              },
+              "description": "Updated waitlist state"
+            },
+            "400": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Invalid request"
+            },
+            "401": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Unauthorized"
+            },
+            "404": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Entry not found"
+            },
+            "409": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Invalid status transition or conflicting hold"
+            },
+            "503": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ErrorResponse"
+                  }
+                }
+              },
+              "description": "Supabase unavailable"
+            }
+          },
+          "security": [
+            {
+              "InternalToken": []
+            }
+          ],
+          "summary": "Transition WAITING to HOLD_OFFERED",
+          "tags": [
+            "Waitlist"
+          ]
+        }
+      }
+    },
+    "servers": [
+      {
+        "url": "http://localhost:5000"
+      }
+    ]
+  }
+}

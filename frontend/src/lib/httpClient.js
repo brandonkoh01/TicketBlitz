@@ -12,13 +12,13 @@ export class HttpError extends Error {
 }
 
 function getApiBaseUrl() {
-  const baseUrl = import.meta.env.VITE_API_BASE_URL
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
 
   if (!baseUrl || typeof baseUrl !== 'string') {
     throw new Error('Missing VITE_API_BASE_URL for API requests.')
   }
 
-  return baseUrl
+  return baseUrl.trim()
 }
 
 function normalizeErrorMessage(method, path, status, payload) {
@@ -41,7 +41,27 @@ function normalizeErrorMessage(method, path, status, payload) {
 
 function buildUrl(path, query) {
   const baseUrl = getApiBaseUrl()
-  const url = new URL(path, baseUrl)
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  const hasProtocol = /^[a-zA-Z][a-zA-Z\d+.-]*:\/\//.test(baseUrl)
+
+  if (!hasProtocol) {
+    const normalizedBase = baseUrl.startsWith('/') ? baseUrl : `/${baseUrl}`
+    const joinedPath = `${normalizedBase.replace(/\/$/, '')}${normalizedPath}`
+    const searchParams = new URLSearchParams()
+
+    if (query && typeof query === 'object') {
+      Object.entries(query).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === '') return
+        searchParams.set(key, String(value))
+      })
+    }
+
+    const queryString = searchParams.toString()
+    return queryString ? `${joinedPath}?${queryString}` : joinedPath
+  }
+
+  const url = new URL(baseUrl)
+  url.pathname = `${url.pathname.replace(/\/$/, '')}${normalizedPath}`.replace(/\/+/g, '/')
 
   if (query && typeof query === 'object') {
     Object.entries(query).forEach(([key, value]) => {
