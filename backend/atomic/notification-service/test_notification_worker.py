@@ -195,6 +195,37 @@ class NotificationWorkerTests(unittest.TestCase):
                 },
             )
 
+    def test_validate_payload_ticket_available_public_accepts_waitlist_emails(self):
+        worker = notification.NotificationWorker(self._config())
+
+        worker.validate_payload(
+            "TICKET_AVAILABLE_PUBLIC",
+            {
+                "type": "TICKET_AVAILABLE_PUBLIC",
+                "bookingID": "BK-777",
+                "eventName": "Coldplay Live",
+                "waitlistEmails": ["fan1@example.com", "fan2@example.com"],
+            },
+        )
+
+    def test_get_recipients_ticket_available_public_prefers_waitlist_email_list(self):
+        worker = notification.NotificationWorker(self._config())
+
+        recipients = worker.get_recipients(
+            "TICKET_AVAILABLE_PUBLIC",
+            {
+                "type": "TICKET_AVAILABLE_PUBLIC",
+                "email": "fallback@example.com",
+                "waitlistEmails": [
+                    "fan1@example.com",
+                    "fan1@example.com",
+                    "fan2@example.com",
+                ],
+            },
+        )
+
+        self.assertEqual(recipients, ["fan1@example.com", "fan2@example.com"])
+
     def test_process_payload_non_production_missing_sendgrid_config_falls_back(self):
         worker = notification.NotificationWorker(
             self._config(is_production=False, api_key=""))
@@ -272,6 +303,23 @@ class NotificationWorkerTests(unittest.TestCase):
                 ["fan@example.com"],
                 {"eventName": "Coldplay Live"},
             )
+
+    def test_send_email_ticket_available_public_sends_per_recipient(self):
+        os.environ["SENDGRID_TEMPLATE_TICKET_AVAILABLE_PUBLIC"] = "d-template-id"
+
+        worker = notification.NotificationWorker(
+            self._config(is_production=False, api_key="test-key")
+        )
+        fake_client = _FakeSendGridClient(_FakeResponse(202, "accepted"))
+        worker._sendgrid_client = fake_client
+
+        worker.send_email(
+            "TICKET_AVAILABLE_PUBLIC",
+            ["fan1@example.com", "fan2@example.com", "fan3@example.com"],
+            {"eventName": "Lawrence Wong Live", "bookingID": "BK-777"},
+        )
+
+        self.assertEqual(len(fake_client.sent), 3)
 
     def test_process_payload_allows_empty_waitlist_email_list(self):
         worker = notification.NotificationWorker(

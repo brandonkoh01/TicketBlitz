@@ -55,7 +55,7 @@ REQUIRED_FIELDS_BY_TYPE = {
     "CANCELLATION_DENIED": ["email", "bookingID", "reason"],
     "REFUND_SUCCESSFUL": ["email", "bookingID", "refundAmount", "eventName"],
     "REFUND_ERROR": ["email", "bookingID", "errorDetail", "nextSteps"],
-    "TICKET_AVAILABLE_PUBLIC": ["email", "bookingID", "eventName"],
+    "TICKET_AVAILABLE_PUBLIC": ["bookingID", "eventName"],
     "TICKET_CONFIRMATION": ["email", "bookingID", "ticketID", "seatNumber", "eventName"],
     "FLASH_SALE_LAUNCHED": ["eventID", "flashSaleID", "updatedPrices", "waitlistEmails"],
     "PRICE_ESCALATED": [
@@ -507,6 +507,29 @@ class NotificationWorker:
                 )
 
         if event_type in TOPIC_NOTIFICATION_TYPES:
+            if event_type == "TICKET_AVAILABLE_PUBLIC":
+                email = payload.get("email")
+                waitlist_emails = payload.get("waitlistEmails")
+
+                if waitlist_emails is not None:
+                    if not isinstance(waitlist_emails, list):
+                        raise PermanentNotificationError(
+                            "Payload type TICKET_AVAILABLE_PUBLIC requires list field 'waitlistEmails' when provided"
+                        )
+                    if not all(isinstance(item, str) and "@" in item for item in waitlist_emails):
+                        raise PermanentNotificationError(
+                            "Payload type TICKET_AVAILABLE_PUBLIC has invalid email(s) in waitlistEmails"
+                        )
+
+                has_topic_email = isinstance(email, str) and "@" in email
+                has_broadcast_list = isinstance(waitlist_emails, list) and len(waitlist_emails) > 0
+
+                if not has_topic_email and not has_broadcast_list:
+                    raise PermanentNotificationError(
+                        "Payload type TICKET_AVAILABLE_PUBLIC requires 'email' or non-empty 'waitlistEmails'"
+                    )
+                return
+
             email = payload.get("email")
             if not isinstance(email, str) or "@" not in email:
                 raise PermanentNotificationError(
@@ -526,6 +549,22 @@ class NotificationWorker:
             )
 
     def get_recipients(self, event_type: str, payload: Dict[str, Any]) -> List[str]:
+        if event_type == "TICKET_AVAILABLE_PUBLIC":
+            waitlist_emails = payload.get("waitlistEmails")
+            if isinstance(waitlist_emails, list):
+                recipients: list[str] = []
+                seen: set[str] = set()
+                for email in waitlist_emails:
+                    if not isinstance(email, str) or "@" not in email:
+                        continue
+                    normalized = email.strip().lower()
+                    if not normalized or normalized in seen:
+                        continue
+                    seen.add(normalized)
+                    recipients.append(normalized)
+                if recipients:
+                    return recipients
+
         if event_type in TOPIC_NOTIFICATION_TYPES:
             return [payload["email"]]
         return payload["waitlistEmails"]
@@ -566,6 +605,38 @@ class NotificationWorker:
         if not recipients:
             logger.info(
                 "No recipients for type=%s. Skipping email dispatch.", event_type)
+            return
+
+        if event_type == "TICKET_AVAILABLE_PUBLIC" and len(recipients) > 1:
+            success_count = 0
+            failure_count = 0
+
+            for recipient in recipients:
+                try:
+                    self.send_email(event_type, [recipient], template_data)
+                    success_count += 1
+                except NotificationError as error:
+                    failure_count += 1
+                    logger.warning(
+                        "Public broadcast recipient delivery failed type=%s recipient=%s: %s",
+                        event_type,
+                        recipient,
+                        error,
+                    )
+
+            if success_count == 0 and failure_count > 0:
+                raise TransientNotificationError(
+                    "Failed to deliver TICKET_AVAILABLE_PUBLIC to all recipients"
+                )
+
+            if failure_count > 0:
+                logger.warning(
+                    "Partial broadcast delivery for type=%s success=%s failure=%s",
+                    event_type,
+                    success_count,
+                    failure_count,
+                )
+
             return
 
         template_env = TEMPLATE_ENV_BY_TYPE.get(event_type)

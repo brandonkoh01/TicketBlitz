@@ -26,6 +26,12 @@ WEBHOOK_RECEIVED_STALE_SECONDS = int(
     os.getenv("WEBHOOK_RECEIVED_STALE_SECONDS", "120"))
 INTERNAL_AUTH_HEADER = "X-Internal-Token"
 PAYMENT_IDEMPOTENCY_PREFIX = "payment-initiate"
+PURCHASED_BOOKING_STATUSES = (
+    "SUCCEEDED",
+    "REFUND_PENDING",
+    "REFUND_SUCCEEDED",
+    "REFUND_FAILED",
+)
 
 
 class ApiError(Exception):
@@ -352,6 +358,76 @@ def _resolve_booking_transaction(booking_id: str) -> Tuple[Dict[str, Any], str]:
         return transaction, "hold_id"
 
     raise NotFoundError("Booking transaction not found")
+
+
+def _parse_status_filter(raw_status: Any) -> list[str]:
+    if raw_status is None:
+        return list(PURCHASED_BOOKING_STATUSES)
+
+    if isinstance(raw_status, (list, tuple, set)):
+        parts = [str(value) for value in raw_status]
+    else:
+        parts = str(raw_status).split(",")
+
+    normalized = []
+    seen = set()
+    for part in parts:
+        candidate = str(part or "").strip().upper().replace(" ", "_")
+        if not candidate:
+            continue
+        if candidate not in PURCHASED_BOOKING_STATUSES:
+            allowed = ", ".join(PURCHASED_BOOKING_STATUSES)
+            raise ValidationError(
+                f"Unsupported status filter '{candidate}'. Allowed values: {allowed}"
+            )
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        normalized.append(candidate)
+
+    if not normalized:
+        return list(PURCHASED_BOOKING_STATUSES)
+
+    return normalized
+
+
+def _fetch_user_bookings(user_id: str, statuses: list[str]) -> list[Dict[str, Any]]:
+    query = (
+        get_db()
+        .table("transactions")
+        .select(
+            "transaction_id,hold_id,user_id,event_id,amount,currency,status,"
+            "refund_status,refund_amount,stripe_payment_intent_id,stripe_charge_id,"
+            "created_at,updated_at"
+        )
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+    )
+
+    if statuses:
+        query = query.in_("status", statuses)
+
+    response = query.execute()
+    return response.data or []
+
+
+def _serialize_user_booking(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "bookingID": row.get("transaction_id"),
+        "transactionID": row.get("transaction_id"),
+        "holdID": row.get("hold_id"),
+        "userID": row.get("user_id"),
+        "eventID": row.get("event_id"),
+        "amount": str(row.get("amount")) if row.get("amount") is not None else None,
+        "currency": _clean_currency(row.get("currency")),
+        "paymentStatus": row.get("status"),
+        "refundStatus": row.get("refund_status"),
+        "refundAmount": str(row.get("refund_amount")) if row.get("refund_amount") is not None else None,
+        "stripePaymentIntentID": row.get("stripe_payment_intent_id"),
+        "stripeChargeID": row.get("stripe_charge_id"),
+        "createdAt": row.get("created_at"),
+        "updatedAt": row.get("updated_at"),
+    }
 
 
 def _fetch_event(event_id: str) -> Dict[str, Any]:
@@ -1513,6 +1589,28 @@ def create_app() -> Flask:
             logger.exception(
                 "Unexpected error verifying cancellation policy: %s", error)
             return _api_response({"error": "Failed to verify cancellation policy"}, 500)
+
+    @app.get("/payments/user/<user_id>/bookings")
+    def payments_user_bookings(user_id: str):
+        try:
+            _require_supabase()
+            parsed_user_id = _as_uuid(user_id, "userID")
+            status_filter = _parse_status_filter(request.args.get("status"))
+            rows = _fetch_user_bookings(parsed_user_id, status_filter)
+            bookings = [_serialize_user_booking(row) for row in rows]
+
+            return _api_response(
+                {
+                    "userID": parsed_user_id,
+                    "count": len(bookings),
+                    "bookings": bookings,
+                }
+            )
+        except ApiError as error:
+            return _handle_api_error(error)
+        except Exception as error:
+            logger.exception("Unexpected error loading user bookings: %s", error)
+            return _api_response({"error": "Failed to load user bookings"}, 500)
 
     @app.put("/payments/status/<booking_id>")
     def payments_update_status(booking_id: str):

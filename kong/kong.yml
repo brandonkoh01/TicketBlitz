@@ -248,6 +248,13 @@ services:
           - POST
           - OPTIONS
         strip_path: false
+      - name: cancellation-status
+        paths:
+          - ~/bookings/cancel/status/[^/]+$
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
       - name: cancellation-reallocation-confirm
         paths:
           - /orchestrator/cancellation/reallocation/confirm
@@ -280,6 +287,13 @@ services:
           - /payment/webhook
         methods:
           - POST
+        strip_path: false
+      - name: payment-user-bookings
+        paths:
+          - ~/payments/user/[^/]+/bookings$
+        methods:
+          - GET
+          - OPTIONS
         strip_path: false
 
   - name: pricing-service

@@ -484,7 +484,7 @@ ALLOWED_SEAT_TRANSITIONS = {
     "AVAILABLE": {"HELD", "PENDING_WAITLIST"},
     "PENDING_WAITLIST": {"HELD", "AVAILABLE"},
     "HELD": {"AVAILABLE", "PENDING_WAITLIST", "SOLD"},
-    "SOLD": set(),
+    "SOLD": {"AVAILABLE", "PENDING_WAITLIST"},
 }
 
 
@@ -1184,8 +1184,12 @@ def create_app() -> Flask:
             )
 
         update_payload = {"status": target_status}
+        # Keep sold_at consistent with seats_sold_at_chk:
+        # SOLD requires a timestamp; all other statuses require null.
         if target_status == "SOLD":
             update_payload["sold_at"] = _utc_now_iso()
+        else:
+            update_payload["sold_at"] = None
 
         try:
             seat_update = (

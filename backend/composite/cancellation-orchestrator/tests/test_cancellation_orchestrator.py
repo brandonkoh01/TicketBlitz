@@ -22,6 +22,7 @@ WAITLIST_ID = "00000000-0000-0000-0000-000000000511"
 NEXT_USER_ID = "00000000-0000-0000-0000-000000000002"
 NEW_HOLD_ID = "00000000-0000-0000-0000-000000000212"
 NEW_TICKET_ID = "00000000-0000-0000-0000-000000000412"
+OLD_SEAT_ID = "00000000-0000-0000-0000-000000000311"
 
 
 class MockResponse:
@@ -90,6 +91,21 @@ class CancellationOrchestratorTests(unittest.TestCase):
                 return MockResponse(200, {"valid": True, "reason": "OK", "status": "VALID"})
             if method == "GET" and url.endswith(f"/user/{USER_ID}"):
                 return MockResponse(200, {"userID": USER_ID, "email": "fan@example.com", "name": "Fan"})
+            if method == "GET" and "/users?page=" in url:
+                return MockResponse(
+                    200,
+                    {
+                        "users": [
+                            {"userID": USER_ID, "email": "fan@example.com", "name": "Fan"},
+                            {
+                                "userID": "00000000-0000-0000-0000-000000000099",
+                                "email": "newfan@example.com",
+                                "name": "New Fan",
+                            },
+                        ],
+                        "pagination": {"page": 1, "pageSize": 100, "total": 2, "totalPages": 1},
+                    },
+                )
             if method == "GET" and url.endswith(f"/event/{EVENT_ID}"):
                 return MockResponse(200, {"event_id": EVENT_ID, "name": "Coldplay Live"})
             return MockResponse(500, {"error": "unexpected"})
@@ -142,6 +158,10 @@ class CancellationOrchestratorTests(unittest.TestCase):
                 return MockResponse(200, {"ticketID": OLD_TICKET_ID, "newStatus": "CANCELLED"})
             if method == "PUT" and url.endswith(f"/inventory/hold/{OLD_HOLD_ID}/release"):
                 return MockResponse(200, {"holdID": OLD_HOLD_ID, "holdStatus": "RELEASED"})
+            if method == "GET" and url.endswith(f"/inventory/hold/{OLD_HOLD_ID}"):
+                return MockResponse(200, {"holdID": OLD_HOLD_ID, "seatID": OLD_SEAT_ID})
+            if method == "PUT" and url.endswith(f"/inventory/seat/{OLD_SEAT_ID}/status"):
+                return MockResponse(200, {"seatID": OLD_SEAT_ID, "status": "AVAILABLE"})
             if method == "GET" and url.endswith(f"/waitlist/status/{OLD_HOLD_ID}"):
                 return MockResponse(200, {"hasWaitlist": False, "entries": []})
             return MockResponse(500, {"error": "unexpected"})
@@ -158,6 +178,16 @@ class CancellationOrchestratorTests(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(payload["status"], "REFUND_COMPLETED")
         self.assertEqual(publish_mock.call_count, 3)
+
+        ticket_available_payload = next(
+            call.kwargs["payload"]
+            for call in publish_mock.call_args_list
+            if call.kwargs["payload"]["type"] == "TICKET_AVAILABLE_PUBLIC"
+        )
+        self.assertEqual(
+            sorted(ticket_available_payload["waitlistEmails"]),
+            ["fan@example.com", "newfan@example.com"],
+        )
 
     @patch.object(cancellation_orchestrator.requests, "request")
     @patch.object(cancellation_orchestrator, "publish_json")
@@ -242,6 +272,10 @@ class CancellationOrchestratorTests(unittest.TestCase):
                 return MockResponse(200, {"ticketID": OLD_TICKET_ID, "newStatus": "CANCELLED"})
             if method == "PUT" and url.endswith(f"/inventory/hold/{OLD_HOLD_ID}/release"):
                 return MockResponse(200, {"holdID": OLD_HOLD_ID, "holdStatus": "RELEASED"})
+            if method == "GET" and url.endswith(f"/inventory/hold/{OLD_HOLD_ID}"):
+                return MockResponse(200, {"holdID": OLD_HOLD_ID, "seatID": OLD_SEAT_ID})
+            if method == "PUT" and url.endswith(f"/inventory/seat/{OLD_SEAT_ID}/status"):
+                return MockResponse(200, {"seatID": OLD_SEAT_ID, "status": "PENDING_WAITLIST"})
             if method == "GET" and url.endswith(f"/waitlist/status/{OLD_HOLD_ID}"):
                 return MockResponse(
                     200,
@@ -294,6 +328,33 @@ class CancellationOrchestratorTests(unittest.TestCase):
         self.assertEqual(payload["waitlistID"], WAITLIST_ID)
         published_types = [call.kwargs["payload"]["type"] for call in publish_mock.call_args_list]
         self.assertIn("SEAT_AVAILABLE", published_types)
+
+        seat_available_payload = next(
+            call.kwargs["payload"]
+            for call in publish_mock.call_args_list
+            if call.kwargs["payload"]["type"] == "SEAT_AVAILABLE"
+        )
+        self.assertEqual(
+            seat_available_payload["paymentURL"],
+            f"http://localhost:5173/waitlist/confirm/{NEW_HOLD_ID}",
+        )
+
+    def test_build_waitlist_payment_url_uses_template_override(self):
+        app = cancellation_orchestrator.create_app(
+            {
+                "TESTING": True,
+                "WAITLIST_PAYMENT_URL_TEMPLATE": "https://tickets.example.com/waitlist/confirm/{holdID}",
+                "FRONTEND_BASE_URL": "http://localhost:5173",
+            }
+        )
+
+        with app.app_context():
+            payment_url = cancellation_orchestrator._build_waitlist_payment_url(NEW_HOLD_ID)
+
+        self.assertEqual(
+            payment_url,
+            f"https://tickets.example.com/waitlist/confirm/{NEW_HOLD_ID}",
+        )
 
     @patch.object(cancellation_orchestrator.requests, "request")
     @patch.object(cancellation_orchestrator, "publish_json")
@@ -447,6 +508,136 @@ class CancellationOrchestratorTests(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(payload["status"], "REALLOCATION_RECONCILIATION_REQUIRED")
         self.assertEqual(publish_mock.call_count, 0)
+
+    def test_get_cancellation_status_requires_user_id(self):
+        client = self._build_client()
+
+        response = client.get(f"/bookings/cancel/status/{BOOKING_ID}")
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json()
+        self.assertIn("userID", payload["error"])
+
+    @patch.object(cancellation_orchestrator.requests, "request")
+    def test_get_cancellation_status_denied(self, request_mock):
+        def side_effect(method, url, headers=None, json=None, timeout=None):
+            if method == "GET" and url.endswith(f"/payments/verify/{BOOKING_ID}"):
+                return MockResponse(
+                    200,
+                    {
+                        "bookingID": BOOKING_ID,
+                        "holdID": OLD_HOLD_ID,
+                        "userID": USER_ID,
+                        "eventID": EVENT_ID,
+                        "paymentStatus": "SUCCEEDED",
+                        "withinPolicy": False,
+                        "eligibleRefundAmount": "144.00",
+                    },
+                )
+            return MockResponse(500, {"error": "unexpected"})
+
+        request_mock.side_effect = side_effect
+        client = self._build_client()
+
+        response = client.get(
+            f"/bookings/cancel/status/{BOOKING_ID}?userID={USER_ID}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "DENIED")
+        self.assertTrue(payload["terminal"])
+
+    @patch.object(cancellation_orchestrator.requests, "request")
+    def test_get_cancellation_status_reallocation_pending(self, request_mock):
+        def side_effect(method, url, headers=None, json=None, timeout=None):
+            if method == "GET" and url.endswith(f"/payments/verify/{BOOKING_ID}"):
+                return MockResponse(
+                    200,
+                    {
+                        "bookingID": BOOKING_ID,
+                        "holdID": OLD_HOLD_ID,
+                        "userID": USER_ID,
+                        "eventID": EVENT_ID,
+                        "paymentStatus": "REFUND_SUCCEEDED",
+                        "withinPolicy": True,
+                        "eligibleRefundAmount": "144.00",
+                    },
+                )
+            if method == "GET" and url.endswith(f"/booking-status/{NEW_HOLD_ID}"):
+                return MockResponse(
+                    200,
+                    {
+                        "holdID": NEW_HOLD_ID,
+                        "uiStatus": "PROCESSING",
+                        "holdStatus": "HELD",
+                        "seatNumber": "D12",
+                        "updatedAt": "2026-04-08T10:10:10+00:00",
+                    },
+                )
+            return MockResponse(500, {"error": "unexpected"})
+
+        request_mock.side_effect = side_effect
+        client = self._build_client()
+
+        response = client.get(
+            (
+                f"/bookings/cancel/status/{BOOKING_ID}?"
+                f"userID={USER_ID}&newHoldID={NEW_HOLD_ID}"
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "REALLOCATION_PENDING")
+        self.assertFalse(payload["terminal"])
+        self.assertEqual(payload["reallocation"]["holdStatus"], "HELD")
+
+    @patch.object(cancellation_orchestrator.requests, "request")
+    def test_get_cancellation_status_reallocation_confirmed(self, request_mock):
+        def side_effect(method, url, headers=None, json=None, timeout=None):
+            if method == "GET" and url.endswith(f"/payments/verify/{BOOKING_ID}"):
+                return MockResponse(
+                    200,
+                    {
+                        "bookingID": BOOKING_ID,
+                        "holdID": OLD_HOLD_ID,
+                        "userID": USER_ID,
+                        "eventID": EVENT_ID,
+                        "paymentStatus": "REFUND_SUCCEEDED",
+                        "withinPolicy": True,
+                        "eligibleRefundAmount": "144.00",
+                    },
+                )
+            if method == "GET" and url.endswith(f"/booking-status/{NEW_HOLD_ID}"):
+                return MockResponse(
+                    200,
+                    {
+                        "holdID": NEW_HOLD_ID,
+                        "uiStatus": "CONFIRMED",
+                        "holdStatus": "CONFIRMED",
+                        "ticketID": NEW_TICKET_ID,
+                        "seatNumber": "D12",
+                        "updatedAt": "2026-04-08T10:20:20+00:00",
+                    },
+                )
+            return MockResponse(500, {"error": "unexpected"})
+
+        request_mock.side_effect = side_effect
+        client = self._build_client()
+
+        response = client.get(
+            (
+                f"/bookings/cancel/status/{BOOKING_ID}?"
+                f"userID={USER_ID}&newHoldID={NEW_HOLD_ID}"
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "REALLOCATION_CONFIRMED")
+        self.assertTrue(payload["terminal"])
+        self.assertEqual(payload["reallocation"]["ticketID"], NEW_TICKET_ID)
 
 
 if __name__ == "__main__":
