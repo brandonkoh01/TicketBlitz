@@ -7,6 +7,7 @@ import TicketPurchasePage from '@/pages/TicketPurchasePage.vue'
 import MyTicketsPage from '@/pages/MyTicketsPage.vue'
 import BookingPendingPage from '@/pages/BookingPendingPage.vue'
 import BookingResultPage from '@/pages/BookingResultPage.vue'
+import WaitlistListPage from '@/pages/WaitlistListPage.vue'
 import WaitlistStatusPage from '@/pages/WaitlistStatusPage.vue'
 import WaitlistConfirmPage from '@/pages/WaitlistConfirmPage.vue'
 import SignInPage from '@/pages/SignInPage.vue'
@@ -84,6 +85,15 @@ const router = createRouter({
       path: '/booking/result/:holdID',
       name: 'booking-result',
       component: BookingResultPage,
+      meta: {
+        requiresAuth: true,
+        allowedRoles: ['fan'],
+      },
+    },
+    {
+      path: '/waitlist',
+      name: 'waitlist-list',
+      component: WaitlistListPage,
       meta: {
         requiresAuth: true,
         allowedRoles: ['fan'],

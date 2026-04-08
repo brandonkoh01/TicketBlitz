@@ -14,6 +14,9 @@ async function loadRouterWithStore(store) {
   vi.doMock('@/pages/OrganiserDashboardPage.vue', () => ({ default: stubComponent }))
   vi.doMock('@/pages/TicketPurchasePage.vue', () => ({ default: stubComponent }))
   vi.doMock('@/pages/MyTicketsPage.vue', () => ({ default: stubComponent }))
+  vi.doMock('@/pages/WaitlistListPage.vue', () => ({ default: stubComponent }))
+  vi.doMock('@/pages/WaitlistStatusPage.vue', () => ({ default: stubComponent }))
+  vi.doMock('@/pages/WaitlistConfirmPage.vue', () => ({ default: stubComponent }))
   vi.doMock('@/pages/SignInPage.vue', () => ({ default: stubComponent }))
   vi.doMock('@/pages/SignUpPage.vue', () => ({ default: stubComponent }))
 
@@ -112,6 +115,23 @@ describe('router auth guards', () => {
     const router = await loadRouterWithStore(store)
 
     await router.push('/my-tickets')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('organiser-dashboard')
+  })
+
+  it('redirects organisers away from fan waitlist list route', async () => {
+    const store = {
+      initializeAuthStore: vi.fn().mockResolvedValue(undefined),
+      authEnabled: true,
+      isAuthenticated: { value: true },
+      currentRole: { value: 'organiser' },
+      roleHomePath: { value: '/organiser-dashboard' },
+    }
+
+    const router = await loadRouterWithStore(store)
+
+    await router.push('/waitlist')
     await router.isReady()
 
     expect(router.currentRoute.value.name).toBe('organiser-dashboard')

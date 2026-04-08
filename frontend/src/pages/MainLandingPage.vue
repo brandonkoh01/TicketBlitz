@@ -1,12 +1,4 @@
 <script setup>
-import { computed } from 'vue'
-import { useAuthStore } from '@/stores/authStore'
-import { useRoleNavigation } from '@/composables/useRoleNavigation'
-
-const authStore = useAuthStore()
-const isAuthenticated = computed(() => authStore.isAuthenticated.value)
-const { primaryNavItems: navItems } = useRoleNavigation()
-
 const heroMetrics = [
   { label: 'Global Tickets Sold', value: '2.5M+' },
   { label: 'Partner Venues', value: '120' },
@@ -59,41 +51,7 @@ const footerGroups = [
 
 <template>
   <main class="min-h-screen bg-[var(--swiss-bg)] text-[var(--swiss-fg)]">
-    <header class="border-b-4 border-black bg-white">
-      <div class="mx-auto flex max-w-[1800px] items-center justify-between gap-4 px-6 py-5 md:px-10">
-        <RouterLink to="/" class="block focus-visible:outline-none">
-          <p class="text-sm font-black uppercase tracking-[0.28em]">TicketBlitz</p>
-          <p class="text-[10px] font-medium uppercase tracking-[0.22em] text-black/65">Main Page 01</p>
-        </RouterLink>
-
-        <nav class="hidden items-center gap-6 lg:flex">
-          <component
-            :is="item.to === '#' ? 'a' : 'RouterLink'"
-            v-for="item in navItems"
-            :key="item.label"
-            :to="item.to !== '#' ? item.to : undefined"
-            :href="item.to === '#' ? '#' : undefined"
-            class="swiss-link-slide text-xs font-black uppercase tracking-[0.2em] focus-visible:outline-none"
-            :data-alt="item.label"
-          >
-            <span>{{ item.label }}</span>
-          </component>
-        </nav>
-
-        <div class="flex items-center gap-3">
-          <button
-            type="button"
-            aria-label="Search"
-            class="inline-flex h-11 w-11 items-center justify-center border-2 border-black text-lg font-black transition duration-200 ease-out hover:bg-black hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--swiss-accent)] focus-visible:ring-offset-2"
-          >
-            ⌕
-          </button>
-
-          <AuthSessionControls v-if="isAuthenticated" />
-          <UiButton v-else to="/sign-in" variant="primary" class="min-w-[9rem]">Login</UiButton>
-        </div>
-      </div>
-    </header>
+    <AppTopNav page-label="Main Page 01" />
 
     <section class="border-b-4 border-black">
       <div class="mx-auto grid max-w-[1800px] grid-cols-1 lg:grid-cols-12">
@@ -174,7 +132,7 @@ const footerGroups = [
           <div class="border-4 border-black bg-white p-6">
             <p class="text-xs font-black uppercase tracking-[0.2em]">Get Priority Access</p>
             <p class="mt-4 text-sm leading-relaxed">Join the waitlist to receive drop alerts, venue unlocks, and pre-sale inventory windows.</p>
-            <UiButton variant="accent" :full-width="true" class="mt-7">Join Waitlist</UiButton>
+            <UiButton to="/waitlist" variant="accent" :full-width="true" class="mt-7">Join Waitlist</UiButton>
           </div>
         </div>
       </div>

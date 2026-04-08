@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+import urllib.parse
 import uuid
 from typing import Any, Optional
 
@@ -536,6 +537,28 @@ class DownstreamClient:
             raise ExternalServiceError("Failed to cancel waitlist entry")
         return payload
 
+    def list_waitlist_entries_for_user(self, *, user_id: str, limit: int, correlation_id: str) -> list[dict[str, Any]]:
+        query = urllib.parse.urlencode(
+            {
+                "userID": user_id,
+                "limit": str(limit),
+            }
+        )
+        payload = self._request(
+            service_name="waitlist-service",
+            base_url=self.config.WAITLIST_SERVICE_URL,
+            method="GET",
+            path=f"/waitlist?{query}",
+            correlation_id=correlation_id,
+            auth_header=self.config.WAITLIST_SERVICE_AUTH_HEADER,
+            auth_token=self.config.INTERNAL_SERVICE_TOKEN,
+        )
+        entries = payload.get("entries") if isinstance(payload, dict) else None
+        if not isinstance(entries, list):
+            return []
+
+        return [entry for entry in entries if isinstance(entry, dict)]
+
     def _outsystems_enabled(self) -> bool:
         return bool(self.config.OUTSYSTEMS_BASE_URL and self.config.OUTSYSTEMS_API_KEY)
 
@@ -647,6 +670,92 @@ class ReservationOrchestrator:
 
         domain_user_id = _parse_uuid(user_id, "user.userID")
         return domain_user_id, user
+
+    @staticmethod
+    def _waitlist_entry_timestamp(waitlist_entry: dict[str, Any]) -> str:
+        joined_at = waitlist_entry.get("joinedAt")
+        if isinstance(joined_at, str):
+            return joined_at
+        return ""
+
+    @staticmethod
+    def _waitlist_status_sort_key(waitlist_entry: dict[str, Any]) -> int:
+        status = str(waitlist_entry.get("status") or "").upper()
+        if status == "HOLD_OFFERED":
+            return 0
+        if status == "WAITING":
+            return 1
+        return 2
+
+    def list_my_waitlist_entries(self, correlation_id: str, authenticated_user_id: str) -> dict[str, Any]:
+        domain_user_id, _ = self._resolve_domain_user(authenticated_user_id, correlation_id)
+
+        rows = self.client.list_waitlist_entries_for_user(
+            user_id=domain_user_id,
+            limit=200,
+            correlation_id=correlation_id,
+        )
+
+        active_statuses = {"WAITING", "HOLD_OFFERED"}
+        filtered_rows: list[dict[str, Any]] = []
+        event_ids: set[str] = set()
+
+        for row in rows:
+            status = str(row.get("status") or "").upper()
+            if status not in active_statuses:
+                continue
+
+            user_id = row.get("userID")
+            if isinstance(user_id, str) and user_id != domain_user_id:
+                continue
+
+            event_id = row.get("eventID")
+            if isinstance(event_id, str) and event_id:
+                event_ids.add(event_id)
+
+            filtered_rows.append(row)
+
+        event_map: dict[str, dict[str, Any]] = {}
+        for event_id in event_ids:
+            event = self.client.get_event(event_id, correlation_id)
+            if isinstance(event, dict):
+                event_map[event_id] = event
+
+        entries: list[dict[str, Any]] = []
+        for row in filtered_rows:
+            event_id = row.get("eventID") if isinstance(row.get("eventID"), str) else None
+            event = event_map.get(event_id or "", {})
+
+            entries.append(
+                {
+                    "waitlistID": row.get("waitlistID"),
+                    "eventID": event_id,
+                    "holdID": row.get("holdID"),
+                    "status": row.get("status"),
+                    "position": row.get("position"),
+                    "seatCategory": row.get("seatCategory"),
+                    "joinedAt": row.get("joinedAt"),
+                    "offeredAt": row.get("offeredAt"),
+                    "eventName": event.get("name"),
+                    "eventCode": event.get("event_code"),
+                    "venue": event.get("venue"),
+                    "eventDate": event.get("event_date"),
+                }
+            )
+
+        entries.sort(
+            key=lambda entry: (
+                self._waitlist_status_sort_key(entry),
+                self._waitlist_entry_timestamp(entry),
+            ),
+            reverse=False,
+        )
+
+        return {
+            "entries": entries,
+            "count": len(entries),
+            "correlationID": correlation_id,
+        }
 
     def reserve(self, payload: dict[str, Any], correlation_id: str) -> dict[str, Any]:
         user_id = _parse_uuid(payload.get("userID"), "userID")
@@ -977,6 +1086,21 @@ def leave_waitlist(waitlist_id: str):
         return _json_error(error, correlation_id)
     except Exception as error:  # pragma: no cover
         logger.exception("Unexpected error in /waitlist/leave/%s: %s", waitlist_id, error)
+        return _json_error(ApiError("Internal server error", 500), correlation_id)
+
+
+@reservation_bp.get("/reserve/waitlist/my")
+def list_my_waitlist_entries():
+    correlation_id = _resolve_correlation_id(None)
+    try:
+        authenticated_user_id = _resolve_authenticated_user_id(required=True)
+        service: ReservationOrchestrator = current_app.config["ORCHESTRATOR"]
+        payload = service.list_my_waitlist_entries(correlation_id, authenticated_user_id)
+        return _json_response(payload, 200, correlation_id)
+    except ApiError as error:
+        return _json_error(error, correlation_id)
+    except Exception as error:  # pragma: no cover
+        logger.exception("Unexpected error in /reserve/waitlist/my: %s", error)
         return _json_error(ApiError("Internal server error", 500), correlation_id)
 
 
