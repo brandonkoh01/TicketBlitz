@@ -96,7 +96,12 @@ async function onSelectCategory(category) {
           <article class="border-4 border-black bg-white p-6 md:p-8 xl:col-span-8">
             <div class="flex flex-wrap items-center gap-3">
               <span class="border-2 border-black bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em]">{{ eventSummary.code }}</span>
-              <span class="border-2 border-black bg-[var(--swiss-muted)] px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em]">{{ eventSummary.status }}</span>
+              <span
+                v-if="eventSummary.status !== 'FLASH_SALE_ACTIVE'"
+                class="border-2 border-black bg-[var(--swiss-muted)] px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em]"
+              >
+                {{ eventSummary.status }}
+              </span>
               <span
                 v-if="flashSale.isActive"
                 class="border-2 border-black bg-[var(--swiss-accent)] px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em]"
@@ -119,7 +124,7 @@ async function onSelectCategory(category) {
             </div>
 
             <div v-if="flashSale.isActive" class="mt-8 border-4 border-black bg-[var(--swiss-accent)] p-5">
-              <p class="text-xs font-black uppercase tracking-[0.2em]">Live Scenario 2 Sale</p>
+              <p class="text-xs font-black uppercase tracking-[0.2em]">Live Sale</p>
               <div class="mt-4 grid gap-4 md:grid-cols-3">
                 <div class="border-2 border-black bg-white p-3">
                   <p class="text-[10px] font-black uppercase tracking-[0.18em] text-black/60">Discount</p>

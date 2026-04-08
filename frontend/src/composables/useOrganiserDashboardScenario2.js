@@ -1,5 +1,6 @@
 import { computed, ref, watch } from 'vue'
 import { buildCorrelationId, HttpError } from '@/lib/httpClient'
+import { formatDateTimeSGT } from '@/lib/dateTimeFormat'
 import {
   endFlashSale,
   getEvents,
@@ -229,7 +230,8 @@ export function useOrganiserDashboardScenario2() {
 
       lastCorrelationID.value = response?.correlationID || correlationID
       const eventName = fallbackEventLabel(response?.eventName || selectedEventName.value)
-      const fallbackMessage = `Flash sale launched for ${eventName}. Expires at ${response?.expiresAt || 'N/A'}.`
+      const expiresAtLabel = formatDateTimeSGT(response?.expiresAt, { fallback: 'N/A' })
+      const fallbackMessage = `Flash sale launched for ${eventName}. Expires at ${expiresAtLabel}.`
       noticeMessage.value = buildBroadcastNotice({
         response,
         fallbackMessage,

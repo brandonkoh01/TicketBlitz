@@ -1,21 +1,6 @@
 import { computed, ref } from 'vue'
 import { useApiClient } from '@/composables/useApiClient'
-
-function formatDateTime(value) {
-  if (!value) return 'Not available'
-
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return 'Not available'
-
-  return new Intl.DateTimeFormat('en-SG', {
-    weekday: 'short',
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(parsed)
-}
+import { formatDateTimeSGT } from '@/lib/dateTimeFormat'
 
 function normalizeEntry(row) {
   const status = String(row?.status || '').toUpperCase()
@@ -29,13 +14,13 @@ function normalizeEntry(row) {
     seatCategory: row?.seatCategory || 'Unknown',
     joinedAt: row?.joinedAt || null,
     offeredAt: row?.offeredAt || null,
-    joinedAtLabel: formatDateTime(row?.joinedAt),
-    offeredAtLabel: formatDateTime(row?.offeredAt),
+    joinedAtLabel: formatDateTimeSGT(row?.joinedAt),
+    offeredAtLabel: formatDateTimeSGT(row?.offeredAt),
     eventName: row?.eventName || 'Unknown Event',
     eventCode: row?.eventCode || 'N/A',
     venue: row?.venue || 'Venue pending',
     eventDate: row?.eventDate || null,
-    eventDateLabel: formatDateTime(row?.eventDate),
+    eventDateLabel: formatDateTimeSGT(row?.eventDate),
     isOfferReady: status === 'HOLD_OFFERED' && typeof row?.holdID === 'string' && row.holdID.trim().length > 0,
   }
 }

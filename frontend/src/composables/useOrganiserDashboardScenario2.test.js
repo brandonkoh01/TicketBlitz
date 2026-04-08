@@ -32,7 +32,7 @@ async function loadComposable({ launchResponse, endResponse } = {}) {
     launchResponse || {
       correlationID: 'corr-launch-1',
       eventName: 'Coldplay Live 2026',
-      expiresAt: '2026-04-08T16:00:00Z',
+      expiresAt: '2026-04-08T08:00:00Z',
       waitlistCount: 2,
       broadcastPublished: true,
     }
@@ -93,8 +93,25 @@ describe('useOrganiserDashboardScenario2', () => {
     await composable.launchSelectedFlashSale()
 
     expect(composable.noticeMessage.value).toContain('Flash sale launched for Coldplay Live 2026.')
+    expect(composable.noticeMessage.value).toContain('Expires at 08/04/26 04:00 PM SGT.')
     expect(composable.noticeMessage.value).toContain('Broadcast published for 2 waitlisted fans.')
+    expect(composable.noticeMessage.value).not.toContain('T08:00:00Z')
     expect(composable.noticeMessage.value).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)
+  })
+
+  it('uses N/A fallback when launch response has no expiresAt', async () => {
+    const { composable } = await loadComposable({
+      launchResponse: {
+        correlationID: 'corr-launch-2',
+        eventName: 'Coldplay Live 2026',
+        waitlistCount: 2,
+        broadcastPublished: true,
+      },
+    })
+
+    await composable.launchSelectedFlashSale()
+
+    expect(composable.noticeMessage.value).toContain('Expires at N/A.')
   })
 
   it('falls back to selected event name for end notice when response omits eventName', async () => {

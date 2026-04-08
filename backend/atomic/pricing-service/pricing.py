@@ -684,7 +684,7 @@ def create_app() -> Flask:
         for category in categories:
             category_id = category.get("category_id")
             available = available_counts.get(category_id)
-            sold_out = available is not None and available <= 0
+            sold_out = (available or 0) <= 0
 
             category_rows.append(
                 {

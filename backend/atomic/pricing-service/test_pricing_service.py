@@ -268,6 +268,45 @@ class PricingServiceTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 409)
 
+    def test_get_effective_pricing_marks_missing_seat_rows_as_sold_out(self):
+        event_id = "00000000-0000-0000-0000-000000000001"
+        cat1_id = "00000000-0000-0000-0000-000000000010"
+        cat2_id = "00000000-0000-0000-0000-000000000011"
+
+        categories = [
+            {
+                "category_id": cat1_id,
+                "category_code": "CAT1",
+                "name": "Category 1",
+                "base_price": "100.00",
+                "current_price": "100.00",
+                "currency": "SGD",
+                "is_active": True,
+            },
+            {
+                "category_id": cat2_id,
+                "category_code": "CAT2",
+                "name": "Category 2",
+                "base_price": "120.00",
+                "current_price": "120.00",
+                "currency": "SGD",
+                "is_active": True,
+            },
+        ]
+
+        with patch.object(pricing_module, "db_configured", return_value=True), \
+            patch.object(pricing_module, "_fetch_event", return_value={"event_id": event_id, "status": "ACTIVE"}), \
+            patch.object(pricing_module, "_fetch_categories_for_event", return_value=categories), \
+            patch.object(pricing_module, "_find_active_flash_sale", return_value=None), \
+            patch.object(pricing_module, "_available_counts_by_category", return_value={cat2_id: 2}):
+            response = self.client.get(f"/pricing/{event_id}")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        returned_categories = {entry["category"]: entry for entry in body["categories"]}
+        self.assertEqual(returned_categories["CAT1"]["status"], "SOLD_OUT")
+        self.assertEqual(returned_categories["CAT2"]["status"], "AVAILABLE")
+
 
 if __name__ == "__main__":
     unittest.main()

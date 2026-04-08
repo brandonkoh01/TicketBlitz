@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { HttpError } from '@/lib/httpClient'
+import { formatDateTimeSGT } from '@/lib/dateTimeFormat'
 import { getEvents, getPricingSnapshot } from '@/lib/scenario2Api'
 
 function formatMoney(value, currency = 'SGD') {
@@ -15,19 +16,7 @@ function formatMoney(value, currency = 'SGD') {
 }
 
 function formatEventDate(value) {
-  if (!value) return 'Date pending'
-
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return 'Date pending'
-
-  return new Intl.DateTimeFormat('en-SG', {
-    weekday: 'short',
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(parsed)
+  return formatDateTimeSGT(value, { fallback: 'Date pending' })
 }
 
 function normalizeCatalogError(error) {
