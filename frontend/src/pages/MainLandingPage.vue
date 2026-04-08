@@ -1,41 +1,16 @@
 <script setup>
-const heroMetrics = [
-  { label: 'Global Tickets Sold', value: '2.5M+' },
-  { label: 'Partner Venues', value: '120' },
-  { label: 'Verified Artists', value: '500+' },
-]
+import { useHomeEventShowcase } from '@/composables/useHomeEventShowcase'
 
-const featureEvent = {
-  name: 'Neon Overdrive Tour',
-  city: 'Tokyo',
-  date: 'Nov 19 2026',
-  copy: 'Flash-demand access architecture tuned for global premiere nights and large-volume synchronized drops.',
-}
-
-const events = [
-  {
-    title: 'Synthwave Night',
-    dateLocation: 'Nov 24 - Berlin',
-    price: '$89.00',
-    status: 'Sold Out',
-    action: 'Details',
-  },
-  {
-    title: 'Rock Revival 2026',
-    dateLocation: 'Dec 02 - London',
-    price: '$125.00',
-    status: 'Low Stock',
-    action: 'Buy Now',
-    actionTo: '/ticket-purchase',
-  },
-  {
-    title: 'Jazz Fusion Fest',
-    dateLocation: 'Dec 15 - NYC',
-    price: '$65.00',
-    status: 'Available',
-    action: 'Details',
-  },
-]
+const {
+  heroBanners,
+  upcomingEvents,
+  featuredEvent,
+  loadingUpcoming,
+  loadingFeatured,
+  upcomingErrorMessage,
+  featuredErrorMessage,
+  reloadHome,
+} = useHomeEventShowcase()
 
 const footerGroups = [
   {
@@ -69,50 +44,28 @@ const footerGroups = [
             Experience high-demand global tours. No queues, no delays. Secure your front-row spot in milliseconds.
           </p>
 
-          <div class="mt-10 flex flex-col gap-4 sm:flex-row">
-            <UiButton to="/events" variant="primary" :full-width="true" class="sm:w-auto">Explore Events</UiButton>
-            <UiButton variant="secondary" :full-width="true" class="sm:w-auto">Live Map</UiButton>
-          </div>
+          <UiButton to="/events" variant="primary" :full-width="true" class="mt-10 sm:w-auto">Explore Events</UiButton>
 
-          <div class="mt-10 grid gap-4 md:grid-cols-3">
-            <MetricCard v-for="item in heroMetrics" :key="item.label" :label="item.label" :value="item.value" />
-          </div>
+          <HomeHeroBannerStrip :banners="heroBanners" />
         </div>
 
         <aside class="swiss-dots bg-[var(--swiss-muted)] p-6 md:p-10 lg:col-span-4 lg:p-14">
           <SectionLabel index="02." label="Featured Event" />
-          <div class="mt-8 border-4 border-black bg-white p-6">
-            <p class="text-xs font-bold uppercase tracking-[0.2em] text-black/70">{{ featureEvent.city }} - {{ featureEvent.date }}</p>
-            <h2 class="mt-4 text-4xl font-black uppercase leading-[0.92] tracking-tight">{{ featureEvent.name }}</h2>
-            <p class="mt-6 text-sm leading-relaxed">{{ featureEvent.copy }}</p>
-            <div class="mt-8 grid grid-cols-2 gap-3">
-              <div class="swiss-grid-pattern aspect-square border-2 border-black bg-[var(--swiss-muted)]" />
-              <div class="swiss-diagonal aspect-square border-2 border-black bg-[var(--swiss-accent)]" />
-              <div class="aspect-square border-2 border-black bg-black" />
-              <div class="swiss-dots aspect-square border-2 border-black bg-white" />
-            </div>
-          </div>
+          <HomeFeaturedEventPanel
+            :event="featuredEvent"
+            :loading="loadingFeatured"
+            :error-message="featuredErrorMessage"
+          />
         </aside>
       </div>
     </section>
 
-    <section class="border-b-4 border-black bg-[var(--swiss-muted)]">
-      <div class="mx-auto max-w-[1800px] px-6 py-10 md:px-10 md:py-14">
-        <SectionLabel index="03." label="Upcoming Blitz Events" />
-        <div class="mt-8 grid gap-5 lg:grid-cols-3">
-          <EventCard
-            v-for="event in events"
-            :key="event.title"
-            :title="event.title"
-            :date-location="event.dateLocation"
-            :price="event.price"
-            :status="event.status"
-            :action="event.action"
-            :action-to="event.actionTo"
-          />
-        </div>
-      </div>
-    </section>
+    <HomeUpcomingEventsSection
+      :events="upcomingEvents"
+      :loading="loadingUpcoming"
+      :error-message="upcomingErrorMessage"
+      @refresh="reloadHome"
+    />
 
     <section class="border-b-4 border-black bg-white">
       <div class="mx-auto grid max-w-[1800px] grid-cols-1 lg:grid-cols-12">
