@@ -637,6 +637,29 @@ Implemented direct call usage in Python backend:
   - `POST /eticket/generate` via Kong route `/eticket/generate`
 - Cancellation orchestrator:
   - Uses transfer/update style behavior through OutSystems helper calls in cancellation flow for ticket ownership and transfer/reissue state updates
+ 
+# E-Ticket Service Endpoints
+
+| Method | Path | Auth | Request | Success | Error Codes | Notes |
+|---|---|---|---|---|---|---|
+| POST | /eticket/generate | Custom internal auth (API key/header) | JSON { holdID, transactionID?, userID, eventID, seatID, seatNumber, correlationID?, metadata? } | 201 created, 200 idempotent replay | 400, 500 | Only endpoint that returns 201 on new create. |
+| GET | /eticket/hold/{holdID} | Custom internal auth (API key/header) | path holdID | 200 ticket by hold | 400, 404, 500 | Used by booking-status polling. |
+| GET | /eticket/validate | Custom internal auth (API key/header) | query ticketID, userID | 200 validation result | 400, 403, 404, 409, 500 | 403 owner mismatch, 409 non-VALID ticket state. |
+| PUT | /etickets/status/{ticketID} | Custom internal auth (API key/header) | path ticketID, JSON { status, correlationID? } | 200 status updated | 400, 404, 409, 500 | Enforces allowed status transitions only. |
+| POST | /etickets/update | Custom internal auth (API key/header) | JSON { oldTicketID, operation, newOwnerUserID?, newHoldID?, newSeatID?, newSeatNumber?, correlationID?, newTransactionID? } | 200 cancel-only / transfer / replay | 400, 404, 409, 500 | Supports CANCEL_ONLY and TRANSFER_AND_REISSUE. |
+| GET | /etickets/user/{userID} | Custom internal auth (API key/header) | path userID | 200 ticket list + count | 400, 500 | Returns empty list with 200 when user has no tickets. |
+
+## Short Error Code Legend
+
+| Code | Meaning |
+|---|---|
+| 400 | Bad request (missing/invalid input) |
+| 401 | Unauthorized (invalid/missing auth token/key) |
+| 403 | Forbidden (owner mismatch / not allowed) |
+| 404 | Not found (ticket/hold/resource missing) |
+| 409 | Conflict (invalid state/transition/business rule conflict) |
+| 500 | Internal server error (unexpected failure) |
+
 
 ### 7.2 Integration configuration
 
