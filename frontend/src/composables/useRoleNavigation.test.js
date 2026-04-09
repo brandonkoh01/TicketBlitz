@@ -30,7 +30,7 @@ describe('useRoleNavigation', () => {
 
     expect(navigation.dashboardLabel.value).toBe('Dashboard')
     expect(navigation.dashboardPath.value).toBe('/organiser-dashboard')
-    expect(navigation.primaryNavItems.value[2]).toEqual({
+    expect(navigation.primaryNavItems.value[1]).toEqual({
       label: 'Dashboard',
       to: '/organiser-dashboard',
     })
@@ -38,6 +38,7 @@ describe('useRoleNavigation', () => {
       label: 'Events',
       to: '/events',
     })
+    expect(navigation.primaryNavItems.value).toHaveLength(2)
   })
 
   it('shows My Tickets and fan dashboard path for fans', async () => {
@@ -49,6 +50,10 @@ describe('useRoleNavigation', () => {
 
     expect(navigation.dashboardLabel.value).toBe('My Tickets')
     expect(navigation.dashboardPath.value).toBe('/my-tickets')
+    expect(navigation.primaryNavItems.value[1]).toEqual({
+      label: 'Waitlist',
+      to: '/waitlist',
+    })
     expect(navigation.primaryNavItems.value[2]).toEqual({
       label: 'My Tickets',
       to: '/my-tickets',

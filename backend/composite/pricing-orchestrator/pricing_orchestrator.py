@@ -462,6 +462,32 @@ class PricingOrchestratorWorker:
 
         return list(dedupe.keys())
 
+    def _load_event_name(self, event_id: str) -> str:
+        try:
+            body = self._request_json(
+                "GET",
+                "event-service",
+                self.config.event_service_url,
+                f"/event/{event_id}",
+                expected_statuses=[200],
+            )
+        except DownstreamCallError as error:
+            logger.warning(
+                "Unable to load event name for eventID=%s status=%s service=%s message=%s",
+                event_id,
+                error.status_code,
+                error.service,
+                error.message,
+            )
+            return "your event"
+
+        event_name = str(body.get("name") or "").strip()
+        if event_name:
+            return event_name
+
+        logger.warning("Event name missing for eventID=%s. Falling back to generic label.", event_id)
+        return "your event"
+
     def _is_category_available(self, event_id: str, category_code: str) -> bool:
         inventory = self._request_json(
             "GET",
@@ -493,6 +519,7 @@ class PricingOrchestratorWorker:
         sold_out_category = validated["soldOutCategory"]
         sold_at = validated["soldAt"]
         flash_sale_id_from_event = validated["flashSaleID"]
+        event_name = self._load_event_name(event_id)
 
         effective_correlation_id = correlation_id or str(uuid.uuid4())
 
@@ -661,6 +688,7 @@ class PricingOrchestratorWorker:
             {
                 "type": "PRICE_ESCALATED",
                 "eventID": event_id,
+                "eventName": event_name,
                 "flashSaleID": active_flash_sale_id,
                 "soldOutCategory": sold_out_category,
                 "updatedPrices": updated_prices,

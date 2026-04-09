@@ -58,15 +58,68 @@ async function fetchEventNameLookup(api, bookings) {
   return lookup;
 }
 
-function normalizeBookingToTicketCard(booking, eventNameLookup) {
+async function fetchBookingStatusLookup(api, bookings) {
+  const holdIDs = [
+    ...new Set(
+      bookings
+        .map((booking) => String(booking?.holdID || "").trim())
+        .filter(Boolean),
+    ),
+  ];
+  if (holdIDs.length === 0) return new Map();
+
+  const results = await Promise.allSettled(
+    holdIDs.map(async (holdID) => {
+      const payload = await api.get(
+        `/booking-status/${encodeURIComponent(holdID)}`,
+        {
+          includeUserHeader: false,
+        },
+      );
+
+      return {
+        holdID,
+        seatNumber: String(payload?.seatNumber || "").trim(),
+        ticketID: String(payload?.ticketID || "").trim(),
+      };
+    }),
+  );
+
+  const lookup = new Map();
+  for (const result of results) {
+    if (result.status !== "fulfilled") continue;
+
+    const holdID = String(result.value?.holdID || "").trim();
+    if (!holdID) continue;
+
+    lookup.set(holdID, {
+      seatNumber: result.value?.seatNumber || "",
+      ticketID: result.value?.ticketID || "",
+    });
+  }
+
+  return lookup;
+}
+
+function normalizeBookingToTicketCard(
+  booking,
+  eventNameLookup,
+  bookingStatusLookup,
+) {
   const lifecycleStatus = mapBookingLifecycleStatus(booking);
   const eventID = String(booking?.eventID || "").trim();
+  const holdID = String(booking?.holdID || booking?.bookingID || "").trim();
+  const bookingStatus = bookingStatusLookup.get(holdID) || null;
+  const resolvedTicketID =
+    bookingStatus?.ticketID || booking?.ticketID || booking?.bookingID || null;
+  const resolvedSeatNumber =
+    bookingStatus?.seatNumber || booking?.seatNumber || null;
 
   return {
     bookingID: booking?.bookingID || null,
-    holdID: booking?.holdID || booking?.bookingID || null,
-    ticketID: booking?.bookingID || null,
-    seatNumber: null,
+    holdID: holdID || null,
+    ticketID: resolvedTicketID,
+    seatNumber: resolvedSeatNumber,
     eventID: eventID || null,
     eventName: eventNameLookup.get(eventID) || fallbackEventName(eventID),
     status: mapLifecycleLabel(lifecycleStatus),
@@ -165,11 +218,18 @@ export function useUserBookings() {
         userID,
         statuses: ACTIVE_BOOKING_STATUSES,
       });
-      const eventNameLookup = await fetchEventNameLookup(api, bookings);
+      const [eventNameLookup, bookingStatusLookup] = await Promise.all([
+        fetchEventNameLookup(api, bookings),
+        fetchBookingStatusLookup(api, bookings),
+      ]);
 
       tickets.value = bookings
         .map((booking) =>
-          normalizeBookingToTicketCard(booking, eventNameLookup),
+          normalizeBookingToTicketCard(
+            booking,
+            eventNameLookup,
+            bookingStatusLookup,
+          ),
         )
         .sort(
           (left, right) =>

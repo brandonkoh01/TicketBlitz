@@ -188,6 +188,54 @@ def build_notification_template_definitions() -> List[EmailTemplateDefinition]:
         )
     )
 
+    flash_sale_launched_html = body_shell(
+        inner_html=(
+            title_block(
+                eyebrow="Flash Sale Launched",
+                heading="A flash sale is live for your event",
+                subheading="Limited-time pricing is now active. Grab your seats before this window closes.",
+            )
+            + summary_table(
+                [
+                    ("Event", token("eventName")),
+                    ("Discount", token("discountPercentage")),
+                    ("Ends At", token("expiresAtDisplay")),
+                ]
+            )
+        )
+    )
+
+    price_escalated_html = body_shell(
+        inner_html=(
+            title_block(
+                eyebrow="Price Escalation",
+                heading="Prices updated due to high demand",
+                subheading="A seat category has sold out and prices for remaining categories were adjusted.",
+            )
+            + summary_table(
+                [
+                    ("Event", token("eventName")),
+                    ("Sold Out Category", token("soldOutCategory")),
+                ]
+            )
+        )
+    )
+
+    flash_sale_ended_html = body_shell(
+        inner_html=(
+            title_block(
+                eyebrow="Flash Sale Ended",
+                heading="Flash sale pricing has ended",
+                subheading="Standard pricing has been restored for available categories.",
+            )
+            + summary_table(
+                [
+                    ("Event", token("eventName")),
+                ]
+            )
+        )
+    )
+
     return [
         EmailTemplateDefinition(
             notification_type="BOOKING_CONFIRMED",
@@ -343,6 +391,54 @@ def build_notification_template_definitions() -> List[EmailTemplateDefinition]:
                     "Ticket ID: {{ticketID}}",
                     "Seat: {{seatNumber}}",
                     "Event: {{eventName}}",
+                ],
+            ),
+        ),
+        EmailTemplateDefinition(
+            notification_type="FLASH_SALE_LAUNCHED",
+            env_var="SENDGRID_TEMPLATE_FLASH_SALE_LAUNCHED",
+            template_name="TicketBlitz - Flash Sale Launched",
+            version_name="flash-sale-launched-v1",
+            subject="Flash sale live: {{eventName}}",
+            html_content=flash_sale_launched_html,
+            plain_content=plain_text(
+                heading="Flash Sale Launched",
+                lines=[
+                    "Event: {{eventName}}",
+                    "Discount: {{discountPercentage}}",
+                    "Ends At: {{expiresAtDisplay}}",
+                    "Updated Prices: {{updatedPrices}}",
+                ],
+            ),
+        ),
+        EmailTemplateDefinition(
+            notification_type="PRICE_ESCALATED",
+            env_var="SENDGRID_TEMPLATE_PRICE_ESCALATED",
+            template_name="TicketBlitz - Price Escalated",
+            version_name="price-escalated-v1",
+            subject="Price update: {{eventName}}",
+            html_content=price_escalated_html,
+            plain_content=plain_text(
+                heading="Price Escalated",
+                lines=[
+                    "Event: {{eventName}}",
+                    "Sold Out Category: {{soldOutCategory}}",
+                    "Updated Prices: {{updatedPrices}}",
+                ],
+            ),
+        ),
+        EmailTemplateDefinition(
+            notification_type="FLASH_SALE_ENDED",
+            env_var="SENDGRID_TEMPLATE_FLASH_SALE_ENDED",
+            template_name="TicketBlitz - Flash Sale Ended",
+            version_name="flash-sale-ended-v1",
+            subject="Flash sale ended: {{eventName}}",
+            html_content=flash_sale_ended_html,
+            plain_content=plain_text(
+                heading="Flash Sale Ended",
+                lines=[
+                    "Event: {{eventName}}",
+                    "Reverted Prices: {{revertedPrices}}",
                 ],
             ),
         ),

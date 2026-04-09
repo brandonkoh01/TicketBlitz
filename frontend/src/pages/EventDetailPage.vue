@@ -1,15 +1,10 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/authStore'
-import { useRoleNavigation } from '@/composables/useRoleNavigation'
 import { useFanEventDetailScenario2 } from '@/composables/useFanEventDetailScenario2'
 
 const route = useRoute()
 const router = useRouter()
-const authStore = useAuthStore()
-const isAuthenticated = computed(() => authStore.isAuthenticated.value)
-const { primaryNavItems: navItems } = useRoleNavigation()
 
 const eventID = computed(() =>
   typeof route.params.eventID === 'string' ? route.params.eventID : ''
@@ -56,41 +51,7 @@ async function onSelectCategory(category) {
 
 <template>
   <main class="min-h-screen bg-[var(--swiss-bg)] text-[var(--swiss-fg)]">
-    <header class="border-b-4 border-black bg-white">
-      <div class="mx-auto flex max-w-[1800px] items-center justify-between gap-4 px-6 py-5 md:px-10">
-        <RouterLink to="/" class="block focus-visible:outline-none">
-          <p class="text-sm font-black uppercase tracking-[0.28em]">TicketBlitz</p>
-          <p class="text-[10px] font-medium uppercase tracking-[0.22em] text-black/65">Main Page 01</p>
-        </RouterLink>
-
-        <nav class="hidden items-center gap-6 lg:flex">
-          <component
-            :is="item.to === '#' ? 'a' : 'RouterLink'"
-            v-for="item in navItems"
-            :key="item.label"
-            :to="item.to !== '#' ? item.to : undefined"
-            :href="item.to === '#' ? '#' : undefined"
-            class="swiss-link-slide text-xs font-black uppercase tracking-[0.2em] focus-visible:outline-none"
-            :data-alt="item.label"
-          >
-            <span>{{ item.label }}</span>
-          </component>
-        </nav>
-
-        <div class="flex items-center gap-3">
-          <button
-            type="button"
-            aria-label="Search"
-            class="inline-flex h-11 w-11 items-center justify-center border-2 border-black text-lg font-black transition duration-200 ease-out hover:bg-black hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--swiss-accent)] focus-visible:ring-offset-2"
-          >
-            ⌕
-          </button>
-
-          <AuthSessionControls v-if="isAuthenticated" />
-          <UiButton v-else to="/sign-in" variant="primary" class="min-w-[9rem]">Login</UiButton>
-        </div>
-      </div>
-    </header>
+    <AppTopNav page-label="Main Page 01" />
 
     <section class="border-b-4 border-black bg-white">
       <div class="mx-auto max-w-[1800px] px-6 py-8 md:px-10 md:py-10">
@@ -135,7 +96,12 @@ async function onSelectCategory(category) {
           <article class="border-4 border-black bg-white p-6 md:p-8 xl:col-span-8">
             <div class="flex flex-wrap items-center gap-3">
               <span class="border-2 border-black bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em]">{{ eventSummary.code }}</span>
-              <span class="border-2 border-black bg-[var(--swiss-muted)] px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em]">{{ eventSummary.status }}</span>
+              <span
+                v-if="eventSummary.status !== 'FLASH_SALE_ACTIVE'"
+                class="border-2 border-black bg-[var(--swiss-muted)] px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em]"
+              >
+                {{ eventSummary.status }}
+              </span>
               <span
                 v-if="flashSale.isActive"
                 class="border-2 border-black bg-[var(--swiss-accent)] px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em]"
@@ -158,7 +124,7 @@ async function onSelectCategory(category) {
             </div>
 
             <div v-if="flashSale.isActive" class="mt-8 border-4 border-black bg-[var(--swiss-accent)] p-5">
-              <p class="text-xs font-black uppercase tracking-[0.2em]">Live Scenario 2 Sale</p>
+              <p class="text-xs font-black uppercase tracking-[0.2em]">Live Sale</p>
               <div class="mt-4 grid gap-4 md:grid-cols-3">
                 <div class="border-2 border-black bg-white p-3">
                   <p class="text-[10px] font-black uppercase tracking-[0.18em] text-black/60">Discount</p>

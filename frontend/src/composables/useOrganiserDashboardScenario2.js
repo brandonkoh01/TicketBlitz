@@ -1,5 +1,6 @@
 import { computed, ref, watch } from 'vue'
 import { buildCorrelationId, HttpError } from '@/lib/httpClient'
+import { formatDateTimeSGT } from '@/lib/dateTimeFormat'
 import {
   endFlashSale,
   getEvents,
@@ -49,6 +50,41 @@ function normalizeDashboardError(error) {
   }
 
   return error?.message || 'Unexpected error. Please try again.'
+}
+
+function toCount(value) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return null
+  return Math.max(0, Math.floor(numeric))
+}
+
+function buildBroadcastNotice({ response, fallbackMessage }) {
+  const waitlistCount = toCount(response?.waitlistCount)
+  const published = response?.broadcastPublished === true
+
+  if (waitlistCount === null) {
+    return fallbackMessage
+  }
+
+  if (waitlistCount === 0) {
+    if (published) {
+      return `${fallbackMessage} Broadcast published, but there are no waitlisted fans for this event.`
+    }
+
+    return `${fallbackMessage} No waitlisted fans were targeted and no broadcast was published.`
+  }
+
+  if (published) {
+    return `${fallbackMessage} Broadcast published for ${waitlistCount} waitlisted fan${waitlistCount === 1 ? '' : 's'}.`
+  }
+
+  const eligibilityVerb = waitlistCount === 1 ? 'was' : 'were'
+  return `${fallbackMessage} Broadcast was not published even though ${waitlistCount} waitlisted fan${waitlistCount === 1 ? '' : 's'} ${eligibilityVerb} eligible.`
+}
+
+function fallbackEventLabel(value) {
+  const normalized = String(value || '').trim()
+  return normalized || 'your selected event'
 }
 
 export function useOrganiserDashboardScenario2() {
@@ -193,7 +229,13 @@ export function useOrganiserDashboardScenario2() {
       })
 
       lastCorrelationID.value = response?.correlationID || correlationID
-      noticeMessage.value = `Flash sale launched successfully. Expires at ${response?.expiresAt || 'N/A'}.`
+      const eventName = fallbackEventLabel(response?.eventName || selectedEventName.value)
+      const expiresAtLabel = formatDateTimeSGT(response?.expiresAt, { fallback: 'N/A' })
+      const fallbackMessage = `Flash sale launched for ${eventName}. Expires at ${expiresAtLabel}.`
+      noticeMessage.value = buildBroadcastNotice({
+        response,
+        fallbackMessage,
+      })
 
       await refreshScenario2State({ silent: true })
     } catch (error) {
@@ -227,7 +269,11 @@ export function useOrganiserDashboardScenario2() {
       })
 
       lastCorrelationID.value = response?.correlationID || correlationID
-      noticeMessage.value = 'Flash sale ended. Standard pricing restored for available categories.'
+      const eventName = fallbackEventLabel(response?.eventName || selectedEventName.value)
+      noticeMessage.value = buildBroadcastNotice({
+        response,
+        fallbackMessage: `Flash sale ended for ${eventName}. Standard pricing has been restored for available categories.`,
+      })
 
       await refreshScenario2State({ silent: true })
     } catch (error) {
@@ -243,6 +289,11 @@ export function useOrganiserDashboardScenario2() {
       label: eventRow.name,
     }))
   )
+
+  const selectedEventName = computed(() => {
+    const selected = events.value.find((eventRow) => eventRow.event_id === selectedEventID.value)
+    return fallbackEventLabel(selected?.name)
+  })
 
   const activeFlashSaleID = computed(() => {
     const pricingID = pricingSnapshot.value?.flashSaleID

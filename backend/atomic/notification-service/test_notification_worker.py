@@ -195,6 +195,37 @@ class NotificationWorkerTests(unittest.TestCase):
                 },
             )
 
+    def test_validate_payload_requires_event_name_for_flash_sale_notifications(self):
+        worker = notification.NotificationWorker(self._config())
+
+        with self.assertRaises(notification.PermanentNotificationError):
+            worker.validate_payload(
+                "FLASH_SALE_LAUNCHED",
+                {
+                    "type": "FLASH_SALE_LAUNCHED",
+                    "eventID": "evt-1",
+                    "flashSaleID": "fs-1",
+                    "updatedPrices": [{"category": "CAT1", "newPrice": 123.0}],
+                    "waitlistEmails": ["fan@example.com"],
+                },
+            )
+
+    def test_validate_payload_requires_discount_for_flash_sale_launch(self):
+        worker = notification.NotificationWorker(self._config())
+
+        with self.assertRaises(notification.PermanentNotificationError):
+            worker.validate_payload(
+                "FLASH_SALE_LAUNCHED",
+                {
+                    "type": "FLASH_SALE_LAUNCHED",
+                    "eventID": "evt-1",
+                    "eventName": "Coldplay Live 2026",
+                    "flashSaleID": "fs-1",
+                    "updatedPrices": [{"category": "CAT1", "newPrice": 123.0}],
+                    "waitlistEmails": ["fan@example.com"],
+                },
+            )
+
     def test_validate_payload_ticket_available_public_accepts_waitlist_emails(self):
         worker = notification.NotificationWorker(self._config())
 
@@ -249,11 +280,12 @@ class NotificationWorkerTests(unittest.TestCase):
 
         worker._sendgrid_client = _FakeSendGridClient(
             _FakeResponse(403, "forbidden"))
-        worker.send_email(
-            "BOOKING_CONFIRMED",
-            ["fan@example.com"],
-            {"eventName": "Coldplay Live"},
-        )
+        with self.assertRaises(notification.PermanentNotificationError):
+            worker.send_email(
+                "BOOKING_CONFIRMED",
+                ["fan@example.com"],
+                {"eventName": "Coldplay Live"},
+            )
 
         worker._sendgrid_client = _FakeSendGridClient(
             _FakeResponse(500, "server error"))
@@ -273,8 +305,9 @@ class NotificationWorkerTests(unittest.TestCase):
                 {"eventName": "Coldplay Live"},
             )
 
-    def test_send_email_non_production_sendgrid_http_401_falls_back(self):
+    def test_send_email_non_production_sendgrid_http_401_falls_back_when_opted_in(self):
         os.environ["SENDGRID_TEMPLATE_BOOKING_CONFIRMED"] = "d-template-id"
+        os.environ[notification.SENDGRID_AUTH_FALLBACK_ENV] = "1"
 
         worker = notification.NotificationWorker(
             self._config(is_production=False, api_key="test-key"))
@@ -287,6 +320,43 @@ class NotificationWorkerTests(unittest.TestCase):
             ["fan@example.com"],
             {"eventName": "Coldplay Live"},
         )
+
+    def test_send_email_non_production_sendgrid_http_401_raises_without_opt_in(self):
+        os.environ["SENDGRID_TEMPLATE_BOOKING_CONFIRMED"] = "d-template-id"
+
+        worker = notification.NotificationWorker(
+            self._config(is_production=False, api_key="test-key"))
+        worker._sendgrid_client = _FakeRaisingSendGridClient(
+            HTTPError(401, "Unauthorized", b"unauthorized", {})
+        )
+
+        with self.assertRaises(notification.PermanentNotificationError):
+            worker.send_email(
+                "BOOKING_CONFIRMED",
+                ["fan@example.com"],
+                {"eventName": "Coldplay Live"},
+            )
+
+    def test_send_email_non_production_quota_exceeded_is_transient(self):
+        os.environ["SENDGRID_TEMPLATE_BOOKING_CONFIRMED"] = "d-template-id"
+
+        worker = notification.NotificationWorker(
+            self._config(is_production=False, api_key="test-key"))
+        worker._sendgrid_client = _FakeRaisingSendGridClient(
+            HTTPError(
+                401,
+                "Unauthorized",
+                b'{"errors":[{"message":"Maximum credits exceeded"}]}',
+                {},
+            )
+        )
+
+        with self.assertRaises(notification.TransientNotificationError):
+            worker.send_email(
+                "BOOKING_CONFIRMED",
+                ["fan@example.com"],
+                {"eventName": "Coldplay Live"},
+            )
 
     def test_send_email_production_sendgrid_http_401_raises_permanent(self):
         os.environ["SENDGRID_TEMPLATE_BOOKING_CONFIRMED"] = "d-template-id"
@@ -304,7 +374,7 @@ class NotificationWorkerTests(unittest.TestCase):
                 {"eventName": "Coldplay Live"},
             )
 
-    def test_send_email_ticket_available_public_sends_per_recipient(self):
+    def test_send_email_ticket_available_public_sends_bulk(self):
         os.environ["SENDGRID_TEMPLATE_TICKET_AVAILABLE_PUBLIC"] = "d-template-id"
 
         worker = notification.NotificationWorker(
@@ -319,7 +389,7 @@ class NotificationWorkerTests(unittest.TestCase):
             {"eventName": "Lawrence Wong Live", "bookingID": "BK-777"},
         )
 
-        self.assertEqual(len(fake_client.sent), 3)
+        self.assertEqual(len(fake_client.sent), 1)
 
     def test_process_payload_allows_empty_waitlist_email_list(self):
         worker = notification.NotificationWorker(
@@ -330,11 +400,90 @@ class NotificationWorkerTests(unittest.TestCase):
             {
                 "type": "FLASH_SALE_LAUNCHED",
                 "eventID": "evt-1",
+                "eventName": "Coldplay Live 2026",
                 "flashSaleID": "fs-1",
+                "discountPercentage": "30.00%",
                 "updatedPrices": [{"category": "CAT1", "newPrice": 150.0}],
                 "waitlistEmails": [],
             }
         )
+
+    def test_process_payload_sends_flash_sale_email_when_template_is_configured(self):
+        os.environ["SENDGRID_TEMPLATE_FLASH_SALE_LAUNCHED"] = "d-template-id"
+
+        worker = notification.NotificationWorker(
+            self._config(is_production=False, api_key="test-key"))
+        worker._sendgrid_client = _FakeSendGridClient(_FakeResponse(202, "accepted"))
+
+        worker.process_payload(
+            {
+                "type": "FLASH_SALE_LAUNCHED",
+                "eventID": "10000000-0000-0000-0000-000000000501",
+                "eventName": "Coldplay Live 2026",
+                "flashSaleID": "b28df509-0fc2-4909-bf90-e14f0cfbd1de",
+                "updatedPrices": [{"category": "CAT1", "newPrice": 131.6}],
+                "waitlistEmails": ["fan@example.com"],
+                "expiresAt": "2026-04-08T05:56:55Z",
+                "discountPercentage": "30.00",
+            }
+        )
+
+        self.assertEqual(len(worker._sendgrid_client.sent), 1)
+
+    def test_build_template_data_formats_flash_sale_launch_fields_for_display(self):
+        worker = notification.NotificationWorker(self._config(is_production=False, api_key=""))
+
+        template_data = worker.build_template_data(
+            "FLASH_SALE_LAUNCHED",
+            {
+                "type": "FLASH_SALE_LAUNCHED",
+                "eventID": "10000000-0000-0000-0000-000000000501",
+                "eventName": "Coldplay Live 2026",
+                "flashSaleID": "b28df509-0fc2-4909-bf90-e14f0cfbd1de",
+                "discountPercentage": "30.00",
+                "updatedPrices": [{"category": "CAT1", "newPrice": 131.6}],
+                "waitlistEmails": ["fan@example.com"],
+                "expiresAt": "2026-04-08T05:56:55Z",
+            },
+        )
+
+        self.assertEqual(template_data["discountPercentage"], "30.00%")
+        self.assertEqual(template_data["expiresAtDisplay"], "08/04/26 01:56 PM SGT")
+
+    def test_validate_payload_rejects_invalid_fanout_waitlist_email(self):
+        worker = notification.NotificationWorker(
+            self._config(is_production=False, api_key=""))
+
+        with self.assertRaises(notification.PermanentNotificationError):
+            worker.validate_payload(
+                "PRICE_ESCALATED",
+                {
+                    "type": "PRICE_ESCALATED",
+                    "eventID": "10000000-0000-0000-0000-000000000501",
+                    "eventName": "Coldplay Live 2026",
+                    "flashSaleID": "b28df509-0fc2-4909-bf90-e14f0cfbd1de",
+                    "soldOutCategory": "CAT1",
+                    "updatedPrices": [{"category": "CAT2", "newPrice": 96.6}],
+                    "waitlistEmails": ["invalid-email"],
+                },
+            )
+
+    def test_send_email_missing_scenario2_template_raises_in_production(self):
+        worker = notification.NotificationWorker(
+            self._config(is_production=True, api_key="test-key"))
+        worker._sendgrid_client = _FakeSendGridClient(_FakeResponse(202, "accepted"))
+
+        with self.assertRaises(notification.PermanentNotificationError):
+            worker.send_email(
+                "FLASH_SALE_ENDED",
+                ["fan@example.com"],
+                {
+                    "eventID": "10000000-0000-0000-0000-000000000501",
+                    "eventName": "Coldplay Live 2026",
+                    "flashSaleID": "b28df509-0fc2-4909-bf90-e14f0cfbd1de",
+                    "revertedPrices": [{"category": "CAT1", "newPrice": 188.0}],
+                },
+            )
 
     def test_validate_payload_requires_incident_fields(self):
         worker = notification.NotificationWorker(

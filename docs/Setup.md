@@ -276,10 +276,13 @@ SUPABASE_SERVICE_KEY=<service-role-key>
 
 # RabbitMQ
 RABBITMQ_USER=ticketblitz
-RABBITMQ_PASSWORD=<your-password>
-RABBITMQ_URL=amqp://ticketblitz:<your-password>@rabbitmq:5672/
+RABBITMQ_PASSWORD=123
+RABBITMQ_URL=amqp://ticketblitz:123@rabbitmq:5672/
+# ↑ Uses Docker DNS "rabbitmq". For local venv outside Docker:
+#   RABBITMQ_URL=amqp://ticketblitz:123@localhost:5672/
 
-# Stripe
+# ── Stripe ───────────────────────────────────────────────────
+# Dashboard → Developers → API keys
 STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=
 
@@ -290,6 +293,9 @@ SENDGRID_TEMPLATE_BOOKING_CONFIRMED=d-...
 SENDGRID_TEMPLATE_WAITLIST_JOINED=d-...
 SENDGRID_TEMPLATE_SEAT_AVAILABLE=d-...
 SENDGRID_TEMPLATE_HOLD_EXPIRED=d-...
+SENDGRID_TEMPLATE_FLASH_SALE_LAUNCHED=d-...
+SENDGRID_TEMPLATE_PRICE_ESCALATED=d-...
+SENDGRID_TEMPLATE_FLASH_SALE_ENDED=d-...
 
 # OutSystems
 OUTSYSTEMS_BASE_URL=https://<your-env>.outsystemscloud.com
@@ -350,14 +356,26 @@ pip install -r requirements.txt
 ### 8.3 — Set local env for direct run
 
 ```bash
-export PYTHONPATH="$(cd ../.. && pwd)"
-export SUPABASE_URL="https://<project-ref>.supabase.co"
-export SUPABASE_SERVICE_KEY="<service-role-key>"
-export RABBITMQ_URL="amqp://ticketblitz:<password>@localhost:5672/"
+export SUPABASE_URL="https://your-project-ref.supabase.co"
+export SUPABASE_SERVICE_KEY="eyJ..."
+export RABBITMQ_URL="amqp://ticketblitz:123@localhost:5672/"
 export REQUIRE_INTERNAL_AUTH=1
 export INTERNAL_SERVICE_TOKEN="ticketblitz-internal-token"
 export PORT=5002
 ```
+
+**Windows (PowerShell):**
+```powershell
+$env:SUPABASE_URL="https://your-project-ref.supabase.co"
+$env:SUPABASE_SERVICE_KEY="eyJ..."
+$env:RABBITMQ_URL="amqp://ticketblitz:123@localhost:5672/"
+$env:REQUIRE_INTERNAL_AUTH="1"
+$env:INTERNAL_SERVICE_TOKEN="ticketblitz-internal-token"
+$env:PORT=5002
+```
+
+> 💡 Tip: Create a `dev.sh` (macOS) or `dev.ps1` (Windows) file in each service  
+> directory with these exports pre-filled. Add `dev.sh` and `dev.ps1` to `.gitignore`.
 
 ### 8.4 — Run the service
 
@@ -538,7 +556,10 @@ docker compose up rabbitmq -d
 docker compose ps rabbitmq
 ```
 
-### 11.2 — Create exchanges
+### 11.2 — Create exchanges via the Management UI
+
+Go to: **http://localhost:15672**  
+Login: username `ticketblitz` / password `123`
 
 Create both exchanges:
 
@@ -550,18 +571,33 @@ Create both exchanges:
 ### 11.3 — API commands
 
 ```bash
-curl -u "$RABBITMQ_USER:$RABBITMQ_PASSWORD" \
+curl -u ticketblitz:123 \
   -X PUT http://localhost:15672/api/exchanges/%2F/ticketblitz \
   -H "Content-Type: application/json" \
   -d '{"type":"topic","durable":true}'
 
-curl -u "$RABBITMQ_USER:$RABBITMQ_PASSWORD" \
+curl -u ticketblitz:123 \
   -X PUT http://localhost:15672/api/exchanges/%2F/ticketblitz.price \
   -H "Content-Type: application/json" \
   -d '{"type":"fanout","durable":true}'
 ```
 
-### 11.4 — Binding keys reference
+**Windows (PowerShell):**
+```powershell
+$headers = @{
+  Authorization = "Basic " + [Convert]::ToBase64String(
+    [Text.Encoding]::ASCII.GetBytes("ticketblitz:123"))
+  "Content-Type" = "application/json"
+}
+
+Invoke-RestMethod -Method Put -Uri "http://localhost:15672/api/exchanges/%2F/ticketblitz" `
+  -Headers $headers -Body '{"type":"topic","durable":true}'
+
+Invoke-RestMethod -Method Put -Uri "http://localhost:15672/api/exchanges/%2F/ticketblitz.price" `
+  -Headers $headers -Body '{"type":"fanout","durable":true}'
+```
+
+### 11.4 — RabbitMQ Binding Keys Reference
 
 | Binding Key | Exchange | Published by | Consumed by |
 |---|---|---|---|

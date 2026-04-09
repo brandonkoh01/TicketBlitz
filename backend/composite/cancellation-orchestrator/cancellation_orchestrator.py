@@ -315,22 +315,42 @@ def _fetch_public_announcement_emails() -> list[str]:
     return recipients
 
 
-def _resolve_public_announcement_emails(fallback_email: str) -> list[str]:
+def _resolve_public_announcement_emails(
+    fallback_email: str,
+    excluded_emails: list[str] | None = None,
+) -> list[str]:
     fallback_normalized = str(fallback_email or "").strip().lower()
+
+    excluded: set[str] = set()
+    for value in excluded_emails or []:
+        normalized = str(value or "").strip().lower()
+        if normalized and "@" in normalized:
+            excluded.add(normalized)
 
     try:
         recipients = _fetch_public_announcement_emails()
     except Exception as error:
         logger.warning("Falling back to single-recipient public announcement: %s", error)
-        return [fallback_normalized] if fallback_normalized else []
+        recipients = [fallback_normalized] if fallback_normalized else []
 
-    if fallback_normalized and fallback_normalized not in recipients:
-        recipients.append(fallback_normalized)
+    filtered: list[str] = []
+    seen: set[str] = set()
+    for recipient in recipients:
+        normalized = str(recipient or "").strip().lower()
+        if not normalized or "@" not in normalized:
+            continue
+        if normalized in excluded or normalized in seen:
+            continue
+        seen.add(normalized)
+        filtered.append(normalized)
 
-    if recipients:
-        return recipients
+    if filtered:
+        return filtered
 
-    return [fallback_normalized] if fallback_normalized else []
+    if fallback_normalized and fallback_normalized not in excluded:
+        return [fallback_normalized]
+
+    return []
 
 
 def _extract_event_name(event_id: str) -> str | None:
@@ -338,8 +358,25 @@ def _extract_event_name(event_id: str) -> str | None:
     status_code, payload = _request_json("GET", event_url, headers=_internal_headers())
     if status_code != 200 or not payload:
         return None
-    name = payload.get("name")
-    return str(name) if name else None
+
+    def _coerce_name(value: Any) -> str | None:
+        text = str(value or "").strip()
+        return text or None
+
+    for key in ("name", "eventName", "event_name"):
+        if isinstance(payload, dict) and key in payload:
+            resolved = _coerce_name(payload.get(key))
+            if resolved:
+                return resolved
+
+    nested_event = payload.get("event") if isinstance(payload, dict) else None
+    if isinstance(nested_event, dict):
+        for key in ("name", "eventName", "event_name"):
+            resolved = _coerce_name(nested_event.get(key))
+            if resolved:
+                return resolved
+
+    return None
 
 
 def _fetch_payment_verification(booking_id: str, *, strict_policy: bool = False) -> dict[str, Any]:
@@ -842,6 +879,8 @@ def _build_refund_success_payload(
     refund_amount: Any,
     waitlist_status: dict[str, Any],
 ) -> tuple[dict[str, Any], int]:
+    refreshed_event_name = _extract_event_name(event_id) or event_name
+
     has_waitlist = bool(waitlist_status.get("hasWaitlist"))
     entries = waitlist_status.get("entries") or []
     next_user = waitlist_status.get("nextUser") or (entries[0] if entries else None)
@@ -851,25 +890,37 @@ def _build_refund_success_payload(
     if not has_waitlist or not next_user:
         _update_seat_status(seat_id, "AVAILABLE")
         public_announcement_email = _extract_email_from_user(user_id)
-        public_announcement_recipients = _resolve_public_announcement_emails(public_announcement_email)
-        _publish_notification(
-            "TICKET_AVAILABLE_PUBLIC",
-            {
-                "email": public_announcement_email,
-                "waitlistEmails": public_announcement_recipients,
-                "bookingID": booking_id,
-                "eventID": event_id,
-                "eventName": event_name,
-                "holdID": old_hold_id,
-                "refundAmount": refund_amount,
-            },
+        public_announcement_recipients = _resolve_public_announcement_emails(
+            public_announcement_email,
+            excluded_emails=[public_announcement_email],
         )
+
+        if public_announcement_recipients:
+            _publish_notification(
+                "TICKET_AVAILABLE_PUBLIC",
+                {
+                    "email": public_announcement_recipients[0],
+                    "waitlistEmails": public_announcement_recipients,
+                    "bookingID": booking_id,
+                    "eventID": event_id,
+                    "eventName": refreshed_event_name,
+                    "holdID": old_hold_id,
+                    "refundAmount": refund_amount,
+                },
+            )
+        else:
+            logger.info(
+                "No public announcement recipients after excluding cancelling user. bookingID=%s eventID=%s",
+                booking_id,
+                event_id,
+            )
+
         return (
             {
                 "status": "REFUND_COMPLETED",
                 "bookingID": booking_id,
                 "eventID": event_id,
-                "eventName": event_name,
+                "eventName": refreshed_event_name,
                 "waitlistReallocation": "PUBLIC_INVENTORY",
                 "refundAmount": refund_amount,
             },
@@ -895,7 +946,7 @@ def _build_refund_success_payload(
         "SEAT_AVAILABLE",
         {
             "email": next_user_email,
-            "eventName": event_name,
+            "eventName": refreshed_event_name,
             "holdID": new_hold_id,
             "holdExpiry": new_hold.get("holdExpiry"),
             "paymentURL": _build_waitlist_payment_url(new_hold_id),
@@ -910,7 +961,7 @@ def _build_refund_success_payload(
             "status": "REALLOCATION_PENDING",
             "bookingID": booking_id,
             "eventID": event_id,
-            "eventName": event_name,
+            "eventName": refreshed_event_name,
             "refundAmount": refund_amount,
             "waitlistID": waitlist_id,
             "nextUserID": next_user_id,

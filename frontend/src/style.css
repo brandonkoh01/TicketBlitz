@@ -2,6 +2,9 @@
 @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
 @import "tailwindcss";
 
+@source inline("bg-[#ffd900]");
+@source inline("bg-[#fff9cc]");
+
 :root {
   --swiss-bg: #ffffff;
   --swiss-fg: #000000;

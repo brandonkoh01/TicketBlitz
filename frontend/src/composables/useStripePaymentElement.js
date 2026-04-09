@@ -16,6 +16,11 @@ async function getStripe() {
   return stripePromise
 }
 
+function isAlreadyDestroyedError(error) {
+  const message = String(error?.message || '').toLowerCase()
+  return message.includes('already been destroyed')
+}
+
 export function useStripePaymentElement() {
   const isReady = ref(false)
   const isSubmitting = ref(false)
@@ -35,6 +40,9 @@ export function useStripePaymentElement() {
     if (!mountNode) {
       throw new Error('Missing mount node for Stripe Payment Element.')
     }
+
+    // Ensure remount paths do not retain a stale Stripe element instance.
+    unmount()
 
     stripe = await getStripe()
     elements = stripe.elements({
@@ -82,13 +90,29 @@ export function useStripePaymentElement() {
   }
 
   function unmount() {
-    if (paymentElement) {
-      paymentElement.unmount()
-      paymentElement.destroy()
-      paymentElement = null
+    const element = paymentElement
+    paymentElement = null
+
+    if (element) {
+      try {
+        element.unmount()
+      } catch (error) {
+        if (!isAlreadyDestroyedError(error)) {
+          errorMessage.value = 'Payment form cleanup encountered an issue.'
+        }
+      }
+
+      try {
+        element.destroy()
+      } catch (error) {
+        if (!isAlreadyDestroyedError(error)) {
+          errorMessage.value = 'Payment form cleanup encountered an issue.'
+        }
+      }
     }
 
     elements = null
+    stripe = null
     isReady.value = false
   }
 

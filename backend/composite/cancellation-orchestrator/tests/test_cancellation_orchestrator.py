@@ -128,6 +128,8 @@ class CancellationOrchestratorTests(unittest.TestCase):
     @patch.object(cancellation_orchestrator.requests, "request")
     @patch.object(cancellation_orchestrator, "publish_json")
     def test_refund_success_no_waitlist(self, publish_mock, request_mock):
+        event_fetch_count = {"count": 0}
+
         def side_effect(method, url, headers=None, json=None, timeout=None):
             if method == "GET" and url.endswith(f"/payments/verify/{BOOKING_ID}"):
                 return MockResponse(
@@ -149,7 +151,9 @@ class CancellationOrchestratorTests(unittest.TestCase):
             if method == "GET" and url.endswith(f"/user/{USER_ID}"):
                 return MockResponse(200, {"userID": USER_ID, "email": "fan@example.com", "name": "Fan"})
             if method == "GET" and url.endswith(f"/event/{EVENT_ID}"):
-                return MockResponse(200, {"event_id": EVENT_ID, "name": "Coldplay Live"})
+                event_fetch_count["count"] += 1
+                event_name = "Coldplay Live (Updated)" if event_fetch_count["count"] >= 2 else "Coldplay Live"
+                return MockResponse(200, {"event_id": EVENT_ID, "name": event_name})
             if method == "PUT" and url.endswith(f"/payments/status/{BOOKING_ID}"):
                 return MockResponse(200, {"updated": True})
             if method == "POST" and url.endswith(f"/payments/refund/{BOOKING_ID}"):
@@ -164,6 +168,21 @@ class CancellationOrchestratorTests(unittest.TestCase):
                 return MockResponse(200, {"seatID": OLD_SEAT_ID, "status": "AVAILABLE"})
             if method == "GET" and url.endswith(f"/waitlist/status/{OLD_HOLD_ID}"):
                 return MockResponse(200, {"hasWaitlist": False, "entries": []})
+            if method == "GET" and "/users?page=" in url:
+                return MockResponse(
+                    200,
+                    {
+                        "users": [
+                            {"userID": USER_ID, "email": "fan@example.com", "name": "Fan"},
+                            {
+                                "userID": "00000000-0000-0000-0000-000000000099",
+                                "email": "newfan@example.com",
+                                "name": "New Fan",
+                            },
+                        ],
+                        "pagination": {"page": 1, "pageSize": 100, "total": 2, "totalPages": 1},
+                    },
+                )
             return MockResponse(500, {"error": "unexpected"})
 
         request_mock.side_effect = side_effect
@@ -177,6 +196,7 @@ class CancellationOrchestratorTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
         self.assertEqual(payload["status"], "REFUND_COMPLETED")
+        self.assertEqual(payload["eventName"], "Coldplay Live (Updated)")
         self.assertEqual(publish_mock.call_count, 3)
 
         ticket_available_payload = next(
@@ -184,10 +204,32 @@ class CancellationOrchestratorTests(unittest.TestCase):
             for call in publish_mock.call_args_list
             if call.kwargs["payload"]["type"] == "TICKET_AVAILABLE_PUBLIC"
         )
+        self.assertEqual(ticket_available_payload["eventName"], "Coldplay Live (Updated)")
         self.assertEqual(
             sorted(ticket_available_payload["waitlistEmails"]),
-            ["fan@example.com", "newfan@example.com"],
+            ["newfan@example.com"],
         )
+        self.assertNotIn("fan@example.com", ticket_available_payload["waitlistEmails"])
+
+    @patch.object(cancellation_orchestrator.requests, "request")
+    def test_extract_event_name_supports_alias_shapes(self, request_mock):
+        def side_effect(method, url, headers=None, json=None, timeout=None):
+            if method == "GET" and url.endswith(f"/event/{EVENT_ID}"):
+                return MockResponse(200, {"event": {"event_name": "Alias Event Name"}})
+            return MockResponse(500, {"error": "unexpected"})
+
+        request_mock.side_effect = side_effect
+        app = cancellation_orchestrator.create_app({
+            "TESTING": True,
+            "EVENT_SERVICE_URL": "http://event-service:5000",
+            "INTERNAL_SERVICE_TOKEN": "internal-token",
+            "INTERNAL_AUTH_HEADER": "X-Internal-Token",
+        })
+
+        with app.app_context():
+            event_name = cancellation_orchestrator._extract_event_name(EVENT_ID)
+
+        self.assertEqual(event_name, "Alias Event Name")
 
     @patch.object(cancellation_orchestrator.requests, "request")
     @patch.object(cancellation_orchestrator, "publish_json")

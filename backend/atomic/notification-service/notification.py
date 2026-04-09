@@ -3,6 +3,7 @@ import logging
 import os
 import signal
 import time
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -57,15 +58,23 @@ REQUIRED_FIELDS_BY_TYPE = {
     "REFUND_ERROR": ["email", "bookingID", "errorDetail", "nextSteps"],
     "TICKET_AVAILABLE_PUBLIC": ["bookingID", "eventName"],
     "TICKET_CONFIRMATION": ["email", "bookingID", "ticketID", "seatNumber", "eventName"],
-    "FLASH_SALE_LAUNCHED": ["eventID", "flashSaleID", "updatedPrices", "waitlistEmails"],
+    "FLASH_SALE_LAUNCHED": [
+        "eventID",
+        "eventName",
+        "flashSaleID",
+        "discountPercentage",
+        "updatedPrices",
+        "waitlistEmails",
+    ],
     "PRICE_ESCALATED": [
         "eventID",
+        "eventName",
         "flashSaleID",
         "soldOutCategory",
         "updatedPrices",
         "waitlistEmails",
     ],
-    "FLASH_SALE_ENDED": ["eventID", "flashSaleID", "revertedPrices", "waitlistEmails"],
+    "FLASH_SALE_ENDED": ["eventID", "eventName", "flashSaleID", "revertedPrices", "waitlistEmails"],
 }
 
 TEMPLATE_ENV_BY_TYPE = {
@@ -87,6 +96,7 @@ TEMPLATE_ENV_BY_TYPE = {
 
 WAITLIST_STATUS_URL_TEMPLATE_ENV = "WAITLIST_STATUS_URL_TEMPLATE"
 WAITLIST_STATUS_URL_TEMPLATE_DEFAULT = "/waitlist/{waitlistID}"
+SENDGRID_AUTH_FALLBACK_ENV = "NOTIFICATION_ALLOW_SENDGRID_AUTH_FALLBACK"
 
 
 class NotificationError(Exception):
@@ -120,6 +130,33 @@ def is_production_env() -> bool:
         if value and value.lower() in {"prod", "production"}:
             return True
     return False
+
+
+def _format_discount_percentage(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if text.endswith("%"):
+        return text
+    return f"{text}%"
+
+
+def _format_sgt_datetime(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "TBC"
+
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        logger.warning("Unable to parse expiresAt for display formatting: %s", text)
+        return text
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+
+    sgt = parsed.astimezone(timezone(timedelta(hours=8)))
+    return sgt.strftime("%d/%m/%y %I:%M %p SGT")
 
 
 @dataclass(frozen=True)
@@ -580,6 +617,12 @@ class NotificationWorker:
             if waitlist_status_url:
                 data["waitlistStatusURL"] = waitlist_status_url
 
+        if event_type == "FLASH_SALE_LAUNCHED":
+            data["discountPercentage"] = _format_discount_percentage(
+                data.get("discountPercentage")
+            )
+            data["expiresAtDisplay"] = _format_sgt_datetime(data.get("expiresAt"))
+
         data["notificationType"] = event_type
         return data
 
@@ -601,42 +644,29 @@ class NotificationWorker:
 
         return template.rstrip("/") + "/" + waitlist_id_value
 
+    def _allow_non_production_auth_fallback(self) -> bool:
+        value = os.getenv(SENDGRID_AUTH_FALLBACK_ENV, "0").strip().lower()
+        return value in {"1", "true", "yes", "on"}
+
+    def _normalise_sendgrid_error_detail(self, detail: Any) -> str:
+        if isinstance(detail, bytes):
+            return detail.decode("utf-8", errors="ignore")
+        return str(detail or "")
+
+    def _is_sendgrid_quota_error(self, detail: Any) -> bool:
+        text = self._normalise_sendgrid_error_detail(detail).lower()
+        quota_signals = (
+            "maximum credits exceeded",
+            "credits exceeded",
+            "messaging limits",
+            "exceeded your messaging",
+        )
+        return any(signal in text for signal in quota_signals)
+
     def send_email(self, event_type: str, recipients: List[str], template_data: Dict[str, Any]) -> None:
         if not recipients:
             logger.info(
                 "No recipients for type=%s. Skipping email dispatch.", event_type)
-            return
-
-        if event_type == "TICKET_AVAILABLE_PUBLIC" and len(recipients) > 1:
-            success_count = 0
-            failure_count = 0
-
-            for recipient in recipients:
-                try:
-                    self.send_email(event_type, [recipient], template_data)
-                    success_count += 1
-                except NotificationError as error:
-                    failure_count += 1
-                    logger.warning(
-                        "Public broadcast recipient delivery failed type=%s recipient=%s: %s",
-                        event_type,
-                        recipient,
-                        error,
-                    )
-
-            if success_count == 0 and failure_count > 0:
-                raise TransientNotificationError(
-                    "Failed to deliver TICKET_AVAILABLE_PUBLIC to all recipients"
-                )
-
-            if failure_count > 0:
-                logger.warning(
-                    "Partial broadcast delivery for type=%s success=%s failure=%s",
-                    event_type,
-                    success_count,
-                    failure_count,
-                )
-
             return
 
         template_env = TEMPLATE_ENV_BY_TYPE.get(event_type)
@@ -672,12 +702,20 @@ class NotificationWorker:
             response = self._sendgrid_client.send(message)
         except HTTPError as error:
             status_code = int(getattr(error, "status_code", 0) or 0)
-            detail = getattr(error, "body", None) or str(error)
+            detail = self._normalise_sendgrid_error_detail(
+                getattr(error, "body", None) or str(error)
+            )
 
             if status_code in {401, 403}:
-                if not self.config.is_production:
+                if self._is_sendgrid_quota_error(detail):
+                    raise TransientNotificationError(
+                        f"SendGrid quota exceeded with status {status_code}: {detail}"
+                    ) from error
+
+                if (not self.config.is_production) and self._allow_non_production_auth_fallback():
                     logger.warning(
-                        "Non-production fallback for invalid SendGrid credentials. status=%s type=%s",
+                        "Non-production fallback for invalid SendGrid credentials enabled by %s. status=%s type=%s",
+                        SENDGRID_AUTH_FALLBACK_ENV,
                         status_code,
                         event_type,
                     )
@@ -703,21 +741,34 @@ class NotificationWorker:
         if status_code == 202:
             return
 
-        if status_code in {401, 403} and not self.config.is_production:
-            logger.warning(
-                "Non-production fallback for invalid SendGrid credentials. status=%s type=%s",
-                status_code,
-                event_type,
+        body_text = self._normalise_sendgrid_error_detail(response.body)
+
+        if status_code in {401, 403}:
+            if self._is_sendgrid_quota_error(body_text):
+                raise TransientNotificationError(
+                    f"SendGrid quota exceeded with status {status_code}: {body_text}"
+                )
+
+            if (not self.config.is_production) and self._allow_non_production_auth_fallback():
+                logger.warning(
+                    "Non-production fallback for invalid SendGrid credentials enabled by %s. status=%s type=%s",
+                    SENDGRID_AUTH_FALLBACK_ENV,
+                    status_code,
+                    event_type,
+                )
+                return
+
+            raise PermanentNotificationError(
+                f"SendGrid authentication failed with status {status_code}: {body_text}"
             )
-            return
 
         if 400 <= status_code < 500 and status_code != 429:
             raise PermanentNotificationError(
-                f"SendGrid rejected request with status {status_code}: {response.body}"
+                f"SendGrid rejected request with status {status_code}: {body_text}"
             )
 
         raise TransientNotificationError(
-            f"SendGrid temporary failure with status {status_code}: {response.body}"
+            f"SendGrid temporary failure with status {status_code}: {body_text}"
         )
 
     def _handle_missing_config(self, detail: str) -> None:

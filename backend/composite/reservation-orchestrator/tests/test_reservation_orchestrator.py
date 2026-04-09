@@ -25,8 +25,20 @@ class FakeOrchestrator:
             "status": "CANCELLED",
             "waitlistID": "00000000-0000-0000-0000-000000000300",
         }
+        self.my_waitlist_response = {
+            "entries": [
+                {
+                    "waitlistID": "00000000-0000-0000-0000-000000000301",
+                    "eventID": "10000000-0000-0000-0000-000000000301",
+                    "status": "WAITING",
+                    "position": 2,
+                }
+            ],
+            "count": 1,
+        }
         self.last_authenticated_user_id = None
         self.last_leave_authenticated_user_id = None
+        self.last_my_waitlist_authenticated_user_id = None
         self.raise_error = None
 
     def reserve(self, payload, correlation_id):
@@ -50,6 +62,12 @@ class FakeOrchestrator:
             raise self.raise_error
         self.last_leave_authenticated_user_id = authenticated_user_id
         return self.leave_waitlist_response
+
+    def list_my_waitlist_entries(self, correlation_id, authenticated_user_id):
+        if self.raise_error:
+            raise self.raise_error
+        self.last_my_waitlist_authenticated_user_id = authenticated_user_id
+        return self.my_waitlist_response
 
 
 class ReservationOrchestratorRoutesTestCase(unittest.TestCase):
@@ -141,6 +159,25 @@ class ReservationOrchestratorRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.get_json()["error"], "Authenticated user header is required")
 
+    def test_list_my_waitlist_route(self):
+        response = self.client.get(
+            "/reserve/waitlist/my",
+            headers=self.auth_headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["entries"][0]["status"], "WAITING")
+        self.assertEqual(
+            self.fake.last_my_waitlist_authenticated_user_id,
+            self.auth_headers["X-User-ID"],
+        )
+
+    def test_list_my_waitlist_requires_auth_header(self):
+        response = self.client.get("/reserve/waitlist/my")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "Authenticated user header is required")
+
     def test_validation_error_mapping(self):
         self.fake.raise_error = reservation_app.ValidationError("bad payload")
         response = self.client.post(
@@ -206,13 +243,55 @@ class CanonicalUserDownstreamClient:
         self.last_hold_user_id = None
         self.last_payment_user_id = None
         self.last_cancel_waitlist_user_id = None
+        self.last_list_waitlist_user_id = None
+        self.waitlist_entries = [
+            {
+                "waitlistID": "00000000-0000-0000-0000-000000000401",
+                "eventID": "10000000-0000-0000-0000-000000000301",
+                "userID": self.DOMAIN_USER_ID,
+                "holdID": None,
+                "status": "WAITING",
+                "position": 3,
+                "seatCategory": "CAT1",
+                "joinedAt": "2026-04-08T10:00:00+00:00",
+                "offeredAt": None,
+            },
+            {
+                "waitlistID": "00000000-0000-0000-0000-000000000402",
+                "eventID": "10000000-0000-0000-0000-000000000302",
+                "userID": self.DOMAIN_USER_ID,
+                "holdID": "40000000-0000-0000-0000-000000000009",
+                "status": "HOLD_OFFERED",
+                "position": 1,
+                "seatCategory": "CAT2",
+                "joinedAt": "2026-04-08T09:00:00+00:00",
+                "offeredAt": "2026-04-08T10:15:00+00:00",
+            },
+            {
+                "waitlistID": "00000000-0000-0000-0000-000000000403",
+                "eventID": "10000000-0000-0000-0000-000000000303",
+                "userID": self.DOMAIN_USER_ID,
+                "holdID": None,
+                "status": "CONFIRMED",
+                "position": None,
+                "seatCategory": "CAT3",
+                "joinedAt": "2026-04-07T10:00:00+00:00",
+                "offeredAt": "2026-04-07T10:05:00+00:00",
+            },
+        ]
 
     def get_user(self, user_id, correlation_id):
         self.last_get_user_id = user_id
         return {"userID": self.DOMAIN_USER_ID, "email": "fan@example.com", "name": "Fan User"}
 
     def get_event(self, event_id, correlation_id):
-        return {"eventID": event_id, "name": "Sample Event"}
+        return {
+            "event_id": event_id,
+            "event_code": "EVT-TEST",
+            "name": "Sample Event",
+            "venue": "National Stadium",
+            "event_date": "2026-12-01T20:00:00+00:00",
+        }
 
     def get_inventory(self, event_id, seat_category, correlation_id):
         return {"available": 1, "status": "AVAILABLE"}
@@ -256,6 +335,20 @@ class CanonicalUserDownstreamClient:
     def cancel_waitlist(self, *, waitlist_id, user_id, correlation_id):
         self.last_cancel_waitlist_user_id = user_id
         return {"status": "CANCELLED", "waitlistID": waitlist_id}
+
+    def list_waitlist_entries_for_user(self, *, user_id, limit, correlation_id):
+        self.last_list_waitlist_user_id = user_id
+        return self.waitlist_entries[:limit]
+
+
+class VariantUserDownstreamClient(CanonicalUserDownstreamClient):
+    def __init__(self, user_payload):
+        super().__init__()
+        self._user_payload = user_payload
+
+    def get_user(self, user_id, correlation_id):
+        self.last_get_user_id = user_id
+        return self._user_payload
 
 
 class ReservationOrchestratorServiceTestCase(unittest.TestCase):
@@ -308,6 +401,117 @@ class ReservationOrchestratorServiceTestCase(unittest.TestCase):
         self.assertEqual(response["status"], "CANCELLED")
         self.assertEqual(response["userID"], client.DOMAIN_USER_ID)
         self.assertEqual(client.last_cancel_waitlist_user_id, client.DOMAIN_USER_ID)
+
+    def test_reserve_accepts_user_id_fallback_key(self):
+        config = type("Config", (), {"HTTP_MAX_RETRIES": 0})
+        client = VariantUserDownstreamClient(
+            {
+                "user_id": CanonicalUserDownstreamClient.DOMAIN_USER_ID,
+                "email": "fan@example.com",
+            }
+        )
+        service = reservation_app.ReservationOrchestrator(config, client)
+
+        response = service.reserve(
+            {
+                "userID": CanonicalUserDownstreamClient.AUTH_USER_ID,
+                "eventID": "10000000-0000-0000-0000-000000000301",
+                "seatCategory": "CAT1",
+                "qty": 1,
+            },
+            "20000000-0000-0000-0000-000000000001",
+        )
+
+        self.assertEqual(response["status"], "PAYMENT_PENDING")
+        self.assertEqual(client.last_hold_user_id, CanonicalUserDownstreamClient.DOMAIN_USER_ID)
+
+    def test_reserve_accepts_nested_user_payload(self):
+        config = type("Config", (), {"HTTP_MAX_RETRIES": 0})
+        client = VariantUserDownstreamClient(
+            {
+                "user": {
+                    "userID": CanonicalUserDownstreamClient.DOMAIN_USER_ID,
+                    "email": "fan@example.com",
+                }
+            }
+        )
+        service = reservation_app.ReservationOrchestrator(config, client)
+
+        response = service.reserve(
+            {
+                "userID": CanonicalUserDownstreamClient.AUTH_USER_ID,
+                "eventID": "10000000-0000-0000-0000-000000000301",
+                "seatCategory": "CAT1",
+                "qty": 1,
+            },
+            "20000000-0000-0000-0000-000000000001",
+        )
+
+        self.assertEqual(response["status"], "PAYMENT_PENDING")
+        self.assertEqual(client.last_hold_user_id, CanonicalUserDownstreamClient.DOMAIN_USER_ID)
+
+    def test_reserve_accepts_nested_data_payload(self):
+        config = type("Config", (), {"HTTP_MAX_RETRIES": 0})
+        client = VariantUserDownstreamClient(
+            {
+                "data": {
+                    "userID": CanonicalUserDownstreamClient.DOMAIN_USER_ID,
+                    "email": "fan@example.com",
+                }
+            }
+        )
+        service = reservation_app.ReservationOrchestrator(config, client)
+
+        response = service.reserve(
+            {
+                "userID": CanonicalUserDownstreamClient.AUTH_USER_ID,
+                "eventID": "10000000-0000-0000-0000-000000000301",
+                "seatCategory": "CAT1",
+                "qty": 1,
+            },
+            "20000000-0000-0000-0000-000000000001",
+        )
+
+        self.assertEqual(response["status"], "PAYMENT_PENDING")
+        self.assertEqual(client.last_hold_user_id, CanonicalUserDownstreamClient.DOMAIN_USER_ID)
+
+    def test_reserve_raises_external_service_error_when_user_id_missing(self):
+        config = type("Config", (), {"HTTP_MAX_RETRIES": 0})
+        client = VariantUserDownstreamClient({"email": "fan@example.com"})
+        service = reservation_app.ReservationOrchestrator(config, client)
+
+        with self.assertRaises(reservation_app.ExternalServiceError) as context:
+            service.reserve(
+                {
+                    "userID": CanonicalUserDownstreamClient.AUTH_USER_ID,
+                    "eventID": "10000000-0000-0000-0000-000000000301",
+                    "seatCategory": "CAT1",
+                    "qty": 1,
+                },
+                "20000000-0000-0000-0000-000000000001",
+            )
+
+        self.assertEqual(context.exception.message, "user-service response missing userID")
+        self.assertIsInstance(context.exception.details, dict)
+        self.assertEqual(context.exception.details.get("receivedType"), "dict")
+        self.assertIn("email", context.exception.details.get("topLevelKeys", []))
+
+    def test_list_my_waitlist_entries_maps_user_and_filters_active_status(self):
+        config = type("Config", (), {"HTTP_MAX_RETRIES": 0})
+        client = CanonicalUserDownstreamClient()
+        service = reservation_app.ReservationOrchestrator(config, client)
+
+        response = service.list_my_waitlist_entries(
+            "20000000-0000-0000-0000-000000000001",
+            authenticated_user_id=client.AUTH_USER_ID,
+        )
+
+        self.assertEqual(client.last_list_waitlist_user_id, client.DOMAIN_USER_ID)
+        self.assertEqual(response["count"], 2)
+        self.assertEqual(response["entries"][0]["status"], "HOLD_OFFERED")
+        self.assertEqual(response["entries"][1]["status"], "WAITING")
+        self.assertEqual(response["entries"][0]["eventName"], "Sample Event")
+        self.assertEqual(response["entries"][0]["eventCode"], "EVT-TEST")
 
 
 if __name__ == "__main__":

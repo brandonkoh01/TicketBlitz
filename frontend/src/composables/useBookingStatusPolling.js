@@ -1,4 +1,4 @@
-import { onUnmounted, ref } from 'vue'
+import { onUnmounted, ref, unref } from 'vue'
 import { useApiClient } from '@/composables/useApiClient'
 
 const TERMINAL_STATUSES = new Set(['CONFIRMED', 'FAILED_PAYMENT', 'EXPIRED'])
@@ -11,11 +11,21 @@ export function useBookingStatusPolling(holdID, { intervalMs = 2000, onTerminal 
   const errorMessage = ref('')
   let intervalId = null
 
+  function resolveHoldID() {
+    return String(unref(holdID) || '').trim()
+  }
+
   async function pollOnce({ reconcilePayment = false } = {}) {
     try {
       errorMessage.value = ''
+      const resolvedHoldID = resolveHoldID()
+      if (!resolvedHoldID) {
+        errorMessage.value = 'Missing hold identifier for booking status polling.'
+        return null
+      }
+
       const query = reconcilePayment ? '?reconcilePayment=true' : ''
-      const response = await api.get(`/booking-status/${holdID}${query}`, { includeUserHeader: false })
+      const response = await api.get(`/booking-status/${resolvedHoldID}${query}`, { includeUserHeader: false })
       payload.value = response
 
       if (response?.holdExpiry) {

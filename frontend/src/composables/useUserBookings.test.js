@@ -5,6 +5,7 @@ async function loadComposable({
   userID = "10000000-0000-0000-0000-000000000001",
   bookingsPayload,
   eventPayloadById,
+  bookingStatusByHoldId,
   throwError,
 } = {}) {
   vi.resetModules();
@@ -22,6 +23,14 @@ async function loadComposable({
         return eventPayloadById[eventID];
       }
       return { name: "" };
+    }
+
+    if (path.startsWith("/booking-status/")) {
+      const holdID = decodeURIComponent(path.replace("/booking-status/", ""));
+      if (bookingStatusByHoldId?.[holdID]) {
+        return bookingStatusByHoldId[holdID];
+      }
+      return {};
     }
 
     return {};
@@ -74,6 +83,13 @@ describe("useUserBookings", () => {
       eventPayloadById: {
         "evt-001": { name: "Coldplay Live" },
       },
+      bookingStatusByHoldId: {
+        "hold-001": {
+          holdID: "hold-001",
+          seatNumber: "B12",
+          ticketID: "tkt-001",
+        },
+      },
     });
 
     const composable = useUserBookings();
@@ -82,6 +98,8 @@ describe("useUserBookings", () => {
     expect(result).toHaveLength(1);
     expect(result[0].eventName).toBe("Coldplay Live");
     expect(result[0].status).toBe("Confirmed");
+    expect(result[0].seatNumber).toBe("B12");
+    expect(result[0].ticketID).toBe("tkt-001");
     expect(get).toHaveBeenCalledWith(
       expect.stringContaining(
         "status=SUCCEEDED%2CREFUND_PENDING%2CREFUND_FAILED",

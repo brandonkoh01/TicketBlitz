@@ -1,15 +1,15 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useRoleNavigation } from '@/composables/useRoleNavigation'
 import { useApiClient } from '@/composables/useApiClient'
 import { useScenarioReservation } from '@/composables/useScenarioReservation'
+import { useScenarioFlowStore } from '@/stores/scenarioFlowStore'
 
 const route = useRoute()
 const router = useRouter()
-const { primaryNavItems: navItems } = useRoleNavigation()
 const api = useApiClient()
 const reservation = useScenarioReservation()
+const flowStore = useScenarioFlowStore()
 
 const events = ref([])
 const categories = ref([])
@@ -22,6 +22,8 @@ const loadingCategories = ref(false)
 const submitting = ref(false)
 const localError = ref('')
 
+const ACTIVE_WAITLIST_STATUSES = new Set(['WAITING', 'HOLD_OFFERED'])
+
 const selectedEvent = computed(() => events.value.find((event) => event.event_id === selectedEventID.value) || null)
 const selectedCategory = computed(
   () => categories.value.find((category) => category.category_code === selectedSeatCategory.value) || null
@@ -33,6 +35,67 @@ function getQueryValue(value) {
   }
 
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeSeatCategory(value) {
+  return typeof value === 'string' ? value.trim().toUpperCase() : ''
+}
+
+function normalizeEventID(value) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : ''
+}
+
+function isDuplicateWaitlistConflict(error) {
+  const message = String(error?.message || '').toLowerCase()
+  return error?.status === 409 && message.includes('already on the waitlist')
+}
+
+async function redirectToExistingWaitlistEntry() {
+  const eventID = normalizeEventID(selectedEventID.value)
+  const seatCategory = normalizeSeatCategory(selectedSeatCategory.value)
+  const storedWaitlist = flowStore.state.waitlist
+  const storedWaitlistID = typeof storedWaitlist?.waitlistID === 'string' ? storedWaitlist.waitlistID.trim() : ''
+  const storedEventID = normalizeEventID(storedWaitlist?.eventID)
+  const storedSeatCategory = normalizeSeatCategory(storedWaitlist?.seatCategory)
+
+  if (storedWaitlistID && storedEventID === eventID && storedSeatCategory === seatCategory) {
+    await router.push({
+      name: 'waitlist-status',
+      params: { waitlistID: storedWaitlistID },
+    })
+    return true
+  }
+
+  try {
+    const payload = await api.get('/reserve/waitlist/my')
+    const entries = Array.isArray(payload?.entries) ? payload.entries : []
+
+    const matchedEntry = entries.find((entry) => {
+      const waitlistID = typeof entry?.waitlistID === 'string' ? entry.waitlistID.trim() : ''
+      const entryEventID = normalizeEventID(entry?.eventID)
+      const entrySeatCategory = normalizeSeatCategory(entry?.seatCategory)
+      const entryStatus = String(entry?.status || '').toUpperCase()
+
+      return (
+        waitlistID &&
+        entryEventID === eventID &&
+        entrySeatCategory === seatCategory &&
+        ACTIVE_WAITLIST_STATUSES.has(entryStatus)
+      )
+    })
+
+    if (!matchedEntry?.waitlistID) {
+      return false
+    }
+
+    await router.push({
+      name: 'waitlist-status',
+      params: { waitlistID: matchedEntry.waitlistID },
+    })
+    return true
+  } catch {
+    return false
+  }
 }
 
 function applyEventPrefill() {
@@ -162,6 +225,13 @@ async function handleReserve() {
 
     throw new Error('Unexpected reservation response.')
   } catch (error) {
+    if (isDuplicateWaitlistConflict(error)) {
+      const redirected = await redirectToExistingWaitlistEntry()
+      if (redirected) {
+        return
+      }
+    }
+
     localError.value = error?.message || reservation.errorMessage.value || 'Unable to submit reservation.'
   } finally {
     submitting.value = false
@@ -175,30 +245,11 @@ onMounted(() => {
 
 <template>
   <main class="min-h-screen bg-[var(--swiss-bg)] text-[var(--swiss-fg)]">
-    <header class="border-b-4 border-black bg-white">
-      <div class="mx-auto flex max-w-[1800px] items-center justify-between gap-4 px-6 py-5 md:px-10">
-        <RouterLink to="/" class="block focus-visible:outline-none">
-          <p class="text-sm font-black uppercase tracking-[0.28em]">TicketBlitz</p>
-          <p class="text-[10px] font-medium uppercase tracking-[0.22em] text-black/65">Scenario 01</p>
-        </RouterLink>
-
-        <nav class="hidden items-center gap-6 lg:flex">
-          <component
-            :is="item.to === '#' ? 'a' : 'RouterLink'"
-            v-for="item in navItems"
-            :key="item.label"
-            :to="item.to !== '#' ? item.to : undefined"
-            :href="item.to === '#' ? '#' : undefined"
-            class="swiss-link-slide text-xs font-black uppercase tracking-[0.2em] focus-visible:outline-none"
-            :data-alt="item.label"
-          >
-            <span>{{ item.label }}</span>
-          </component>
-        </nav>
-
+    <AppTopNav page-label="Scenario 01" :show-search="false">
+      <template #actions>
         <UiButton to="/my-tickets" variant="secondary" class="min-w-[10rem]">My Tickets</UiButton>
-      </div>
-    </header>
+      </template>
+    </AppTopNav>
 
     <section class="border-b-4 border-black bg-white">
       <div class="mx-auto max-w-[1800px] px-6 py-8 md:px-10 md:py-10">

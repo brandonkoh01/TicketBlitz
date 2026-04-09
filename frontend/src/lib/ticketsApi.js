@@ -35,6 +35,8 @@ function normalizeBooking(rawBooking) {
     bookingID: rawBooking?.bookingID || rawBooking?.transactionID || null,
     transactionID: rawBooking?.transactionID || rawBooking?.bookingID || null,
     holdID: rawBooking?.holdID || null,
+    ticketID: rawBooking?.ticketID || rawBooking?.bookingID || null,
+    seatNumber: rawBooking?.seatNumber || rawBooking?.seat_number || null,
     userID: rawBooking?.userID || null,
     eventID: rawBooking?.eventID || null,
     amount: rawBooking?.amount || null,

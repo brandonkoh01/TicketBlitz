@@ -21,6 +21,9 @@ class SendGridTemplateDefinitionTests(unittest.TestCase):
                 "WAITLIST_JOINED",
                 "SEAT_AVAILABLE",
                 "HOLD_EXPIRED",
+                "FLASH_SALE_LAUNCHED",
+                "PRICE_ESCALATED",
+                "FLASH_SALE_ENDED",
             }.issubset(types)
         )
 
@@ -60,6 +63,34 @@ class SendGridTemplateDefinitionTests(unittest.TestCase):
         self.assertIn("{{waitlistStatusURL}}", waitlist_joined.html_content)
         self.assertIn("{{#if waitlistStatusURL}}", waitlist_joined.html_content)
         self.assertIn("Status URL: {{waitlistStatusURL}}", waitlist_joined.plain_content)
+
+    def test_scenario2_templates_include_expected_tokens(self):
+        definitions = build_notification_template_definitions()
+        by_type = {definition.notification_type: definition for definition in definitions}
+
+        launched = by_type["FLASH_SALE_LAUNCHED"]
+        self.assertIn("{{eventName}}", launched.subject)
+        self.assertNotIn("{{eventID}}", launched.subject)
+        self.assertIn("{{discountPercentage}}", launched.html_content)
+        self.assertIn("{{expiresAtDisplay}}", launched.html_content)
+        self.assertIn("{{updatedPrices}}", launched.plain_content)
+        self.assertIn("Event: {{eventName}}", launched.plain_content)
+        self.assertIn("Ends At: {{expiresAtDisplay}}", launched.plain_content)
+        self.assertNotIn("Event ID:", launched.plain_content)
+
+        escalated = by_type["PRICE_ESCALATED"]
+        self.assertIn("{{soldOutCategory}}", escalated.html_content)
+        self.assertIn("{{updatedPrices}}", escalated.plain_content)
+        self.assertIn("{{eventName}}", escalated.subject)
+        self.assertNotIn("{{eventID}}", escalated.subject)
+        self.assertNotIn("Event ID:", escalated.plain_content)
+
+        ended = by_type["FLASH_SALE_ENDED"]
+        self.assertIn("{{eventName}}", ended.subject)
+        self.assertNotIn("{{eventID}}", ended.subject)
+        self.assertIn("{{revertedPrices}}", ended.plain_content)
+        self.assertIn("Event: {{eventName}}", ended.plain_content)
+        self.assertNotIn("Event ID:", ended.plain_content)
 
 
 if __name__ == "__main__":

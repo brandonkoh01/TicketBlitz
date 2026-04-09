@@ -1,5 +1,6 @@
 import { computed, ref, watch } from 'vue'
 import { HttpError } from '@/lib/httpClient'
+import { formatDateTimeSGT } from '@/lib/dateTimeFormat'
 import { getEventById, getFlashSaleStatus, getPricingSnapshot } from '@/lib/scenario2Api'
 
 const DETAIL_POLL_INTERVAL_MS = 5000
@@ -14,22 +15,6 @@ function formatMoney(value, currency = 'SGD') {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(numeric)
-}
-
-function formatDateTime(value) {
-  if (!value) return 'Not available'
-
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return 'Not available'
-
-  return new Intl.DateTimeFormat('en-SG', {
-    weekday: 'short',
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(parsed)
 }
 
 function normalizeDetailError(error) {
@@ -106,8 +91,8 @@ export function useFanEventDetailScenario2(eventIDRef) {
       escalationPercentage: statusPricing?.escalationPercentage || null,
       startsAt: statusPricing?.startsAt || null,
       expiresAt: statusPricing?.expiresAt || null,
-      startsAtLabel: formatDateTime(statusPricing?.startsAt),
-      expiresAtLabel: formatDateTime(statusPricing?.expiresAt),
+      startsAtLabel: formatDateTimeSGT(statusPricing?.startsAt),
+      expiresAtLabel: formatDateTimeSGT(statusPricing?.expiresAt),
     }
   })
 
@@ -167,9 +152,9 @@ export function useFanEventDetailScenario2(eventIDRef) {
       name: event.value.name,
       venue: event.value.venue || 'Venue pending',
       status: event.value.status || 'UNKNOWN',
-      eventDateLabel: formatDateTime(event.value.event_date),
-      bookingOpenLabel: formatDateTime(event.value.booking_opens_at),
-      bookingCloseLabel: formatDateTime(event.value.booking_closes_at),
+      eventDateLabel: formatDateTimeSGT(event.value.event_date),
+      bookingOpenLabel: formatDateTimeSGT(event.value.booking_opens_at),
+      bookingCloseLabel: formatDateTimeSGT(event.value.booking_closes_at),
     }
   })
 

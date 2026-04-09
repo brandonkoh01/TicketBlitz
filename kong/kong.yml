@@ -66,6 +66,13 @@ services:
           - GET
           - OPTIONS
         strip_path: false
+      - name: waitlist-my
+        paths:
+          - /reserve/waitlist/my
+        methods:
+          - GET
+          - OPTIONS
+        strip_path: false
       - name: waitlist-leave
         paths:
           - /waitlist/leave
