@@ -56,7 +56,7 @@ REQUIRED_FIELDS_BY_TYPE = {
     "CANCELLATION_DENIED": ["email", "bookingID", "reason"],
     "REFUND_SUCCESSFUL": ["email", "bookingID", "refundAmount", "eventName"],
     "REFUND_ERROR": ["email", "bookingID", "errorDetail", "nextSteps"],
-    "TICKET_AVAILABLE_PUBLIC": ["email", "bookingID", "eventName"],
+    "TICKET_AVAILABLE_PUBLIC": ["bookingID", "eventName"],
     "TICKET_CONFIRMATION": ["email", "bookingID", "ticketID", "seatNumber", "eventName"],
     "FLASH_SALE_LAUNCHED": [
         "eventID",
@@ -96,6 +96,7 @@ TEMPLATE_ENV_BY_TYPE = {
 
 WAITLIST_STATUS_URL_TEMPLATE_ENV = "WAITLIST_STATUS_URL_TEMPLATE"
 WAITLIST_STATUS_URL_TEMPLATE_DEFAULT = "/waitlist/{waitlistID}"
+SENDGRID_AUTH_FALLBACK_ENV = "NOTIFICATION_ALLOW_SENDGRID_AUTH_FALLBACK"
 
 
 class NotificationError(Exception):
@@ -543,6 +544,29 @@ class NotificationWorker:
                 )
 
         if event_type in TOPIC_NOTIFICATION_TYPES:
+            if event_type == "TICKET_AVAILABLE_PUBLIC":
+                email = payload.get("email")
+                waitlist_emails = payload.get("waitlistEmails")
+
+                if waitlist_emails is not None:
+                    if not isinstance(waitlist_emails, list):
+                        raise PermanentNotificationError(
+                            "Payload type TICKET_AVAILABLE_PUBLIC requires list field 'waitlistEmails' when provided"
+                        )
+                    if not all(isinstance(item, str) and "@" in item for item in waitlist_emails):
+                        raise PermanentNotificationError(
+                            "Payload type TICKET_AVAILABLE_PUBLIC has invalid email(s) in waitlistEmails"
+                        )
+
+                has_topic_email = isinstance(email, str) and "@" in email
+                has_broadcast_list = isinstance(waitlist_emails, list) and len(waitlist_emails) > 0
+
+                if not has_topic_email and not has_broadcast_list:
+                    raise PermanentNotificationError(
+                        "Payload type TICKET_AVAILABLE_PUBLIC requires 'email' or non-empty 'waitlistEmails'"
+                    )
+                return
+
             email = payload.get("email")
             if not isinstance(email, str) or "@" not in email:
                 raise PermanentNotificationError(
@@ -562,6 +586,22 @@ class NotificationWorker:
             )
 
     def get_recipients(self, event_type: str, payload: Dict[str, Any]) -> List[str]:
+        if event_type == "TICKET_AVAILABLE_PUBLIC":
+            waitlist_emails = payload.get("waitlistEmails")
+            if isinstance(waitlist_emails, list):
+                recipients: list[str] = []
+                seen: set[str] = set()
+                for email in waitlist_emails:
+                    if not isinstance(email, str) or "@" not in email:
+                        continue
+                    normalized = email.strip().lower()
+                    if not normalized or normalized in seen:
+                        continue
+                    seen.add(normalized)
+                    recipients.append(normalized)
+                if recipients:
+                    return recipients
+
         if event_type in TOPIC_NOTIFICATION_TYPES:
             return [payload["email"]]
         return payload["waitlistEmails"]
@@ -604,6 +644,25 @@ class NotificationWorker:
 
         return template.rstrip("/") + "/" + waitlist_id_value
 
+    def _allow_non_production_auth_fallback(self) -> bool:
+        value = os.getenv(SENDGRID_AUTH_FALLBACK_ENV, "0").strip().lower()
+        return value in {"1", "true", "yes", "on"}
+
+    def _normalise_sendgrid_error_detail(self, detail: Any) -> str:
+        if isinstance(detail, bytes):
+            return detail.decode("utf-8", errors="ignore")
+        return str(detail or "")
+
+    def _is_sendgrid_quota_error(self, detail: Any) -> bool:
+        text = self._normalise_sendgrid_error_detail(detail).lower()
+        quota_signals = (
+            "maximum credits exceeded",
+            "credits exceeded",
+            "messaging limits",
+            "exceeded your messaging",
+        )
+        return any(signal in text for signal in quota_signals)
+
     def send_email(self, event_type: str, recipients: List[str], template_data: Dict[str, Any]) -> None:
         if not recipients:
             logger.info(
@@ -643,12 +702,20 @@ class NotificationWorker:
             response = self._sendgrid_client.send(message)
         except HTTPError as error:
             status_code = int(getattr(error, "status_code", 0) or 0)
-            detail = getattr(error, "body", None) or str(error)
+            detail = self._normalise_sendgrid_error_detail(
+                getattr(error, "body", None) or str(error)
+            )
 
             if status_code in {401, 403}:
-                if not self.config.is_production:
+                if self._is_sendgrid_quota_error(detail):
+                    raise TransientNotificationError(
+                        f"SendGrid quota exceeded with status {status_code}: {detail}"
+                    ) from error
+
+                if (not self.config.is_production) and self._allow_non_production_auth_fallback():
                     logger.warning(
-                        "Non-production fallback for invalid SendGrid credentials. status=%s type=%s",
+                        "Non-production fallback for invalid SendGrid credentials enabled by %s. status=%s type=%s",
+                        SENDGRID_AUTH_FALLBACK_ENV,
                         status_code,
                         event_type,
                     )
@@ -674,21 +741,34 @@ class NotificationWorker:
         if status_code == 202:
             return
 
-        if status_code in {401, 403} and not self.config.is_production:
-            logger.warning(
-                "Non-production fallback for invalid SendGrid credentials. status=%s type=%s",
-                status_code,
-                event_type,
+        body_text = self._normalise_sendgrid_error_detail(response.body)
+
+        if status_code in {401, 403}:
+            if self._is_sendgrid_quota_error(body_text):
+                raise TransientNotificationError(
+                    f"SendGrid quota exceeded with status {status_code}: {body_text}"
+                )
+
+            if (not self.config.is_production) and self._allow_non_production_auth_fallback():
+                logger.warning(
+                    "Non-production fallback for invalid SendGrid credentials enabled by %s. status=%s type=%s",
+                    SENDGRID_AUTH_FALLBACK_ENV,
+                    status_code,
+                    event_type,
+                )
+                return
+
+            raise PermanentNotificationError(
+                f"SendGrid authentication failed with status {status_code}: {body_text}"
             )
-            return
 
         if 400 <= status_code < 500 and status_code != 429:
             raise PermanentNotificationError(
-                f"SendGrid rejected request with status {status_code}: {response.body}"
+                f"SendGrid rejected request with status {status_code}: {body_text}"
             )
 
         raise TransientNotificationError(
-            f"SendGrid temporary failure with status {status_code}: {response.body}"
+            f"SendGrid temporary failure with status {status_code}: {body_text}"
         )
 
     def _handle_missing_config(self, detail: str) -> None:

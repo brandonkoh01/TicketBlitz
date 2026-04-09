@@ -23,6 +23,14 @@ cancellation_bp = Blueprint("cancellation_orchestrator", __name__)
 NOTIFICATION_ROUTING_KEY = "notification.send"
 
 
+def _is_production_env() -> bool:
+    for name in ("APP_ENV", "ENVIRONMENT", "FLASK_ENV"):
+        value = str(os.getenv(name, "")).strip().lower()
+        if value in {"prod", "production"}:
+            return True
+    return False
+
+
 class ApiError(Exception):
     def __init__(self, message: str, status_code: int = 400, details: Any | None = None):
         super().__init__(message)
@@ -54,6 +62,7 @@ class DependencyError(ApiError):
 class BaseConfig:
     SERVICE_NAME = os.getenv("SERVICE_NAME", "cancellation-orchestrator")
     PAYMENT_SERVICE_URL = os.getenv("PAYMENT_SERVICE_URL", "http://payment-service:5000")
+    BOOKING_STATUS_SERVICE_URL = os.getenv("BOOKING_STATUS_SERVICE_URL", "http://booking-status-service:5000")
     INVENTORY_SERVICE_URL = os.getenv("INVENTORY_SERVICE_URL", "http://inventory-service:5000")
     WAITLIST_SERVICE_URL = os.getenv("WAITLIST_SERVICE_URL", "http://waitlist-service:5000")
     USER_SERVICE_URL = os.getenv("USER_SERVICE_URL", "http://user-service:5000")
@@ -65,6 +74,8 @@ class BaseConfig:
     INTERNAL_SERVICE_TOKEN = os.getenv("INTERNAL_SERVICE_TOKEN", "")
     REQUEST_TIMEOUT_SECONDS = float(os.getenv("CANCELLATION_TIMEOUT_SECONDS", "5.0"))
     NOTIFICATION_ROUTING_KEY = os.getenv("NOTIFICATION_TOPIC_ROUTING_KEY", NOTIFICATION_ROUTING_KEY)
+    WAITLIST_PAYMENT_URL_TEMPLATE = os.getenv("WAITLIST_PAYMENT_URL_TEMPLATE", "/waitlist/confirm/{holdID}")
+    FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "" if _is_production_env() else "http://localhost:5173")
 
 
 def _api_response(payload: dict[str, Any], status_code: int = 200):
@@ -136,6 +147,19 @@ def _parse_non_empty_string(value: Any, field_name: str) -> str:
     return parsed
 
 
+def _parse_bool_flag(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "y"}
+
+    if isinstance(value, (int, float)):
+        return bool(value)
+
+    return False
+
+
 def _get_json_payload() -> dict[str, Any]:
     payload = request.get_json(silent=True)
     if payload is None:
@@ -147,6 +171,24 @@ def _get_json_payload() -> dict[str, Any]:
 
 def _join_url(base_url: str, path: str) -> str:
     return f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+
+
+def _build_waitlist_payment_url(hold_id: str) -> str:
+    template = str(current_app.config.get("WAITLIST_PAYMENT_URL_TEMPLATE") or "").strip()
+    if not template:
+        template = "/waitlist/confirm/{holdID}"
+
+    if "{holdID}" in template:
+        payment_url = template.replace("{holdID}", hold_id)
+    else:
+        payment_url = f"{template.rstrip('/')}/{hold_id}"
+
+    if payment_url.startswith("/"):
+        frontend_base_url = str(current_app.config.get("FRONTEND_BASE_URL") or "").strip().rstrip("/")
+        if frontend_base_url:
+            return f"{frontend_base_url}{payment_url}"
+
+    return payment_url
 
 
 def _internal_headers() -> dict[str, str]:
@@ -227,13 +269,148 @@ def _extract_email_from_user(user_id: str) -> str:
     return email
 
 
+def _fetch_public_announcement_emails() -> list[str]:
+    def _is_fan_user(user: dict[str, Any]) -> bool:
+        metadata = user.get("metadata") if isinstance(user, dict) else None
+        if not isinstance(metadata, dict):
+            return False
+
+        candidates: list[str] = []
+        for key in ("role", "userRole", "accountType", "type"):
+            value = metadata.get(key)
+            if isinstance(value, str) and value.strip():
+                candidates.append(value.strip().lower())
+
+        roles = metadata.get("roles")
+        if isinstance(roles, list):
+            for value in roles:
+                if isinstance(value, str) and value.strip():
+                    candidates.append(value.strip().lower())
+
+        return "fan" in candidates
+
+    recipients: list[str] = []
+    seen: set[str] = set()
+    page = 1
+    page_size = 100
+    max_recipients = 5000
+
+    while len(recipients) < max_recipients:
+        users_url = _join_url(
+            current_app.config["USER_SERVICE_URL"],
+            f"/users?page={page}&pageSize={page_size}",
+        )
+        status_code, payload = _request_json("GET", users_url, headers=_internal_headers())
+
+        if status_code != 200 or not payload:
+            _raise_dependency_http_error(
+                service="user-service",
+                status_code=status_code,
+                payload=payload,
+                fallback_message="Failed to resolve public announcement recipients",
+            )
+
+        users = payload.get("users")
+        if not isinstance(users, list):
+            users = []
+
+        for user in users:
+            if not isinstance(user, dict):
+                continue
+            if not _is_fan_user(user):
+                continue
+            email = user.get("email")
+            if not isinstance(email, str) or "@" not in email:
+                continue
+            normalized = email.strip().lower()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            recipients.append(normalized)
+            if len(recipients) >= max_recipients:
+                break
+
+        pagination = payload.get("pagination") if isinstance(payload, dict) else None
+        total_pages = 0
+        if isinstance(pagination, dict):
+            try:
+                total_pages = int(pagination.get("totalPages") or 0)
+            except Exception:
+                total_pages = 0
+
+        if total_pages > 0 and page >= total_pages:
+            break
+
+        if total_pages == 0 and len(users) < page_size:
+            break
+
+        page += 1
+
+    return recipients
+
+
+def _resolve_public_announcement_emails(
+    fallback_email: str,
+    excluded_emails: list[str] | None = None,
+) -> list[str]:
+    fallback_normalized = str(fallback_email or "").strip().lower()
+
+    excluded: set[str] = set()
+    for value in excluded_emails or []:
+        normalized = str(value or "").strip().lower()
+        if normalized and "@" in normalized:
+            excluded.add(normalized)
+
+    try:
+        recipients = _fetch_public_announcement_emails()
+    except Exception as error:
+        logger.warning("Falling back to single-recipient public announcement: %s", error)
+        recipients = [fallback_normalized] if fallback_normalized else []
+
+    filtered: list[str] = []
+    seen: set[str] = set()
+    for recipient in recipients:
+        normalized = str(recipient or "").strip().lower()
+        if not normalized or "@" not in normalized:
+            continue
+        if normalized in excluded or normalized in seen:
+            continue
+        seen.add(normalized)
+        filtered.append(normalized)
+
+    if filtered:
+        return filtered
+
+    if fallback_normalized and fallback_normalized not in excluded:
+        return [fallback_normalized]
+
+    return []
+
+
 def _extract_event_name(event_id: str) -> str | None:
     event_url = _join_url(current_app.config["EVENT_SERVICE_URL"], f"/event/{event_id}")
     status_code, payload = _request_json("GET", event_url, headers=_internal_headers())
     if status_code != 200 or not payload:
         return None
-    name = payload.get("name")
-    return str(name) if name else None
+
+    def _coerce_name(value: Any) -> str | None:
+        text = str(value or "").strip()
+        return text or None
+
+    for key in ("name", "eventName", "event_name"):
+        if isinstance(payload, dict) and key in payload:
+            resolved = _coerce_name(payload.get(key))
+            if resolved:
+                return resolved
+
+    nested_event = payload.get("event") if isinstance(payload, dict) else None
+    if isinstance(nested_event, dict):
+        for key in ("name", "eventName", "event_name"):
+            resolved = _coerce_name(nested_event.get(key))
+            if resolved:
+                return resolved
+
+    return None
 
 
 def _fetch_payment_verification(booking_id: str, *, strict_policy: bool = False) -> dict[str, Any]:
@@ -248,6 +425,22 @@ def _fetch_payment_verification(booking_id: str, *, strict_policy: bool = False)
             payload=payload,
             fallback_message="Payment verification failed",
             not_found_message="Booking payment record not found",
+        )
+
+    return payload
+
+
+def _fetch_booking_status(hold_id: str) -> dict[str, Any]:
+    url = _join_url(current_app.config["BOOKING_STATUS_SERVICE_URL"], f"/booking-status/{hold_id}")
+    status_code, payload = _request_json("GET", url, headers=_internal_headers())
+
+    if status_code != 200 or not payload:
+        _raise_dependency_http_error(
+            service="booking-status-service",
+            status_code=status_code,
+            payload=payload,
+            fallback_message="Failed to resolve booking status",
+            not_found_message="Booking status not found",
         )
 
     return payload
@@ -284,9 +477,16 @@ def _mark_payment_failed(booking_id: str, reason: str) -> None:
         raise DependencyError("Failed to apply refund failure compensation", details={"dependency": "payment-service"})
 
 
-def _request_refund(booking_id: str, reason: str | None) -> dict[str, Any]:
+def _request_refund(
+    booking_id: str,
+    reason: str | None,
+    *,
+    simulate_failure: bool = False,
+) -> dict[str, Any]:
     url = _join_url(current_app.config["PAYMENT_SERVICE_URL"], f"/payments/refund/{booking_id}")
     payload = {"reason": reason} if reason else {}
+    if simulate_failure:
+        payload["simulateRefundFailure"] = True
     status_code, body = _request_json("POST", url, headers=_internal_headers(), payload=payload)
 
     if status_code in {200, 201} and body:
@@ -325,6 +525,30 @@ def _release_hold(hold_id: str) -> dict[str, Any] | None:
         raise NotFoundError("Hold not found for release")
     if status_code not in {200, 409}:
         raise DependencyError("Failed to release hold", details={"dependency": "inventory-service"})
+    return payload
+
+
+def _update_seat_status(seat_id: str, status: str) -> dict[str, Any] | None:
+    normalized_status = str(status or "").strip().upper()
+    if normalized_status not in {"AVAILABLE", "PENDING_WAITLIST"}:
+        raise ValidationError("status must be AVAILABLE or PENDING_WAITLIST")
+
+    url = _join_url(current_app.config["INVENTORY_SERVICE_URL"], f"/inventory/seat/{seat_id}/status")
+    status_code, payload = _request_json(
+        "PUT",
+        url,
+        headers=_internal_headers(),
+        payload={"status": normalized_status},
+    )
+
+    if status_code not in {200, 201}:
+        _raise_dependency_http_error(
+            service="inventory-service",
+            status_code=status_code,
+            payload=payload,
+            fallback_message="Failed to update seat status",
+        )
+
     return payload
 
 
@@ -572,6 +796,121 @@ def _derive_correlation_id(payload: dict[str, Any]) -> str:
     return str(uuid.uuid4())
 
 
+def _build_cancellation_status_payload(
+    *,
+    booking_id: str,
+    requesting_user_id: str,
+    new_hold_id: str | None,
+) -> tuple[dict[str, Any], int]:
+    verification = _fetch_payment_verification(booking_id, strict_policy=False)
+
+    owner_user_id = _parse_uuid(verification.get("userID"), "payment.userID")
+    if owner_user_id != requesting_user_id:
+        raise ConflictError("Booking does not belong to requesting user")
+
+    payment_status = str(verification.get("paymentStatus") or "").upper()
+    within_policy = bool(verification.get("withinPolicy"))
+    base_payload: dict[str, Any] = {
+        "bookingID": booking_id,
+        "userID": owner_user_id,
+        "eventID": verification.get("eventID"),
+        "holdID": verification.get("holdID"),
+        "paymentStatus": payment_status,
+        "withinPolicy": within_policy,
+        "policyCutoffAt": verification.get("policyCutoffAt"),
+        "refundAmount": verification.get("eligibleRefundAmount"),
+        "terminal": False,
+        "status": "CANCELLATION_AVAILABLE",
+    }
+
+    if payment_status == "REFUND_PENDING":
+        base_payload.update(
+            {
+                "status": "REALLOCATION_PENDING",
+                "terminal": False,
+                "reason": "Refund is being processed",
+            }
+        )
+        return base_payload, 200
+
+    if payment_status == "REFUND_FAILED":
+        base_payload.update(
+            {
+                "status": "CANCELLATION_IN_PROGRESS",
+                "terminal": False,
+                "reason": "Refund previously failed and requires manual follow-up",
+            }
+        )
+        return base_payload, 200
+
+    if payment_status == "REFUND_SUCCEEDED":
+        base_payload.update(
+            {
+                "status": "REFUND_COMPLETED",
+                "terminal": True,
+                "reason": "Refund completed",
+            }
+        )
+
+        if not new_hold_id:
+            return base_payload, 200
+
+        hold_status_payload = _fetch_booking_status(new_hold_id)
+        ui_status = str(hold_status_payload.get("uiStatus") or "").upper()
+        hold_status = str(hold_status_payload.get("holdStatus") or "").upper()
+
+        base_payload.update(
+            {
+                "newHoldID": new_hold_id,
+                "reallocation": {
+                    "uiStatus": ui_status,
+                    "holdStatus": hold_status,
+                    "ticketID": hold_status_payload.get("ticketID"),
+                    "seatNumber": hold_status_payload.get("seatNumber"),
+                    "updatedAt": hold_status_payload.get("updatedAt"),
+                },
+            }
+        )
+
+        if ui_status == "CONFIRMED":
+            base_payload.update({"status": "REALLOCATION_CONFIRMED", "terminal": True})
+            return base_payload, 200
+
+        if ui_status == "PROCESSING":
+            base_payload.update(
+                {
+                    "status": "REALLOCATION_PENDING",
+                    "terminal": False,
+                    "reason": "Reallocation is still in progress",
+                }
+            )
+            return base_payload, 200
+
+        if ui_status in {"FAILED_PAYMENT", "EXPIRED"}:
+            base_payload.update(
+                {
+                    "status": "REFUND_COMPLETED",
+                    "terminal": True,
+                    "reason": "Refund completed; waitlist reallocation was not completed",
+                }
+            )
+            return base_payload, 200
+
+        return base_payload, 200
+
+    if payment_status == "SUCCEEDED" and not within_policy:
+        base_payload.update(
+            {
+                "status": "DENIED",
+                "terminal": True,
+                "reason": "Not eligible under 48-hour cancellation policy",
+            }
+        )
+        return base_payload, 200
+
+    return base_payload, 200
+
+
 def _build_refund_success_payload(
     booking_id: str,
     user_id: str,
@@ -581,28 +920,48 @@ def _build_refund_success_payload(
     refund_amount: Any,
     waitlist_status: dict[str, Any],
 ) -> tuple[dict[str, Any], int]:
+    refreshed_event_name = _extract_event_name(event_id) or event_name
+
     has_waitlist = bool(waitlist_status.get("hasWaitlist"))
     entries = waitlist_status.get("entries") or []
     next_user = waitlist_status.get("nextUser") or (entries[0] if entries else None)
+    old_hold = _fetch_inventory_hold(old_hold_id)
+    seat_id = _parse_uuid(old_hold.get("seatID"), "seatID")
 
     if not has_waitlist or not next_user:
-        _publish_notification(
-            "TICKET_AVAILABLE_PUBLIC",
-            {
-                "email": _extract_email_from_user(user_id),
-                "bookingID": booking_id,
-                "eventID": event_id,
-                "eventName": event_name,
-                "holdID": old_hold_id,
-                "refundAmount": refund_amount,
-            },
+        _update_seat_status(seat_id, "AVAILABLE")
+        public_announcement_email = _extract_email_from_user(user_id)
+        public_announcement_recipients = _resolve_public_announcement_emails(
+            public_announcement_email,
+            excluded_emails=[public_announcement_email],
         )
+
+        if public_announcement_recipients:
+            _publish_notification(
+                "TICKET_AVAILABLE_PUBLIC",
+                {
+                    "email": public_announcement_recipients[0],
+                    "waitlistEmails": public_announcement_recipients,
+                    "bookingID": booking_id,
+                    "eventID": event_id,
+                    "eventName": refreshed_event_name,
+                    "holdID": old_hold_id,
+                    "refundAmount": refund_amount,
+                },
+            )
+        else:
+            logger.info(
+                "No public announcement recipients after excluding cancelling user. bookingID=%s eventID=%s",
+                booking_id,
+                event_id,
+            )
+
         return (
             {
                 "status": "REFUND_COMPLETED",
                 "bookingID": booking_id,
                 "eventID": event_id,
-                "eventName": event_name,
+                "eventName": refreshed_event_name,
                 "waitlistReallocation": "PUBLIC_INVENTORY",
                 "refundAmount": refund_amount,
             },
@@ -615,6 +974,8 @@ def _build_refund_success_payload(
     if not seat_category:
         raise DependencyError("Waitlist status did not include seatCategory", details={"dependency": "waitlist-service"})
 
+    _update_seat_status(seat_id, "PENDING_WAITLIST")
+
     new_hold = _create_waitlist_hold(event_id, next_user_id, str(seat_category))
     new_hold_id = _parse_uuid(new_hold.get("holdID"), "holdID")
     _mark_waitlist_offer(waitlist_id, new_hold_id)
@@ -626,10 +987,10 @@ def _build_refund_success_payload(
         "SEAT_AVAILABLE",
         {
             "email": next_user_email,
-            "eventName": event_name,
+            "eventName": refreshed_event_name,
             "holdID": new_hold_id,
             "holdExpiry": new_hold.get("holdExpiry"),
-            "paymentURL": f"/waitlist/confirm/{new_hold_id}",
+            "paymentURL": _build_waitlist_payment_url(new_hold_id),
             "waitlistID": waitlist_id,
             "bookingID": booking_id,
             "correlationID": payment_init.get("transactionID"),
@@ -641,7 +1002,7 @@ def _build_refund_success_payload(
             "status": "REALLOCATION_PENDING",
             "bookingID": booking_id,
             "eventID": event_id,
-            "eventName": event_name,
+            "eventName": refreshed_event_name,
             "refundAmount": refund_amount,
             "waitlistID": waitlist_id,
             "nextUserID": next_user_id,
@@ -657,7 +1018,14 @@ def _build_refund_success_payload(
     )
 
 
-def _process_cancellation(booking_id: str, user_id: str, reason: str | None, correlation_id: str):
+def _process_cancellation(
+    booking_id: str,
+    user_id: str,
+    reason: str | None,
+    correlation_id: str,
+    *,
+    simulate_refund_failure: bool = False,
+):
     verification = _fetch_payment_verification(booking_id, strict_policy=False)
 
     owner_user_id = _parse_uuid(verification.get("userID"), "payment.userID")
@@ -729,7 +1097,11 @@ def _process_cancellation(booking_id: str, user_id: str, reason: str | None, cor
     )
 
     try:
-        refund_result = _request_refund(booking_id, reason)
+        refund_result = _request_refund(
+            booking_id,
+            reason,
+            simulate_failure=simulate_refund_failure,
+        )
     except ApiError as error:
         _mark_payment_failed(booking_id, error.message)
         try:
@@ -922,8 +1294,23 @@ def orchestrate_cancellation():
         reason = payload.get("reason")
         if reason is not None:
             reason = str(reason)
+
+        simulate_refund_failure = _parse_bool_flag(
+            payload.get("simulateRefundFailure")
+            or payload.get("simulate_refund_failure")
+            or payload.get("simulate3c")
+        )
+        if simulate_refund_failure and _is_production_env():
+            raise ValidationError("simulateRefundFailure is disabled in production")
+
         correlation_id = _derive_correlation_id(payload)
-        body, status_code = _process_cancellation(booking_id, user_id, reason, correlation_id)
+        body, status_code = _process_cancellation(
+            booking_id,
+            user_id,
+            reason,
+            correlation_id,
+            simulate_refund_failure=simulate_refund_failure,
+        )
         return _api_response(body, status_code)
     except ApiError as error:
         return _json_error(error.message, error.status_code, error.details)
@@ -941,15 +1328,49 @@ def orchestrate_cancellation_alias(booking_id: str):
         reason = payload.get("reason")
         if reason is not None:
             reason = str(reason)
+        simulate_refund_failure = _parse_bool_flag(
+            payload.get("simulateRefundFailure")
+            or payload.get("simulate_refund_failure")
+            or payload.get("simulate3c")
+        )
+        if simulate_refund_failure and _is_production_env():
+            raise ValidationError("simulateRefundFailure is disabled in production")
         correlation_id = _derive_correlation_id(payload)
         parsed_booking_id = _derive_booking_id_from_payload(payload)
-        body, status_code = _process_cancellation(parsed_booking_id, user_id, reason, correlation_id)
+        body, status_code = _process_cancellation(
+            parsed_booking_id,
+            user_id,
+            reason,
+            correlation_id,
+            simulate_refund_failure=simulate_refund_failure,
+        )
         return _api_response(body, status_code)
     except ApiError as error:
         return _json_error(error.message, error.status_code, error.details)
     except Exception as error:
         logger.exception("Unexpected cancellation alias error: %s", error)
         return _json_error("Failed to orchestrate cancellation", 500)
+
+
+@cancellation_bp.get("/bookings/cancel/status/<booking_id>")
+def get_cancellation_status(booking_id: str):
+    try:
+        parsed_booking_id = _parse_uuid(booking_id, "bookingID")
+        user_id = _parse_uuid(request.args.get("userID"), "userID")
+        new_hold_id_raw = request.args.get("newHoldID")
+        new_hold_id = _parse_uuid(new_hold_id_raw, "newHoldID") if new_hold_id_raw else None
+
+        payload, status_code = _build_cancellation_status_payload(
+            booking_id=parsed_booking_id,
+            requesting_user_id=user_id,
+            new_hold_id=new_hold_id,
+        )
+        return _api_response(payload, status_code)
+    except ApiError as error:
+        return _json_error(error.message, error.status_code, error.details)
+    except Exception as error:
+        logger.exception("Unexpected cancellation status error: %s", error)
+        return _json_error("Failed to resolve cancellation status", 500)
 
 
 @cancellation_bp.post("/orchestrator/cancellation/reallocation/confirm")

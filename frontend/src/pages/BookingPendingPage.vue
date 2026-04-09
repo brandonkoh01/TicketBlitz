@@ -1,34 +1,34 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/authStore'
-import { useScenarioFlowStore } from '@/stores/scenarioFlowStore'
-import { useScenarioReservation } from '@/composables/useScenarioReservation'
-import { useBookingStatusPolling } from '@/composables/useBookingStatusPolling'
-import { useHoldCountdown } from '@/composables/useHoldCountdown'
-import { useStripePaymentElement } from '@/composables/useStripePaymentElement'
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { useAuthStore } from "@/stores/authStore";
+import { useScenarioFlowStore } from "@/stores/scenarioFlowStore";
+import { useScenarioReservation } from "@/composables/useScenarioReservation";
+import { useBookingStatusPolling } from "@/composables/useBookingStatusPolling";
+import { useHoldCountdown } from "@/composables/useHoldCountdown";
+import { useStripePaymentElement } from "@/composables/useStripePaymentElement";
 
-const route = useRoute()
-const router = useRouter()
-const authStore = useAuthStore()
-const flowStore = useScenarioFlowStore()
-const reservationApi = useScenarioReservation()
+const route = useRoute();
+const router = useRouter();
+const authStore = useAuthStore();
+const flowStore = useScenarioFlowStore();
+const reservationApi = useScenarioReservation();
 
-const holdID = computed(() => String(route.params.holdID || '').trim())
+const holdID = computed(() => String(route.params.holdID || "").trim());
 
-const localError = ref('')
-const localInfo = ref('')
-const statusLabel = ref('PROCESSING')
-const holdExpiry = ref('')
-const clientSecret = ref('')
-const paymentMountRef = ref(null)
-const awaitingBookingResolution = ref(false)
-const isUnauthorizedHoldAccess = ref(false)
+const localError = ref("");
+const localInfo = ref("");
+const statusLabel = ref("PROCESSING");
+const holdExpiry = ref("");
+const clientSecret = ref("");
+const paymentMountRef = ref(null);
+const awaitingBookingResolution = ref(false);
+const isUnauthorizedHoldAccess = ref(false);
 
 const HOLD_OWNERSHIP_ERROR_PATTERNS = [
-  'holdid does not belong to userid',
-  'holdid does not belong to authenticated user',
-]
+  "holdid does not belong to userid",
+  "holdid does not belong to authenticated user",
+];
 
 const {
   isReady: paymentReady,
@@ -37,12 +37,12 @@ const {
   mount: mountStripePaymentElement,
   confirmPayment: confirmStripePayment,
   unmount: unmountStripePayment,
-} = useStripePaymentElement()
+} = useStripePaymentElement();
 
 const polling = useBookingStatusPolling(holdID, {
   onTerminal: (payload) => {
-    const status = payload?.uiStatus || 'PROCESSING'
-    if (status === 'CONFIRMED') {
+    const status = payload?.uiStatus || "PROCESSING";
+    if (status === "CONFIRMED") {
       flowStore.upsertConfirmedTicket({
         holdID: holdID.value,
         ticketID: payload?.ticketID || null,
@@ -50,39 +50,120 @@ const polling = useBookingStatusPolling(holdID, {
         eventName: flowStore.state.reservation?.eventName || null,
         status,
         updatedAt: payload?.updatedAt || new Date().toISOString(),
-      })
+      });
     }
 
     router.replace({
-      name: 'booking-result',
+      name: "booking-result",
       params: { holdID: holdID.value },
       query: { status },
-    })
+    });
   },
-})
+});
 
-const countdown = useHoldCountdown(holdExpiry)
-const isPaymentProcessing = computed(() => paymentSubmitting.value || awaitingBookingResolution.value)
+const countdown = useHoldCountdown(holdExpiry);
+const isPaymentProcessing = computed(
+  () => paymentSubmitting.value || awaitingBookingResolution.value,
+);
+const paymentProgressState = computed(() => {
+  const steps = [
+    "Hold Reserved",
+    "Payment Processing",
+    "Ticket Finalizing",
+    "Ticket Confirmed",
+  ];
+  const uiStatus = String(
+    polling.payload.value?.uiStatus || statusLabel.value || "",
+  ).toUpperCase();
+  const paymentStatus = String(
+    polling.payload.value?.paymentStatus || "",
+  ).toUpperCase();
+
+  if (uiStatus === "CONFIRMED") {
+    return {
+      steps,
+      currentStep: 3,
+      tone: "success",
+      statusText: "Payment complete and ticket issued.",
+    };
+  }
+
+  if (uiStatus === "FAILED_PAYMENT" || paymentStatus === "FAILED") {
+    return {
+      steps,
+      currentStep: 1,
+      tone: "error",
+      statusText: "Payment failed. Please retry your payment details.",
+    };
+  }
+
+  if (uiStatus === "EXPIRED") {
+    return {
+      steps,
+      currentStep: 0,
+      tone: "warning",
+      statusText: "Hold expired before completion. Please start a new booking.",
+    };
+  }
+
+  if (paymentStatus === "SUCCEEDED") {
+    return {
+      steps,
+      currentStep: 2,
+      tone: "neutral",
+      statusText: "Payment received. Ticket issuance is now in progress.",
+    };
+  }
+
+  if (paymentSubmitting.value || awaitingBookingResolution.value) {
+    return {
+      steps,
+      currentStep: 1,
+      tone: "neutral",
+      statusText: "Submitting payment and confirming with Stripe.",
+    };
+  }
+
+  if (paymentReady.value) {
+    return {
+      steps,
+      currentStep: 0,
+      tone: "neutral",
+      statusText: "Payment form is ready. Confirm payment to continue.",
+    };
+  }
+
+  return {
+    steps,
+    currentStep: 0,
+    tone: "neutral",
+    statusText: "Preparing payment session status.",
+  };
+});
 
 function isHoldOwnershipViolationError(input) {
-  const message = String(input || '').trim().toLowerCase()
-  if (!message) return false
+  const message = String(input || "")
+    .trim()
+    .toLowerCase();
+  if (!message) return false;
 
-  return HOLD_OWNERSHIP_ERROR_PATTERNS.some((pattern) => message.includes(pattern))
+  return HOLD_OWNERSHIP_ERROR_PATTERNS.some((pattern) =>
+    message.includes(pattern),
+  );
 }
 
 function activateUnauthorizedAccessState() {
-  isUnauthorizedHoldAccess.value = true
-  awaitingBookingResolution.value = false
-  statusLabel.value = 'ACCESS DENIED'
-  clientSecret.value = ''
-  holdExpiry.value = ''
-  localInfo.value = ''
-  localError.value = ''
-  polling.stop()
+  isUnauthorizedHoldAccess.value = true;
+  awaitingBookingResolution.value = false;
+  statusLabel.value = "ACCESS DENIED";
+  clientSecret.value = "";
+  holdExpiry.value = "";
+  localInfo.value = "";
+  localError.value = "";
+  polling.stop();
 
   try {
-    unmountStripePayment()
+    unmountStripePayment();
   } catch {
     // Cleanup should never block rendering the unauthorized state.
   }
@@ -91,169 +172,187 @@ function activateUnauthorizedAccessState() {
 watch(
   () => polling.payload.value,
   (payload) => {
-    if (!payload) return
+    if (!payload) return;
 
-    statusLabel.value = payload.uiStatus || 'PROCESSING'
+    statusLabel.value = payload.uiStatus || "PROCESSING";
     if (payload.holdExpiry) {
-      holdExpiry.value = payload.holdExpiry
+      holdExpiry.value = payload.holdExpiry;
     }
-  }
-)
+  },
+);
 
 watch(
   () => polling.errorMessage.value,
   (message) => {
     if (isHoldOwnershipViolationError(message)) {
-      activateUnauthorizedAccessState()
+      activateUnauthorizedAccessState();
     }
-  }
-)
+  },
+);
 
 watch(holdID, async (nextHoldID, previousHoldID) => {
   if (!nextHoldID || nextHoldID === previousHoldID) {
-    return
+    return;
   }
 
-  isUnauthorizedHoldAccess.value = false
-  awaitingBookingResolution.value = false
-  statusLabel.value = 'PROCESSING'
-  polling.stop()
+  isUnauthorizedHoldAccess.value = false;
+  awaitingBookingResolution.value = false;
+  statusLabel.value = "PROCESSING";
+  polling.stop();
 
   try {
-    unmountStripePayment()
+    unmountStripePayment();
   } catch {
     // Cleanup should never block route transitions.
   }
 
-  await hydratePendingContext()
+  await hydratePendingContext();
   if (isUnauthorizedHoldAccess.value) {
-    return
+    return;
   }
 
-  await mountPaymentElement()
-  polling.start()
-})
+  await mountPaymentElement();
+  polling.start();
+});
 
 async function hydratePendingContext() {
-  isUnauthorizedHoldAccess.value = false
-  localError.value = ''
-  localInfo.value = ''
+  isUnauthorizedHoldAccess.value = false;
+  localError.value = "";
+  localInfo.value = "";
 
   if (!holdID.value) {
-    localError.value = 'Missing hold identifier.'
-    return
+    localError.value = "Missing hold identifier.";
+    return;
   }
 
-  const cached = flowStore.state.reservation
+  const cached = flowStore.state.reservation;
   if (cached?.holdID === holdID.value) {
-    clientSecret.value = cached.clientSecret || ''
-    holdExpiry.value = cached.holdExpiry || ''
-    return
+    clientSecret.value = cached.clientSecret || "";
+    holdExpiry.value = cached.holdExpiry || "";
+    return;
   }
 
   try {
-    const response = await reservationApi.reserveConfirm({ holdID: holdID.value })
+    const response = await reservationApi.reserveConfirm({
+      holdID: holdID.value,
+    });
 
-    if (response?.status === 'CONFIRMED') {
+    if (response?.status === "CONFIRMED") {
       router.replace({
-        name: 'booking-result',
+        name: "booking-result",
         params: { holdID: holdID.value },
-        query: { status: 'CONFIRMED' },
-      })
-      return
+        query: { status: "CONFIRMED" },
+      });
+      return;
     }
 
-    clientSecret.value = response?.clientSecret || ''
-    holdExpiry.value = response?.holdExpiry || ''
+    clientSecret.value = response?.clientSecret || "";
+    holdExpiry.value = response?.holdExpiry || "";
   } catch (error) {
     if (isHoldOwnershipViolationError(error?.message)) {
-      activateUnauthorizedAccessState()
-      return
+      activateUnauthorizedAccessState();
+      return;
     }
 
-    localError.value = error?.message || 'Unable to load payment context for this hold.'
+    localError.value =
+      error?.message || "Unable to load payment context for this hold.";
   }
 }
 
 async function mountPaymentElement() {
   if (!clientSecret.value || !paymentMountRef.value) {
-    return
+    return;
   }
 
   try {
     await mountStripePaymentElement({
       clientSecret: clientSecret.value,
       mountNode: paymentMountRef.value,
-    })
-    localInfo.value = 'Payment form ready.'
+    });
+    localInfo.value = "Payment form ready.";
   } catch (error) {
-    localError.value = error?.message || 'Unable to initialize payment form.'
+    localError.value = error?.message || "Unable to initialize payment form.";
   }
 }
 
 async function handleConfirmPayment() {
   if (isPaymentProcessing.value || isUnauthorizedHoldAccess.value) {
-    return
+    return;
   }
 
-  localError.value = ''
+  localError.value = "";
 
   try {
     const paymentIntent = await confirmStripePayment({
       returnUrl: `${window.location.origin}/booking/pending/${holdID.value}`,
-    })
+    });
 
-    if (paymentIntent?.status === 'succeeded' || paymentIntent?.status === 'processing') {
-      awaitingBookingResolution.value = true
-      localInfo.value = 'Payment submitted successfully. Waiting for booking confirmation...'
-      await polling.pollOnce({ reconcilePayment: true })
+    if (
+      paymentIntent?.status === "succeeded" ||
+      paymentIntent?.status === "processing"
+    ) {
+      awaitingBookingResolution.value = true;
+      localInfo.value =
+        "Payment submitted successfully. Waiting for booking confirmation...";
+      await polling.pollOnce({ reconcilePayment: true });
     }
   } catch (error) {
     if (isHoldOwnershipViolationError(error?.message)) {
-      activateUnauthorizedAccessState()
-      return
+      activateUnauthorizedAccessState();
+      return;
     }
 
-    awaitingBookingResolution.value = false
-    localError.value = error?.message || paymentErrorMessage.value || 'Payment confirmation failed.'
+    awaitingBookingResolution.value = false;
+    localError.value =
+      error?.message ||
+      paymentErrorMessage.value ||
+      "Payment confirmation failed.";
   }
 }
 
 onMounted(async () => {
   if (!authStore.isAuthenticated.value) {
-    return
+    return;
   }
 
-  await hydratePendingContext()
+  await hydratePendingContext();
   if (isUnauthorizedHoldAccess.value) {
-    return
+    return;
   }
 
-  await mountPaymentElement()
-  polling.start()
-})
+  await mountPaymentElement();
+  polling.start();
+});
 
 onUnmounted(() => {
-  awaitingBookingResolution.value = false
-  polling.stop()
+  awaitingBookingResolution.value = false;
+  polling.stop();
 
   try {
-    unmountStripePayment()
+    unmountStripePayment();
   } catch {
     // Cleanup should never block route transitions.
   }
-})
+});
 </script>
 
 <template>
   <main class="min-h-screen bg-[var(--swiss-bg)] text-[var(--swiss-fg)]">
-    <div :class="isUnauthorizedHoldAccess ? 'pointer-events-none select-none blur-md' : ''">
+    <div
+      :class="
+        isUnauthorizedHoldAccess
+          ? 'pointer-events-none select-none blur-md'
+          : ''
+      "
+    >
       <section class="border-b-4 border-black bg-white">
         <div class="mx-auto max-w-[1800px] px-6 py-8 md:px-10 md:py-10">
           <SectionLabel index="10." label="Booking Pending" />
-          <h1 class="mt-8 text-[clamp(2.4rem,7vw,5.8rem)] font-black uppercase leading-[0.9] tracking-[-0.04em]">
+          <h1
+            class="mt-8 text-[clamp(2.4rem,7vw,5.8rem)] font-black uppercase leading-[0.9] tracking-[-0.04em]"
+          >
             Payment
-            <br>
+            <br />
             Processing
           </h1>
         </div>
@@ -261,31 +360,66 @@ onUnmounted(() => {
 
       <section class="border-b-4 border-black bg-[var(--swiss-muted)]">
         <div class="mx-auto grid max-w-[1800px] grid-cols-1 lg:grid-cols-12">
-          <div class="swiss-grid-pattern border-b-4 border-black p-6 md:p-10 lg:col-span-7 lg:border-b-0 lg:border-r-4 lg:p-14">
-            <p class="text-xs font-black uppercase tracking-[0.18em]">Hold ID</p>
-            <p class="mt-2 break-all border-2 border-black bg-white px-3 py-2 text-xs font-bold tracking-[0.06em]">
+          <div
+            class="swiss-grid-pattern border-b-4 border-black p-6 md:p-10 lg:col-span-7 lg:border-b-0 lg:border-r-4 lg:p-14"
+          >
+            <p class="text-xs font-black uppercase tracking-[0.18em]">
+              Hold ID
+            </p>
+            <p
+              class="mt-2 break-all border-2 border-black bg-white px-3 py-2 text-xs font-bold tracking-[0.06em]"
+            >
               {{ holdID }}
             </p>
 
             <div class="mt-6 grid gap-4 md:grid-cols-3">
               <div class="border-2 border-black bg-white p-4">
-                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-black/60">Current State</p>
-                <p class="mt-2 text-lg font-black uppercase">{{ statusLabel }}</p>
+                <p
+                  class="text-[10px] font-black uppercase tracking-[0.2em] text-black/60"
+                >
+                  Current State
+                </p>
+                <p class="mt-2 text-lg font-black uppercase">
+                  {{ statusLabel }}
+                </p>
               </div>
 
               <div class="border-2 border-black bg-white p-4">
-                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-black/60">Hold Countdown</p>
-                <p class="mt-2 text-lg font-black uppercase">{{ countdown.label }}</p>
+                <p
+                  class="text-[10px] font-black uppercase tracking-[0.2em] text-black/60"
+                >
+                  Hold Countdown
+                </p>
+                <p class="mt-2 text-lg font-black uppercase">
+                  {{ countdown.label }}
+                </p>
               </div>
 
               <div class="border-2 border-black bg-white p-4">
-                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-black/60">Polling</p>
-                <p class="mt-2 text-lg font-black uppercase">{{ polling.isPolling ? 'ACTIVE' : 'PAUSED' }}</p>
+                <p
+                  class="text-[10px] font-black uppercase tracking-[0.2em] text-black/60"
+                >
+                  Polling
+                </p>
+                <p class="mt-2 text-lg font-black uppercase">
+                  {{ polling.isPolling ? "ACTIVE" : "PAUSED" }}
+                </p>
               </div>
             </div>
 
+            <UiStatusProgressBar
+              class="mt-6"
+              :steps="paymentProgressState.steps"
+              :current-step="paymentProgressState.currentStep"
+              :tone="paymentProgressState.tone"
+              :status-text="paymentProgressState.statusText"
+            />
+
             <p
-              v-if="!isUnauthorizedHoldAccess && (localError || paymentErrorMessage || polling.errorMessage)"
+              v-if="
+                !isUnauthorizedHoldAccess &&
+                (localError || paymentErrorMessage || polling.errorMessage)
+              "
               class="mt-6 border-2 border-black bg-black px-4 py-3 text-xs font-black uppercase tracking-[0.14em] text-white"
             >
               {{ localError || paymentErrorMessage || polling.errorMessage }}
@@ -303,19 +437,30 @@ onUnmounted(() => {
             <SectionLabel index="11." label="Payment Element" />
 
             <div class="mt-6 border-4 border-black bg-[var(--swiss-muted)] p-4">
-              <div ref="paymentMountRef" class="min-h-56 border-2 border-black bg-white p-4" />
+              <div
+                ref="paymentMountRef"
+                class="min-h-56 border-2 border-black bg-white p-4"
+              />
 
               <button
                 type="button"
                 class="mt-4 inline-flex h-14 w-full items-center justify-center border-2 border-black bg-black px-6 text-xs font-black uppercase tracking-[0.24em] text-white transition duration-200 ease-out hover:bg-[var(--swiss-accent)] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
-                :disabled="!paymentReady || isPaymentProcessing || isUnauthorizedHoldAccess"
+                :disabled="
+                  !paymentReady ||
+                  isPaymentProcessing ||
+                  isUnauthorizedHoldAccess
+                "
                 @click="handleConfirmPayment"
               >
-                {{ isPaymentProcessing ? 'Processing Payment' : 'Confirm Payment' }}
+                {{
+                  isPaymentProcessing ? "Processing Payment" : "Confirm Payment"
+                }}
               </button>
             </div>
 
-            <p class="mt-4 text-[11px] font-bold uppercase tracking-[0.15em] text-black/70">
+            <p
+              class="mt-4 text-[11px] font-bold uppercase tracking-[0.15em] text-black/70"
+            >
               Keep this page open while booking status updates asynchronously.
             </p>
 
@@ -338,8 +483,14 @@ onUnmounted(() => {
       aria-labelledby="booking-pending-unauthorized-title"
       aria-describedby="booking-pending-unauthorized-description"
     >
-      <article class="w-full max-w-xl border-4 border-black bg-white p-6 shadow-[10px_10px_0_0_#000] md:p-8">
-        <p class="text-[10px] font-black uppercase tracking-[0.2em] text-black/70">Access Restricted</p>
+      <article
+        class="w-full max-w-xl border-4 border-black bg-white p-6 shadow-[10px_10px_0_0_#000] md:p-8"
+      >
+        <p
+          class="text-[10px] font-black uppercase tracking-[0.2em] text-black/70"
+        >
+          Access Restricted
+        </p>
         <h2
           id="booking-pending-unauthorized-title"
           class="mt-3 text-[clamp(1.6rem,4vw,2.3rem)] font-black uppercase leading-[0.95] tracking-[-0.03em]"
@@ -350,7 +501,8 @@ onUnmounted(() => {
           id="booking-pending-unauthorized-description"
           class="mt-4 border-2 border-black bg-[var(--swiss-muted)] px-4 py-3 text-xs font-black uppercase tracking-[0.14em] text-black/75"
         >
-          This hold belongs to another account. Return to the events page to continue.
+          This hold belongs to another account. Return to the events page to
+          continue.
         </p>
 
         <RouterLink

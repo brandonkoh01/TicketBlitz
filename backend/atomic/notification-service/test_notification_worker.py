@@ -226,6 +226,37 @@ class NotificationWorkerTests(unittest.TestCase):
                 },
             )
 
+    def test_validate_payload_ticket_available_public_accepts_waitlist_emails(self):
+        worker = notification.NotificationWorker(self._config())
+
+        worker.validate_payload(
+            "TICKET_AVAILABLE_PUBLIC",
+            {
+                "type": "TICKET_AVAILABLE_PUBLIC",
+                "bookingID": "BK-777",
+                "eventName": "Coldplay Live",
+                "waitlistEmails": ["fan1@example.com", "fan2@example.com"],
+            },
+        )
+
+    def test_get_recipients_ticket_available_public_prefers_waitlist_email_list(self):
+        worker = notification.NotificationWorker(self._config())
+
+        recipients = worker.get_recipients(
+            "TICKET_AVAILABLE_PUBLIC",
+            {
+                "type": "TICKET_AVAILABLE_PUBLIC",
+                "email": "fallback@example.com",
+                "waitlistEmails": [
+                    "fan1@example.com",
+                    "fan1@example.com",
+                    "fan2@example.com",
+                ],
+            },
+        )
+
+        self.assertEqual(recipients, ["fan1@example.com", "fan2@example.com"])
+
     def test_process_payload_non_production_missing_sendgrid_config_falls_back(self):
         worker = notification.NotificationWorker(
             self._config(is_production=False, api_key=""))
@@ -249,11 +280,12 @@ class NotificationWorkerTests(unittest.TestCase):
 
         worker._sendgrid_client = _FakeSendGridClient(
             _FakeResponse(403, "forbidden"))
-        worker.send_email(
-            "BOOKING_CONFIRMED",
-            ["fan@example.com"],
-            {"eventName": "Coldplay Live"},
-        )
+        with self.assertRaises(notification.PermanentNotificationError):
+            worker.send_email(
+                "BOOKING_CONFIRMED",
+                ["fan@example.com"],
+                {"eventName": "Coldplay Live"},
+            )
 
         worker._sendgrid_client = _FakeSendGridClient(
             _FakeResponse(500, "server error"))
@@ -273,8 +305,9 @@ class NotificationWorkerTests(unittest.TestCase):
                 {"eventName": "Coldplay Live"},
             )
 
-    def test_send_email_non_production_sendgrid_http_401_falls_back(self):
+    def test_send_email_non_production_sendgrid_http_401_falls_back_when_opted_in(self):
         os.environ["SENDGRID_TEMPLATE_BOOKING_CONFIRMED"] = "d-template-id"
+        os.environ[notification.SENDGRID_AUTH_FALLBACK_ENV] = "1"
 
         worker = notification.NotificationWorker(
             self._config(is_production=False, api_key="test-key"))
@@ -287,6 +320,43 @@ class NotificationWorkerTests(unittest.TestCase):
             ["fan@example.com"],
             {"eventName": "Coldplay Live"},
         )
+
+    def test_send_email_non_production_sendgrid_http_401_raises_without_opt_in(self):
+        os.environ["SENDGRID_TEMPLATE_BOOKING_CONFIRMED"] = "d-template-id"
+
+        worker = notification.NotificationWorker(
+            self._config(is_production=False, api_key="test-key"))
+        worker._sendgrid_client = _FakeRaisingSendGridClient(
+            HTTPError(401, "Unauthorized", b"unauthorized", {})
+        )
+
+        with self.assertRaises(notification.PermanentNotificationError):
+            worker.send_email(
+                "BOOKING_CONFIRMED",
+                ["fan@example.com"],
+                {"eventName": "Coldplay Live"},
+            )
+
+    def test_send_email_non_production_quota_exceeded_is_transient(self):
+        os.environ["SENDGRID_TEMPLATE_BOOKING_CONFIRMED"] = "d-template-id"
+
+        worker = notification.NotificationWorker(
+            self._config(is_production=False, api_key="test-key"))
+        worker._sendgrid_client = _FakeRaisingSendGridClient(
+            HTTPError(
+                401,
+                "Unauthorized",
+                b'{"errors":[{"message":"Maximum credits exceeded"}]}',
+                {},
+            )
+        )
+
+        with self.assertRaises(notification.TransientNotificationError):
+            worker.send_email(
+                "BOOKING_CONFIRMED",
+                ["fan@example.com"],
+                {"eventName": "Coldplay Live"},
+            )
 
     def test_send_email_production_sendgrid_http_401_raises_permanent(self):
         os.environ["SENDGRID_TEMPLATE_BOOKING_CONFIRMED"] = "d-template-id"
@@ -303,6 +373,23 @@ class NotificationWorkerTests(unittest.TestCase):
                 ["fan@example.com"],
                 {"eventName": "Coldplay Live"},
             )
+
+    def test_send_email_ticket_available_public_sends_bulk(self):
+        os.environ["SENDGRID_TEMPLATE_TICKET_AVAILABLE_PUBLIC"] = "d-template-id"
+
+        worker = notification.NotificationWorker(
+            self._config(is_production=False, api_key="test-key")
+        )
+        fake_client = _FakeSendGridClient(_FakeResponse(202, "accepted"))
+        worker._sendgrid_client = fake_client
+
+        worker.send_email(
+            "TICKET_AVAILABLE_PUBLIC",
+            ["fan1@example.com", "fan2@example.com", "fan3@example.com"],
+            {"eventName": "Lawrence Wong Live", "bookingID": "BK-777"},
+        )
+
+        self.assertEqual(len(fake_client.sent), 1)
 
     def test_process_payload_allows_empty_waitlist_email_list(self):
         worker = notification.NotificationWorker(
