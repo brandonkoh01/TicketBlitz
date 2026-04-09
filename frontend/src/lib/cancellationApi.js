@@ -39,7 +39,7 @@ function normalizeResult({ payload, httpStatus, ok, fallbackReason = "" }) {
 
 async function requestTicketCancellation(
   api,
-  { bookingID, userID, reason } = {},
+  { bookingID, userID, reason, simulateRefundFailure } = {},
 ) {
   const parsedBookingID = String(bookingID || "").trim();
   const parsedUserID = String(userID || "").trim();
@@ -56,6 +56,7 @@ async function requestTicketCancellation(
         bookingID: parsedBookingID,
         userID: parsedUserID,
         ...(reason ? { reason: String(reason) } : {}),
+        ...(simulateRefundFailure ? { simulateRefundFailure: true } : {}),
       },
       { includeUserHeader: false },
     );

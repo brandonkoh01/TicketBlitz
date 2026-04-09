@@ -34,6 +34,14 @@ PURCHASED_BOOKING_STATUSES = (
 )
 
 
+def _is_production_env() -> bool:
+    for name in ("APP_ENV", "ENVIRONMENT", "FLASK_ENV"):
+        value = str(os.getenv(name, "")).strip().lower()
+        if value in {"prod", "production"}:
+            return True
+    return False
+
+
 class ApiError(Exception):
     def __init__(self, message: str, status_code: int = 400):
         super().__init__(message)
@@ -930,6 +938,8 @@ def _execute_refund(
     transaction: Dict[str, Any],
     requested_refund_amount: Optional[Decimal],
     reason: Optional[str],
+    *,
+    force_failure: bool = False,
 ) -> Dict[str, Any]:
     current_status = str(transaction.get("status") or "").upper()
 
@@ -1030,6 +1040,27 @@ def _execute_refund(
             latest_transaction["transaction_id"],
             attempt_no,
         )
+
+        if force_failure:
+            last_error_message = "Simulated refund failure (forced for testing)"
+            logger.warning(
+                "Simulated Stripe refund attempt %s failed for transaction %s",
+                attempt_no,
+                latest_transaction["transaction_id"],
+            )
+            _update_refund_attempt(
+                refund_attempt["refund_attempt_id"],
+                {
+                    "status": "FAILED",
+                    "error_code": "SIMULATED_FAILURE",
+                    "error_message": last_error_message,
+                    "provider_payload": {
+                        "simulated": True,
+                        "attempt_no": attempt_no,
+                    },
+                },
+            )
+            continue
 
         try:
             refund = stripe.Refund.create(
@@ -1809,9 +1840,20 @@ def create_app() -> Flask:
                 else None
             )
             reason = payload.get("reason")
+            simulate_refund_failure = _parse_bool_query_value(
+                payload.get("simulateRefundFailure")
+                or payload.get("simulate_refund_failure")
+                or payload.get("simulate3c")
+            )
+            if simulate_refund_failure and _is_production_env():
+                raise ValidationError("simulateRefundFailure is disabled in production")
 
             result = _execute_refund(
-                transaction, requested_refund_amount, reason)
+                transaction,
+                requested_refund_amount,
+                reason,
+                force_failure=simulate_refund_failure,
+            )
             return _api_response(result, 200)
         except ApiError as error:
             return _handle_api_error(error)

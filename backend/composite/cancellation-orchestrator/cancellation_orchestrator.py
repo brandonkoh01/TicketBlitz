@@ -147,6 +147,19 @@ def _parse_non_empty_string(value: Any, field_name: str) -> str:
     return parsed
 
 
+def _parse_bool_flag(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "y"}
+
+    if isinstance(value, (int, float)):
+        return bool(value)
+
+    return False
+
+
 def _get_json_payload() -> dict[str, Any]:
     payload = request.get_json(silent=True)
     if payload is None:
@@ -257,6 +270,25 @@ def _extract_email_from_user(user_id: str) -> str:
 
 
 def _fetch_public_announcement_emails() -> list[str]:
+    def _is_fan_user(user: dict[str, Any]) -> bool:
+        metadata = user.get("metadata") if isinstance(user, dict) else None
+        if not isinstance(metadata, dict):
+            return False
+
+        candidates: list[str] = []
+        for key in ("role", "userRole", "accountType", "type"):
+            value = metadata.get(key)
+            if isinstance(value, str) and value.strip():
+                candidates.append(value.strip().lower())
+
+        roles = metadata.get("roles")
+        if isinstance(roles, list):
+            for value in roles:
+                if isinstance(value, str) and value.strip():
+                    candidates.append(value.strip().lower())
+
+        return "fan" in candidates
+
     recipients: list[str] = []
     seen: set[str] = set()
     page = 1
@@ -284,6 +316,8 @@ def _fetch_public_announcement_emails() -> list[str]:
 
         for user in users:
             if not isinstance(user, dict):
+                continue
+            if not _is_fan_user(user):
                 continue
             email = user.get("email")
             if not isinstance(email, str) or "@" not in email:
@@ -443,9 +477,16 @@ def _mark_payment_failed(booking_id: str, reason: str) -> None:
         raise DependencyError("Failed to apply refund failure compensation", details={"dependency": "payment-service"})
 
 
-def _request_refund(booking_id: str, reason: str | None) -> dict[str, Any]:
+def _request_refund(
+    booking_id: str,
+    reason: str | None,
+    *,
+    simulate_failure: bool = False,
+) -> dict[str, Any]:
     url = _join_url(current_app.config["PAYMENT_SERVICE_URL"], f"/payments/refund/{booking_id}")
     payload = {"reason": reason} if reason else {}
+    if simulate_failure:
+        payload["simulateRefundFailure"] = True
     status_code, body = _request_json("POST", url, headers=_internal_headers(), payload=payload)
 
     if status_code in {200, 201} and body:
@@ -977,7 +1018,14 @@ def _build_refund_success_payload(
     )
 
 
-def _process_cancellation(booking_id: str, user_id: str, reason: str | None, correlation_id: str):
+def _process_cancellation(
+    booking_id: str,
+    user_id: str,
+    reason: str | None,
+    correlation_id: str,
+    *,
+    simulate_refund_failure: bool = False,
+):
     verification = _fetch_payment_verification(booking_id, strict_policy=False)
 
     owner_user_id = _parse_uuid(verification.get("userID"), "payment.userID")
@@ -1049,7 +1097,11 @@ def _process_cancellation(booking_id: str, user_id: str, reason: str | None, cor
     )
 
     try:
-        refund_result = _request_refund(booking_id, reason)
+        refund_result = _request_refund(
+            booking_id,
+            reason,
+            simulate_failure=simulate_refund_failure,
+        )
     except ApiError as error:
         _mark_payment_failed(booking_id, error.message)
         try:
@@ -1242,8 +1294,23 @@ def orchestrate_cancellation():
         reason = payload.get("reason")
         if reason is not None:
             reason = str(reason)
+
+        simulate_refund_failure = _parse_bool_flag(
+            payload.get("simulateRefundFailure")
+            or payload.get("simulate_refund_failure")
+            or payload.get("simulate3c")
+        )
+        if simulate_refund_failure and _is_production_env():
+            raise ValidationError("simulateRefundFailure is disabled in production")
+
         correlation_id = _derive_correlation_id(payload)
-        body, status_code = _process_cancellation(booking_id, user_id, reason, correlation_id)
+        body, status_code = _process_cancellation(
+            booking_id,
+            user_id,
+            reason,
+            correlation_id,
+            simulate_refund_failure=simulate_refund_failure,
+        )
         return _api_response(body, status_code)
     except ApiError as error:
         return _json_error(error.message, error.status_code, error.details)
@@ -1261,9 +1328,22 @@ def orchestrate_cancellation_alias(booking_id: str):
         reason = payload.get("reason")
         if reason is not None:
             reason = str(reason)
+        simulate_refund_failure = _parse_bool_flag(
+            payload.get("simulateRefundFailure")
+            or payload.get("simulate_refund_failure")
+            or payload.get("simulate3c")
+        )
+        if simulate_refund_failure and _is_production_env():
+            raise ValidationError("simulateRefundFailure is disabled in production")
         correlation_id = _derive_correlation_id(payload)
         parsed_booking_id = _derive_booking_id_from_payload(payload)
-        body, status_code = _process_cancellation(parsed_booking_id, user_id, reason, correlation_id)
+        body, status_code = _process_cancellation(
+            parsed_booking_id,
+            user_id,
+            reason,
+            correlation_id,
+            simulate_refund_failure=simulate_refund_failure,
+        )
         return _api_response(body, status_code)
     except ApiError as error:
         return _json_error(error.message, error.status_code, error.details)

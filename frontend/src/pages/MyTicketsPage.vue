@@ -1,10 +1,12 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
+import { useRoute } from "vue-router";
 import QRCode from "qrcode";
 import { useAuthStore } from "@/stores/authStore";
 import { useUserBookings } from "@/composables/useUserBookings";
 import { useTicketCancellation } from "@/composables/useTicketCancellation";
 
+const route = useRoute();
 const authStore = useAuthStore();
 const {
   tickets: purchasedTickets,
@@ -17,6 +19,19 @@ const ticketCancellation = useTicketCancellation();
 const activeCancellationBookingID = ref("");
 const cancellationTargetTicket = ref(null);
 const cancellationDialogError = ref("");
+function isTruthyQueryFlag(value) {
+  return ["1", "true", "yes", "on", "y"].includes(
+    String(value || "").trim().toLowerCase(),
+  );
+}
+
+const simulateRefundFailureMode = computed(() => {
+  const value = route.query.simulate3c;
+  if (Array.isArray(value)) {
+    return value.some((item) => isTruthyQueryFlag(item));
+  }
+  return isTruthyQueryFlag(value);
+});
 
 const footerGroups = [
   {
@@ -281,6 +296,7 @@ async function confirmCancellation() {
       bookingID,
       userID,
       newHoldID: ticket?.newHoldID || null,
+      simulateRefundFailure: simulateRefundFailureMode.value,
     });
 
     const finalBreakdown = getRefundBreakdown(ticket, result);

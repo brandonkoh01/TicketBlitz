@@ -88,7 +88,13 @@ export function useTicketCancellation() {
     return latestResponse.value;
   }
 
-  async function cancelTicket({ bookingID, userID, reason, newHoldID } = {}) {
+  async function cancelTicket({
+    bookingID,
+    userID,
+    reason,
+    newHoldID,
+    simulateRefundFailure,
+  } = {}) {
     isSubmitting.value = true;
     message.value = "";
 
@@ -97,6 +103,7 @@ export function useTicketCancellation() {
         bookingID,
         userID,
         reason,
+        simulateRefundFailure,
       });
 
       latestResponse.value = result;

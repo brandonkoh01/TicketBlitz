@@ -96,14 +96,26 @@ class CancellationOrchestratorTests(unittest.TestCase):
                     200,
                     {
                         "users": [
-                            {"userID": USER_ID, "email": "fan@example.com", "name": "Fan"},
+                            {
+                                "userID": USER_ID,
+                                "email": "fan@example.com",
+                                "name": "Fan",
+                                "metadata": {"role": "fan"},
+                            },
                             {
                                 "userID": "00000000-0000-0000-0000-000000000099",
                                 "email": "newfan@example.com",
                                 "name": "New Fan",
+                                "metadata": {"role": "fan"},
+                            },
+                            {
+                                "userID": "00000000-0000-0000-0000-000000000098",
+                                "email": "organiser@example.com",
+                                "name": "Organiser",
+                                "metadata": {"role": "organiser"},
                             },
                         ],
-                        "pagination": {"page": 1, "pageSize": 100, "total": 2, "totalPages": 1},
+                        "pagination": {"page": 1, "pageSize": 100, "total": 3, "totalPages": 1},
                     },
                 )
             if method == "GET" and url.endswith(f"/event/{EVENT_ID}"):
@@ -173,14 +185,26 @@ class CancellationOrchestratorTests(unittest.TestCase):
                     200,
                     {
                         "users": [
-                            {"userID": USER_ID, "email": "fan@example.com", "name": "Fan"},
+                            {
+                                "userID": USER_ID,
+                                "email": "fan@example.com",
+                                "name": "Fan",
+                                "metadata": {"role": "fan"},
+                            },
                             {
                                 "userID": "00000000-0000-0000-0000-000000000099",
                                 "email": "newfan@example.com",
                                 "name": "New Fan",
+                                "metadata": {"role": "fan"},
+                            },
+                            {
+                                "userID": "00000000-0000-0000-0000-000000000098",
+                                "email": "organiser@example.com",
+                                "name": "Organiser",
+                                "metadata": {"role": "organiser"},
                             },
                         ],
-                        "pagination": {"page": 1, "pageSize": 100, "total": 2, "totalPages": 1},
+                        "pagination": {"page": 1, "pageSize": 100, "total": 3, "totalPages": 1},
                     },
                 )
             return MockResponse(500, {"error": "unexpected"})
@@ -210,6 +234,114 @@ class CancellationOrchestratorTests(unittest.TestCase):
             ["newfan@example.com"],
         )
         self.assertNotIn("fan@example.com", ticket_available_payload["waitlistEmails"])
+        self.assertNotIn("organiser@example.com", ticket_available_payload["waitlistEmails"])
+
+    @patch.object(cancellation_orchestrator.requests, "request")
+    @patch.object(cancellation_orchestrator, "publish_json")
+    def test_refund_failure_compensation_with_simulate_refund_failure_flag(self, publish_mock, request_mock):
+        captured_refund_payload = {"json": None}
+
+        def side_effect(method, url, headers=None, json=None, timeout=None):
+            if method == "GET" and url.endswith(f"/payments/verify/{BOOKING_ID}"):
+                return MockResponse(
+                    200,
+                    {
+                        "bookingID": BOOKING_ID,
+                        "holdID": OLD_HOLD_ID,
+                        "userID": USER_ID,
+                        "eventID": EVENT_ID,
+                        "paymentStatus": "SUCCEEDED",
+                        "withinPolicy": True,
+                    },
+                )
+            if method == "GET" and url.endswith(f"/eticket/hold/{OLD_HOLD_ID}"):
+                return MockResponse(200, {"ticketID": OLD_TICKET_ID})
+            if method == "GET" and "/eticket/validate?" in url:
+                return MockResponse(200, {"valid": True, "reason": "OK", "status": "VALID"})
+            if method == "GET" and url.endswith(f"/user/{USER_ID}"):
+                return MockResponse(200, {"userID": USER_ID, "email": "fan@example.com", "name": "Fan"})
+            if method == "GET" and url.endswith(f"/event/{EVENT_ID}"):
+                return MockResponse(200, {"event_id": EVENT_ID, "name": "Coldplay Live"})
+            if method == "PUT" and url.endswith(f"/payments/status/{BOOKING_ID}"):
+                return MockResponse(200, {"updated": True})
+            if method == "POST" and url.endswith(f"/payments/refund/{BOOKING_ID}"):
+                captured_refund_payload["json"] = json
+                return MockResponse(502, {"error": "Refund failed after maximum retry attempts"})
+            if method == "PUT" and url.endswith("/payments/status/fail"):
+                return MockResponse(200, {"updated": True})
+            if method == "PUT" and url.endswith(f"/etickets/status/{OLD_TICKET_ID}"):
+                return MockResponse(200, {"ticketID": OLD_TICKET_ID, "newStatus": "CANCELLATION_IN_PROGRESS"})
+            return MockResponse(500, {"error": "unexpected"})
+
+        request_mock.side_effect = side_effect
+        client = self._build_client()
+
+        response = client.post(
+            "/orchestrator/cancellation",
+            json={
+                "bookingID": BOOKING_ID,
+                "userID": USER_ID,
+                "simulateRefundFailure": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(captured_refund_payload["json"].get("simulateRefundFailure"), True)
+        published_types = [call.kwargs["payload"]["type"] for call in publish_mock.call_args_list]
+        self.assertIn("REFUND_ERROR", published_types)
+
+    @patch.object(cancellation_orchestrator.requests, "request")
+    @patch.object(cancellation_orchestrator, "publish_json")
+    def test_refund_failure_simulation_flag_on_bookings_cancel_alias(self, publish_mock, request_mock):
+        captured_refund_payload = {"json": None}
+
+        def side_effect(method, url, headers=None, json=None, timeout=None):
+            if method == "GET" and url.endswith(f"/payments/verify/{BOOKING_ID}"):
+                return MockResponse(
+                    200,
+                    {
+                        "bookingID": BOOKING_ID,
+                        "holdID": OLD_HOLD_ID,
+                        "userID": USER_ID,
+                        "eventID": EVENT_ID,
+                        "paymentStatus": "SUCCEEDED",
+                        "withinPolicy": True,
+                    },
+                )
+            if method == "GET" and url.endswith(f"/eticket/hold/{OLD_HOLD_ID}"):
+                return MockResponse(200, {"ticketID": OLD_TICKET_ID})
+            if method == "GET" and "/eticket/validate?" in url:
+                return MockResponse(200, {"valid": True, "reason": "OK", "status": "VALID"})
+            if method == "GET" and url.endswith(f"/user/{USER_ID}"):
+                return MockResponse(200, {"userID": USER_ID, "email": "fan@example.com", "name": "Fan"})
+            if method == "GET" and url.endswith(f"/event/{EVENT_ID}"):
+                return MockResponse(200, {"event_id": EVENT_ID, "name": "Coldplay Live"})
+            if method == "PUT" and url.endswith(f"/payments/status/{BOOKING_ID}"):
+                return MockResponse(200, {"updated": True})
+            if method == "POST" and url.endswith(f"/payments/refund/{BOOKING_ID}"):
+                captured_refund_payload["json"] = json
+                return MockResponse(502, {"error": "Refund failed after maximum retry attempts"})
+            if method == "PUT" and url.endswith("/payments/status/fail"):
+                return MockResponse(200, {"updated": True})
+            if method == "PUT" and url.endswith(f"/etickets/status/{OLD_TICKET_ID}"):
+                return MockResponse(200, {"ticketID": OLD_TICKET_ID, "newStatus": "CANCELLATION_IN_PROGRESS"})
+            return MockResponse(500, {"error": "unexpected"})
+
+        request_mock.side_effect = side_effect
+        client = self._build_client()
+
+        response = client.post(
+            f"/bookings/cancel/{BOOKING_ID}",
+            json={
+                "userID": USER_ID,
+                "simulateRefundFailure": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(captured_refund_payload["json"].get("simulateRefundFailure"), True)
+        published_types = [call.kwargs["payload"]["type"] for call in publish_mock.call_args_list]
+        self.assertIn("REFUND_ERROR", published_types)
 
     @patch.object(cancellation_orchestrator.requests, "request")
     def test_extract_event_name_supports_alias_shapes(self, request_mock):
