@@ -82,8 +82,9 @@ async function mountPage({ status = 'ACTIVE', flashSaleActive = false } = {}) {
     props: {
       label: { type: String, default: '' },
       value: { type: String, default: '' },
+      valueVariant: { type: String, default: 'default' },
     },
-    template: '<div data-test="metric-card">{{ label }} {{ value }}</div>',
+    template: '<div data-test="metric-card" :data-label="label" :data-value-variant="valueVariant">{{ label }} {{ value }}</div>',
   })
   app.component('CategoryPricingCard', {
     props: {
@@ -150,6 +151,9 @@ describe('EventDetailPage flash sale badge rendering', () => {
 
     expect(container.textContent).toContain('ACTIVE')
     expect(container.textContent).not.toContain('Flash Sale Active')
+
+    const flashSaleMetricCard = container.querySelector('[data-test="metric-card"][data-label="Flash Sale"]')
+    expect(flashSaleMetricCard?.getAttribute('data-value-variant')).toBe('compact')
 
     app.unmount()
   })

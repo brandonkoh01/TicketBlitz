@@ -120,6 +120,7 @@ async function onSelectCategory(category) {
                 :key="metric.label"
                 :label="metric.label"
                 :value="metric.value"
+                :value-variant="metric.label === 'Flash Sale' ? 'compact' : 'default'"
               />
             </div>
 
