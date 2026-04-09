@@ -21,7 +21,9 @@ const cancellationTargetTicket = ref(null);
 const cancellationDialogError = ref("");
 function isTruthyQueryFlag(value) {
   return ["1", "true", "yes", "on", "y"].includes(
-    String(value || "").trim().toLowerCase(),
+    String(value || "")
+      .trim()
+      .toLowerCase(),
   );
 }
 
