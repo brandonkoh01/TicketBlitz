@@ -97,16 +97,16 @@ Docs:
 
 ### Endpoints
 
-| Method | Path | Auth | Request | Success | Error Codes | Notes |
+| Method | Path | Auth | Request | Success | Error Codes | Simple Description |
 |---|---|---|---|---|---|---|
-| GET | `/health` | none | none | 200 health object | - | Includes Supabase and RabbitMQ configured flags |
-| GET | `/events` | none | none | 200 `{ events: [...] }` | 503, 500 | Returns non-deleted events |
-| GET | `/event/{event_id}` | none | path `event_id` UUID | 200 event | 400, 404, 503 | Single event fetch |
-| GET | `/event/{event_id}/categories` | none | path `event_id` UUID | 200 category list | 400, 404, 503, 500 | Returns seat categories for event |
-| GET | `/event/{event_id}/flash-sale/status` | none | path `event_id` UUID | 200 flash sale status payload | 400, 404, 503, 500 | Combines `inventory_event_state` + `flash_sales` |
-| GET | `/event/{event_id}/price-history` | none | path `event_id`, optional `limit` (1-200) | 200 history rows | 400, 422, 503, 500 | Enriches with category metadata |
-| PUT | `/event/{event_id}/status` | Kong organiser auth | JSON `{ status }` | 200 updated event | 409, 422, 500, 503 | Enforces event state transitions |
-| PUT | `/event/{event_id}/categories/prices` | Kong organiser auth | JSON `{ reason, updates[], ... }` | 200 updated categories | 404, 409, 422, 500, 503 | Updates category prices + writes price audit + integration event |
+| GET | `/health` | none | none | 200 health object | - | Check event service health. |
+| GET | `/events` | none | none | 200 `{ events: [...] }` | 503, 500 | Retrieve all active events. |
+| GET | `/event/{event_id}` | none | path `event_id` UUID | 200 event | 400, 404, 503 | Retrieve details for one event. |
+| GET | `/event/{event_id}/categories` | none | path `event_id` UUID | 200 category list | 400, 404, 503, 500 | Retrieve seat categories for one event. |
+| GET | `/event/{event_id}/flash-sale/status` | none | path `event_id` UUID | 200 flash sale status payload | 400, 404, 503, 500 | Check if flash sale is active for an event. |
+| GET | `/event/{event_id}/price-history` | none | path `event_id`, optional `limit` (1-200) | 200 history rows | 400, 422, 503, 500 | Retrieve event price change history. |
+| PUT | `/event/{event_id}/status` | Kong organiser auth | JSON `{ status }` | 200 updated event | 409, 422, 500, 503 | Update the event status. |
+| PUT | `/event/{event_id}/categories/prices` | Kong organiser auth | JSON `{ reason, updates[], ... }` | 200 updated categories | 404, 409, 422, 500, 503 | Update event category prices. |
 
 ### Event status rules
 
@@ -155,13 +155,13 @@ Config keys:
 
 ### Endpoints
 
-| Method | Path | Auth | Request | Success | Error Codes | Notes |
+| Method | Path | Auth | Request | Success | Error Codes | Simple Description |
 |---|---|---|---|---|---|---|
-| GET | `/health` | none | none | 200 | - | Health + Supabase configured |
-| GET | `/user/{user_id}` | internal token | path `user_id`; query `includeDeleted` | 200 user contract | 400, 401, 404, 503, 500 | Falls back from `user_id` lookup to `auth_user_id` |
-| GET | `/users` | internal token | query `page`, `pageSize`, `search`, `includeDeleted` | 200 `{ users, pagination }` | 400, 401, 503, 500 | `search` max length 120 |
-| POST | `/users` | internal token | JSON `{ name/fullName/full_name, email, phone?, metadata? }` | 201 created user | 400, 401, 409, 503, 500 | Duplicate users mapped to 409 |
-| PUT | `/user/{user_id}` | internal token | partial JSON update payload | 200 updated user | 400, 401, 404, 503, 500 | Rejects empty update payload |
+| GET | `/health` | none | none | 200 | - | Check user service health. |
+| GET | `/user/{user_id}` | internal token | path `user_id`; query `includeDeleted` | 200 user contract | 400, 401, 404, 503, 500 | Retrieve user details. |
+| GET | `/users` | internal token | query `page`, `pageSize`, `search`, `includeDeleted` | 200 `{ users, pagination }` | 400, 401, 503, 500 | List users with pagination and search. |
+| POST | `/users` | internal token | JSON `{ name/fullName/full_name, email, phone?, metadata? }` | 201 created user | 400, 401, 409, 503, 500 | Create a new user. |
+| PUT | `/user/{user_id}` | internal token | partial JSON update payload | 200 updated user | 400, 401, 404, 503, 500 | Update user details. |
 
 ---
 
@@ -198,17 +198,17 @@ Allowed seat transitions:
 
 ### Endpoints
 
-| Method | Path | Auth | Request | Success | Error Codes | Notes |
+| Method | Path | Auth | Request | Success | Error Codes | Simple Description |
 |---|---|---|---|---|---|---|
-| GET | `/health` | none | none | 200 | - | Health + dependency flags |
-| PUT | `/inventory/{event_id}/flash-sale` | none | JSON `{ active, flashSaleID? }` | 200 state object | 400, 500, 503 | Upserts `inventory_event_state` |
-| GET | `/inventory/{event_id}/{seat_category}` | none | path params | 200 availability object | 400, 404, 500, 503 | Returns `status` as AVAILABLE/SOLD_OUT |
-| POST | `/inventory/hold` | none | JSON `{ eventID, userID, seatCategory, qty?, fromWaitlist?, idempotencyKey? }` | 201 created or 200 idempotent | 400, 404, 409, 500, 503 | Uses RPC `inventory_create_hold`; enforces qty=1 |
-| GET | `/inventory/hold/{hold_id}` | none | path hold UUID | 200 hold object | 400, 404, 500, 503 | Hold lookup |
-| PUT | `/inventory/hold/{hold_id}/confirm` | none | JSON `{ correlationID? }` | 200 hold object | 400, 404, 409, 500, 503 | Uses RPC `inventory_confirm_hold`; can trigger sold-out event |
-| PUT | `/inventory/hold/{hold_id}/release` | none | JSON `{ reason }` | 200 hold object | 400, 404, 409, 500, 503 | Publishes `seat.released` on successful release |
-| PUT | `/inventory/seat/{seat_id}/status` | none | JSON `{ status }` | 200 seat state | 400, 404, 409, 500, 503 | Guards transition validity |
-| POST | `/inventory/maintenance/expire-holds` | none | JSON optional | 200 batch payload | 500, 503 | Expires stale holds via RPC and publishes `seat.released` with reason `PAYMENT_TIMEOUT` |
+| GET | `/health` | none | none | 200 | - | Check inventory service health. |
+| PUT | `/inventory/{event_id}/flash-sale` | none | JSON `{ active, flashSaleID? }` | 200 state object | 400, 500, 503 | Turn flash sale mode on or off for an event. |
+| GET | `/inventory/{event_id}/{seat_category}` | none | path params | 200 availability object | 400, 404, 500, 503 | Check seat availability for a category. |
+| POST | `/inventory/hold` | none | JSON `{ eventID, userID, seatCategory, qty?, fromWaitlist?, idempotencyKey? }` | 201 created or 200 idempotent | 400, 404, 409, 500, 503 | Create a seat hold for a user. |
+| GET | `/inventory/hold/{hold_id}` | none | path hold UUID | 200 hold object | 400, 404, 500, 503 | Retrieve hold details. |
+| PUT | `/inventory/hold/{hold_id}/confirm` | none | JSON `{ correlationID? }` | 200 hold object | 400, 404, 409, 500, 503 | Confirm a held seat after payment. |
+| PUT | `/inventory/hold/{hold_id}/release` | none | JSON `{ reason }` | 200 hold object | 400, 404, 409, 500, 503 | Release a hold and return the seat to inventory. |
+| PUT | `/inventory/seat/{seat_id}/status` | none | JSON `{ status }` | 200 seat state | 400, 404, 409, 500, 503 | Update the status of one seat. |
+| POST | `/inventory/maintenance/expire-holds` | none | JSON optional | 200 batch payload | 500, 503 | Expire old holds in bulk. |
 
 Published events from inventory paths:
 - `seat.released` (release/expire flows)
@@ -231,12 +231,12 @@ Header used: `X-Internal-Token`.
 
 ### Primary endpoints
 
-| Method | Path | Auth | Request | Success | Error Codes | Notes |
+| Method | Path | Auth | Request | Success | Error Codes | Simple Description |
 |---|---|---|---|---|---|---|
-| GET | `/health` | none | none | 200 | - | Health includes Stripe configured flag |
-| POST | `/payment/initiate` | internal token | JSON `{ holdID, userID, amount, idempotencyKey? }` | 201 or 200 | 400, 401, 404, 409, 502, 503, 500 | Creates Stripe PaymentIntent; default idempotency key prefix `payment-initiate:{holdID}` |
-| GET | `/payment/hold/{hold_id}` | no internal auth by default | query `reconcile=true|false` | 200 payment state | 404, 503, 500 | Optional reconciliation against Stripe PaymentIntent |
-| POST | `/payment/webhook` | Stripe signature auth | raw Stripe event + `Stripe-Signature` | 200 accepted | 400, 503, 500 | Handles `payment_intent.succeeded` and `payment_intent.payment_failed`; webhook idempotency tracked |
+| GET | `/health` | none | none | 200 | - | Check payment service health. |
+| POST | `/payment/initiate` | internal token | JSON `{ holdID, userID, amount, idempotencyKey? }` | 201 or 200 | 400, 401, 404, 409, 502, 503, 500 | Create or reuse a payment for a hold. |
+| GET | `/payment/hold/{hold_id}` | no internal auth by default | query `reconcile=true|false` | 200 payment state | 404, 503, 500 | Retrieve payment status for a hold. |
+| POST | `/payment/webhook` | Stripe signature auth | raw Stripe event + `Stripe-Signature` | 200 accepted | 400, 503, 500 | Receive Stripe payment updates. |
 
 ### Legacy/alias and cancellation-support endpoints
 
@@ -303,20 +303,20 @@ Cancellation endpoint (`DELETE /waitlist/{waitlist_id}`) requires current status
 
 ### Endpoints
 
-| Method | Path | Auth | Request | Success | Error Codes | Notes |
+| Method | Path | Auth | Request | Success | Error Codes | Simple Description |
 |---|---|---|---|---|---|---|
-| GET | `/health` | none | none | 200 | - | Health + Supabase configured |
-| GET | `/waitlist` | internal token | filters: `eventID,userID,status,seatCategory,includeEmail,limit` | 200 list payload | 400, 401, 404, 503, 500 | Requires `eventID` when `seatCategory` provided |
-| POST | `/waitlist/join` | internal token | JSON `{ userID, eventID, seatCategory, qty?, source?, metadata?, priorityScore? }` | 201 join payload | 400, 401, 404, 409, 503, 500 | qty must be 1 |
-| GET | `/waitlist/next` | internal token | query `eventID, seatCategory` | 200 entry | 400, 401, 404, 503, 500 | Returns earliest WAITING entry |
-| GET | `/waitlist/by-hold/{hold_id}` | internal token | hold UUID | 200 entry | 400, 401, 404, 503, 500 | Latest by hold |
-| GET | `/waitlist/status/{hold_id}` | internal token | hold UUID, query `limit` | 200 summary payload | 400, 401, 404, 503, 500 | Provides queue context for hold |
-| DELETE | `/waitlist/users/{user_id}` | internal token | query `holdID` | 200 dequeued summary | 400, 401, 404, 503, 500 | Cancels active WAITING entry in hold context |
-| DELETE | `/waitlist/{waitlist_id}` | internal token | optional JSON `{ userID }` | 200 cancelled summary | 400, 401, 404, 409, 503, 500 | Enforces ownership and WAITING state |
-| GET | `/waitlist/{waitlist_id}` | conditional | path + query `includeEmail` | 200 entry | 400, 404, 500 | includeEmail true requires internal auth |
-| PUT | `/waitlist/{waitlist_id}/offer` | internal token | JSON `{ holdID }` | 200 transition summary | 400, 401, 404, 409, 503, 500 | Requires holdID |
-| PUT | `/waitlist/{waitlist_id}/confirm` | internal token | JSON `{ holdID? }` | 200 transition summary | 400, 401, 404, 409, 503, 500 | HOLD_OFFERED to CONFIRMED |
-| PUT | `/waitlist/{waitlist_id}/expire` | internal token | JSON `{ holdID? }` | 200 transition summary | 400, 401, 404, 409, 503, 500 | HOLD_OFFERED to EXPIRED |
+| GET | `/health` | none | none | 200 | - | Check waitlist service health. |
+| GET | `/waitlist` | internal token | filters: `eventID,userID,status,seatCategory,includeEmail,limit` | 200 list payload | 400, 401, 404, 503, 500 | List waitlist entries. |
+| POST | `/waitlist/join` | internal token | JSON `{ userID, eventID, seatCategory, qty?, source?, metadata?, priorityScore? }` | 201 join payload | 400, 401, 404, 409, 503, 500 | Join the waitlist for an event category. |
+| GET | `/waitlist/next` | internal token | query `eventID, seatCategory` | 200 entry | 400, 401, 404, 503, 500 | Retrieve the next person in line. |
+| GET | `/waitlist/by-hold/{hold_id}` | internal token | hold UUID | 200 entry | 400, 401, 404, 503, 500 | Find the waitlist entry linked to a hold. |
+| GET | `/waitlist/status/{hold_id}` | internal token | hold UUID, query `limit` | 200 summary payload | 400, 401, 404, 503, 500 | Retrieve waitlist status for a hold. |
+| DELETE | `/waitlist/users/{user_id}` | internal token | query `holdID` | 200 dequeued summary | 400, 401, 404, 503, 500 | Remove a user's active waitlist entry. |
+| DELETE | `/waitlist/{waitlist_id}` | internal token | optional JSON `{ userID }` | 200 cancelled summary | 400, 401, 404, 409, 503, 500 | Cancel a specific waitlist entry. |
+| GET | `/waitlist/{waitlist_id}` | conditional | path + query `includeEmail` | 200 entry | 400, 404, 500 | Retrieve details of one waitlist entry. |
+| PUT | `/waitlist/{waitlist_id}/offer` | internal token | JSON `{ holdID }` | 200 transition summary | 400, 401, 404, 409, 503, 500 | Mark a waitlist entry as hold offered. |
+| PUT | `/waitlist/{waitlist_id}/confirm` | internal token | JSON `{ holdID? }` | 200 transition summary | 400, 401, 404, 409, 503, 500 | Mark an offered waitlist entry as confirmed. |
+| PUT | `/waitlist/{waitlist_id}/expire` | internal token | JSON `{ holdID? }` | 200 transition summary | 400, 401, 404, 409, 503, 500 | Mark an offered waitlist entry as expired. |
 
 ---
 
@@ -329,16 +329,16 @@ Docs:
 
 ### Endpoints
 
-| Method | Path | Auth | Request | Success | Error Codes | Notes |
+| Method | Path | Auth | Request | Success | Error Codes | Simple Description |
 |---|---|---|---|---|---|---|
-| GET | `/health` | none | none | 200 | - | Health + Supabase configured |
-| POST | `/pricing/flash-sale/configure` | none (internal by network) | JSON `{ eventID, discountPercentage, durationMinutes, escalationPercentage?, launchedByUserID? }` | 200 configured sale payload | 400, 404, 409, 500, 503 | Creates active `flash_sales` record |
-| GET | `/pricing/{event_id}/flash-sale/active` | none | path event UUID | 200 active sale | 400, 404, 500, 503 | Active sale lookup |
-| GET | `/pricing/flash-sales/expired` | none | query: `eventID?,limit?,includeEnded?,endedWindowMinutes?` | 200 list payload | 400, 500, 503 | Used by flash-sale reconciliation |
-| POST | `/pricing/escalate` | none | JSON `{ eventID, flashSaleID?, soldOutCategory, remainingCategories[], escalationPercentage? }` | 200 escalation payload | 400, 404, 500, 503 | Computes price escalations for remaining categories |
-| PUT | `/pricing/{flash_sale_id}/end` | none | path sale UUID | 200 ended payload | 400, 404, 409, 500, 503 | Finalizes active sale |
-| GET | `/pricing/{event_id}` | none | path event UUID | 200 pricing snapshot | 400, 404, 500, 503 | Includes seat availability-derived status per category |
-| GET | `/pricing/{event_id}/history` | none | path event UUID, query `flashSaleID?`, `limit?` | 200 history payload | 400, 500, 503 | Price change audit stream |
+| GET | `/health` | none | none | 200 | - | Check pricing service health. |
+| POST | `/pricing/flash-sale/configure` | none (internal by network) | JSON `{ eventID, discountPercentage, durationMinutes, escalationPercentage?, launchedByUserID? }` | 200 configured sale payload | 400, 404, 409, 500, 503 | Configure a flash sale for an event. |
+| GET | `/pricing/{event_id}/flash-sale/active` | none | path event UUID | 200 active sale | 400, 404, 500, 503 | Retrieve the active flash sale for an event. |
+| GET | `/pricing/flash-sales/expired` | none | query: `eventID?,limit?,includeEnded?,endedWindowMinutes?` | 200 list payload | 400, 500, 503 | List expired flash sales. |
+| POST | `/pricing/escalate` | none | JSON `{ eventID, flashSaleID?, soldOutCategory, remainingCategories[], escalationPercentage? }` | 200 escalation payload | 400, 404, 500, 503 | Increase prices for remaining categories. |
+| PUT | `/pricing/{flash_sale_id}/end` | none | path sale UUID | 200 ended payload | 400, 404, 409, 500, 503 | End an active flash sale. |
+| GET | `/pricing/{event_id}` | none | path event UUID | 200 pricing snapshot | 400, 404, 500, 503 | Retrieve current pricing for an event. |
+| GET | `/pricing/{event_id}/history` | none | path event UUID, query `flashSaleID?`, `limit?` | 200 history payload | 400, 500, 503 | Retrieve pricing history for an event. |
 
 ---
 
@@ -360,14 +360,14 @@ Docs:
 
 ### Endpoints
 
-| Method | Path | Auth | Request | Success | Error Codes | Notes |
+| Method | Path | Auth | Request | Success | Error Codes | Simple Description |
 |---|---|---|---|---|---|---|
-| GET | `/health` | none | none | 200 | - | Includes RabbitMQ and OutSystems configured flags |
-| POST | `/reserve` | authenticated user header | JSON `{ userID, eventID, seatCategory, qty?, correlationID? }` | 200 `{ status: PAYMENT_PENDING ... }` or `{ status: WAITLISTED ... }` | 400, 404, 409, 502, 503, 500 | If inventory available, creates hold + initiates payment; otherwise joins waitlist |
-| POST | `/reserve/confirm` | authenticated user header | JSON `{ holdID, userID, correlationID? }` | 200 `{ status: CONFIRMED ... }` or `{ status: PAYMENT_PENDING ... }` | 400, 404, 409, 502, 503, 500 | Handles resumed confirmation and optional e-ticket generation path |
-| GET | `/waitlist/confirm/{hold_id}` | authenticated user header (default required) | hold UUID | 200 waitlist confirmation state | 400, 404, 409, 502, 503, 500 | Returns `uiStatus` values: WAITLIST_OFFERED, WAITLIST_PENDING, PAID_PROCESSING, CONFIRMED, EXPIRED, PROCESSING |
-| DELETE | `/waitlist/leave/{waitlist_id}` | authenticated user header required | waitlist UUID | 200 cancelled payload | 400, 404, 409, 502, 503, 500 | Cancels entry via waitlist-service |
-| GET | `/reserve/waitlist/my` | authenticated user header required | none | 200 list payload | 400, 502, 503, 500 | Active WAITING/HOLD_OFFERED entries for current user |
+| GET | `/health` | none | none | 200 | - | Check reservation service health. |
+| POST | `/reserve` | authenticated user header | JSON `{ userID, eventID, seatCategory, qty?, correlationID? }` | 200 `{ status: PAYMENT_PENDING ... }` or `{ status: WAITLISTED ... }` | 400, 404, 409, 502, 503, 500 | Start a reservation and payment or waitlist flow. |
+| POST | `/reserve/confirm` | authenticated user header | JSON `{ holdID, userID, correlationID? }` | 200 `{ status: CONFIRMED ... }` or `{ status: PAYMENT_PENDING ... }` | 400, 404, 409, 502, 503, 500 | Confirm a reservation after payment progress. |
+| GET | `/waitlist/confirm/{hold_id}` | authenticated user header (default required) | hold UUID | 200 waitlist confirmation state | 400, 404, 409, 502, 503, 500 | Check waitlist offer or confirmation status. |
+| DELETE | `/waitlist/leave/{waitlist_id}` | authenticated user header required | waitlist UUID | 200 cancelled payload | 400, 404, 409, 502, 503, 500 | Leave and cancel a waitlist entry. |
+| GET | `/reserve/waitlist/my` | authenticated user header required | none | 200 list payload | 400, 502, 503, 500 | List the current user's waitlist entries. |
 
 ### OutSystems calls from this service
 
@@ -387,10 +387,10 @@ Docs:
 
 ### Endpoint
 
-| Method | Path | Auth | Request | Success | Error Codes | Notes |
+| Method | Path | Auth | Request | Success | Error Codes | Simple Description |
 |---|---|---|---|---|---|---|
-| GET | `/health` | none | none | 200 | - | Reports dependency URL presence |
-| GET | `/booking-status/{hold_id}` | none | path hold UUID, query `reconcilePayment` boolean | 200 booking status payload | 400, 404, 503, 500 | Aggregates inventory + payment + OutSystems e-ticket for polling UI |
+| GET | `/health` | none | none | 200 | - | Check booking-status service health. |
+| GET | `/booking-status/{hold_id}` | none | path hold UUID, query `reconcilePayment` boolean | 200 booking status payload | 400, 404, 503, 500 | Retrieve booking status for UI polling. |
 
 ### UI status resolution
 
@@ -418,13 +418,13 @@ Docs:
 
 ### Endpoints
 
-| Method | Path | Auth | Request | Success | Error Codes | Notes |
+| Method | Path | Auth | Request | Success | Error Codes | Simple Description |
 |---|---|---|---|---|---|---|
-| GET | `/health` | none | none | 200 | - | Dependency configured flags |
-| POST | `/orchestrator/cancellation` | business validation, no hard internal gate | JSON `{ bookingID, userID, reason?, correlationID?, simulateRefundFailure? }` | 200, 202 | 400, 401, 409, 502, 503, 500 | Main cancellation workflow |
-| POST | `/bookings/cancel/{booking_id}` | same as above | path + body | 200, 202 | 400, 401, 409, 502, 503, 500 | Kong-facing alias endpoint |
-| GET | `/bookings/cancel/status/{booking_id}` | none | query `userID`, optional `newHoldID` | 200 | 400, 409, 500 | Returns cancellation/reallocation status snapshot |
-| POST | `/orchestrator/cancellation/reallocation/confirm` | internal token required | JSON with `bookingID,newHoldID,waitlistID,...` | 200 | 400, 401, 409, 502, 503, 500 | Finalizes waitlist reallocation after payment succeeded |
+| GET | `/health` | none | none | 200 | - | Check cancellation service health. |
+| POST | `/orchestrator/cancellation` | business validation, no hard internal gate | JSON `{ bookingID, userID, reason?, correlationID?, simulateRefundFailure? }` | 200, 202 | 400, 401, 409, 502, 503, 500 | Start the cancellation workflow. |
+| POST | `/bookings/cancel/{booking_id}` | same as above | path + body | 200, 202 | 400, 401, 409, 502, 503, 500 | Cancel a booking using the public alias route. |
+| GET | `/bookings/cancel/status/{booking_id}` | none | query `userID`, optional `newHoldID` | 200 | 400, 409, 500 | Retrieve cancellation status for a booking. |
+| POST | `/orchestrator/cancellation/reallocation/confirm` | internal token required | JSON with `bookingID,newHoldID,waitlistID,...` | 200 | 400, 401, 409, 502, 503, 500 | Confirm waitlist reallocation after payment. |
 
 ### Cancellation workflow highlights
 
@@ -452,13 +452,13 @@ Docs:
 
 ### Endpoints
 
-| Method | Path | Auth | Request | Success | Error Codes | Notes |
+| Method | Path | Auth | Request | Success | Error Codes | Simple Description |
 |---|---|---|---|---|---|---|
-| GET | `/health` | none | none | 200 | - | Includes dependency URLs and RabbitMQ flag |
-| POST | `/flash-sale/launch` | Kong organiser auth | JSON `{ eventID, discountPercentage, durationMinutes, escalationPercentage?, correlationID? }` | 200 launch payload | 400, 5xx mapped downstream | Coordinates pricing configure + event status + event prices + inventory flash-state + fanout broadcast |
-| POST | `/flash-sale/end` | Kong organiser auth | JSON `{ eventID, flashSaleID, correlationID? }` | 200 end payload | 400, 5xx mapped downstream | Reverts prices, closes sale, resets event status/inventory state, broadcasts end |
-| POST | `/internal/flash-sale/reconcile-expired` | internal token required | JSON `{ eventID?, limit?, correlationID? }` | 200 reconciliation summary | 400, 401, 502 | Batch closes expired active sales |
-| GET | `/flash-sale/{event_id}/status` | none | path event UUID | 200 status payload | 400, 5xx mapped downstream | Merges event flash status + pricing active sale |
+| GET | `/health` | none | none | 200 | - | Check flash-sale orchestrator health. |
+| POST | `/flash-sale/launch` | Kong organiser auth | JSON `{ eventID, discountPercentage, durationMinutes, escalationPercentage?, correlationID? }` | 200 launch payload | 400, 5xx mapped downstream | Launch a flash sale for an event. |
+| POST | `/flash-sale/end` | Kong organiser auth | JSON `{ eventID, flashSaleID, correlationID? }` | 200 end payload | 400, 5xx mapped downstream | End an active flash sale. |
+| POST | `/internal/flash-sale/reconcile-expired` | internal token required | JSON `{ eventID?, limit?, correlationID? }` | 200 reconciliation summary | 400, 401, 502 | Close expired flash sales in batch. |
+| GET | `/flash-sale/{event_id}/status` | none | path event UUID | 200 status payload | 400, 5xx mapped downstream | Retrieve flash sale status for an event. |
 
 Published fanout events to `ticketblitz.price`:
 - `FLASH_SALE_LAUNCHED`
@@ -640,14 +640,14 @@ Implemented direct call usage in Python backend:
  
 # E-Ticket Service Endpoints
 
-| Method | Path | Auth | Request | Success | Error Codes | Notes |
+| Method | Path | Auth | Request | Success | Error Codes | Simple Description |
 |---|---|---|---|---|---|---|
-| POST | /eticket/generate | Custom internal auth (API key/header) | JSON { holdID, transactionID?, userID, eventID, seatID, seatNumber, correlationID?, metadata? } | 201 created, 200 idempotent replay | 400, 500 | Only endpoint that returns 201 on new create. |
-| GET | /eticket/hold/{holdID} | Custom internal auth (API key/header) | path holdID | 200 ticket by hold | 400, 404, 500 | Used by booking-status polling. |
-| GET | /eticket/validate | Custom internal auth (API key/header) | query ticketID, userID | 200 validation result | 400, 403, 404, 409, 500 | 403 owner mismatch, 409 non-VALID ticket state. |
-| PUT | /etickets/status/{ticketID} | Custom internal auth (API key/header) | path ticketID, JSON { status, correlationID? } | 200 status updated | 400, 404, 409, 500 | Enforces allowed status transitions only. |
-| POST | /etickets/update | Custom internal auth (API key/header) | JSON { oldTicketID, operation, newOwnerUserID?, newHoldID?, newSeatID?, newSeatNumber?, correlationID?, newTransactionID? } | 200 cancel-only / transfer / replay | 400, 404, 409, 500 | Supports CANCEL_ONLY and TRANSFER_AND_REISSUE. |
-| GET | /etickets/user/{userID} | Custom internal auth (API key/header) | path userID | 200 ticket list + count | 400, 500 | Returns empty list with 200 when user has no tickets. |
+| POST | /eticket/generate | Custom internal auth (API key/header) | JSON { holdID, transactionID?, userID, eventID, seatID, seatNumber, correlationID?, metadata? } | 201 created, 200 idempotent replay | 400, 500 | Create a new e-ticket or return an existing one. |
+| GET | /eticket/hold/{holdID} | Custom internal auth (API key/header) | path holdID | 200 ticket by hold | 400, 404, 500 | Retrieve e-ticket details by hold ID. |
+| GET | /eticket/validate | Custom internal auth (API key/header) | query ticketID, userID | 200 validation result | 400, 403, 404, 409, 500 | Validate ticket ownership and status. |
+| PUT | /etickets/status/{ticketID} | Custom internal auth (API key/header) | path ticketID, JSON { status, correlationID? } | 200 status updated | 400, 404, 409, 500 | Update an e-ticket status. |
+| POST | /etickets/update | Custom internal auth (API key/header) | JSON { oldTicketID, operation, newOwnerUserID?, newHoldID?, newSeatID?, newSeatNumber?, correlationID?, newTransactionID? } | 200 cancel-only / transfer / replay | 400, 404, 409, 500 | Cancel-only or transfer and reissue a ticket. |
+| GET | /etickets/user/{userID} | Custom internal auth (API key/header) | path userID | 200 ticket list + count | 400, 500 | List all tickets for a user. |
 
 ## Short Error Code Legend
 
